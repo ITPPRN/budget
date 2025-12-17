@@ -105,11 +105,28 @@ func JwtAuthentication(handler models.TokenHandler) fiber.Handler {
 
 // --- Helper functions (Revised parseAndValidateToken) ---
 
+// func extractAccessToken(c *fiber.Ctx) string {
+// 	authHeader := c.Get("Authorization")
+// 	if strings.HasPrefix(authHeader, "Bearer ") {
+// 		return strings.TrimPrefix(authHeader, "Bearer ")
+// 	}
+// 	return ""
+// }
+// pkg/middlewares/authentication.go
+
 func extractAccessToken(c *fiber.Ctx) string {
+	// 1. ลองดึงจาก Cookie ก่อน (ชื่อต้องตรงกับที่ตั้งตอน Login)
+	token := c.Cookies("access_token")
+	if token != "" {
+		return token
+	}
+
+	// 2. (เผื่อไว้) ถ้าไม่มีใน Cookie ให้ลองดึงจาก Header แบบเดิม (รองรับ Postman หรือ Mobile App)
 	authHeader := c.Get("Authorization")
 	if strings.HasPrefix(authHeader, "Bearer ") {
 		return strings.TrimPrefix(authHeader, "Bearer ")
 	}
+
 	return ""
 }
 

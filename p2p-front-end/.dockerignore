@@ -1,0 +1,20 @@
+# .dockerignore
+
+# ห้ามก๊อปโฟลเดอร์ Node Modules (ถ้ามี)
+node_modules
+
+# ห้ามก๊อปไฟล์ PnP (ตัวปัญหา)
+.pnp.cjs
+.pnp.loader.mjs
+
+# ห้ามก๊อป Cache ของ Yarn จากเครื่อง Mac
+.yarn/cache
+.yarn/install-state.gz
+
+# ห้ามก๊อปไฟล์ที่ Build แล้ว
+dist
+build
+
+# ห้ามก๊อป Git
+.git
+.DS_Store

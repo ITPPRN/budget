@@ -17,7 +17,7 @@ const docTemplate = `{
     "paths": {
         "/v1/auth/login": {
             "post": {
-                "description": "User login with username and password",
+                "description": "Login user and set HttpOnly Cookie",
                 "consumes": [
                     "application/json"
                 ],
@@ -25,33 +25,33 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "User"
+                    "Auth"
                 ],
-                "summary": "User login",
+                "summary": "Login",
                 "parameters": [
                     {
-                        "description": "Login request",
-                        "name": "login",
+                        "description": "Login Request",
+                        "name": "req",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/models.LoginReq"
+                            "$ref": "#/definitions/p2p-back-end_modules_entities_models.LoginReq"
                         }
                     }
                 ],
                 "responses": {
                     "200": {
-                        "description": "OK",
+                        "description": "Login success (Token in Cookie)",
                         "schema": {
                             "allOf": [
                                 {
-                                    "$ref": "#/definitions/models.ResponseData"
+                                    "$ref": "#/definitions/p2p-back-end_modules_entities_models.ResponseData"
                                 },
                                 {
                                     "type": "object",
                                     "properties": {
                                         "data": {
-                                            "type": "string"
+                                            "$ref": "#/definitions/p2p-back-end_modules_entities_models.UserInfo"
                                         }
                                     }
                                 }
@@ -61,7 +61,81 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/models.ResponseError"
+                            "$ref": "#/definitions/p2p-back-end_modules_entities_models.ResponseData"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/p2p-back-end_modules_entities_models.ResponseData"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/auth/logout": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Logout user and clear access_token cookie",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Logout",
+                "responses": {
+                    "200": {
+                        "description": "Logged out successfully",
+                        "schema": {
+                            "$ref": "#/definitions/p2p-back-end_modules_entities_models.ResponseData"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/auth/profile": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Get current user info from HttpOnly Cookie",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Get User Profile",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/p2p-back-end_modules_entities_models.ResponseData"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/p2p-back-end_modules_entities_models.UserInfo"
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     }
                 }
@@ -77,7 +151,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "User"
+                    "Auth"
                 ],
                 "summary": "User registration",
                 "parameters": [
@@ -87,7 +161,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/models.RegisterReq"
+                            "$ref": "#/definitions/p2p-back-end_modules_entities_models.RegisterReq"
                         }
                     }
                 ],
@@ -97,7 +171,7 @@ const docTemplate = `{
                         "schema": {
                             "allOf": [
                                 {
-                                    "$ref": "#/definitions/models.ResponseData"
+                                    "$ref": "#/definitions/p2p-back-end_modules_entities_models.ResponseData"
                                 },
                                 {
                                     "type": "object",
@@ -113,7 +187,7 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/models.ResponseError"
+                            "$ref": "#/definitions/p2p-back-end_modules_entities_models.ResponseError"
                         }
                     }
                 }
@@ -121,7 +195,7 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "models.LoginReq": {
+        "p2p-back-end_modules_entities_models.LoginReq": {
             "type": "object",
             "properties": {
                 "password": {
@@ -134,7 +208,7 @@ const docTemplate = `{
                 }
             }
         },
-        "models.RegisterReq": {
+        "p2p-back-end_modules_entities_models.RegisterReq": {
             "type": "object",
             "properties": {
                 "email": {
@@ -163,7 +237,7 @@ const docTemplate = `{
                 }
             }
         },
-        "models.ResponseData": {
+        "p2p-back-end_modules_entities_models.ResponseData": {
             "type": "object",
             "properties": {
                 "data": {},
@@ -178,7 +252,7 @@ const docTemplate = `{
                 }
             }
         },
-        "models.ResponseError": {
+        "p2p-back-end_modules_entities_models.ResponseError": {
             "type": "object",
             "properties": {
                 "message": {
@@ -189,6 +263,29 @@ const docTemplate = `{
                 },
                 "statusCode": {
                     "type": "integer"
+                }
+            }
+        },
+        "p2p-back-end_modules_entities_models.UserInfo": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "role": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "userId": {
+                    "type": "string"
+                },
+                "userName": {
+                    "type": "string"
                 }
             }
         }
@@ -205,7 +302,7 @@ const docTemplate = `{
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{
 	Version:          "1.0",
-	Host:             "localhost:8080 // แก้ไขเป็น host และ port ที่แอปฯ คุณรัน",
+	Host:             "localhost:8080",
 	BasePath:         "/v1",
 	Schemes:          []string{},
 	Title:            "P2P Back-End API",

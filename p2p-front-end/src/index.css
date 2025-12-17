@@ -1,0 +1,126 @@
+@import url("https://fonts.googleapis.com/css2?family=Mitr:wght@300;500&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=TH+Sarabun+New:wght@300;700&display=swap");
+
+:root {
+  font-family: "Kanit", sans-serif;
+}
+* {
+  font-family: "Kanit", sans-serif;
+}
+
+/* ส่วนนี้จะใช้ฟอนต์ TH Sarabun New */
+/* .thai-font {
+  font-family: "TH Sarabun New", sans-serif;
+} */
+
+body {
+  margin: 0;
+  font-family: "Kanit", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-attachment: fixed;
+  background-size: cover;
+}
+
+.css-11mde6h-MuiPaper-root {
+  border-radius: 20px;
+  box-shadow: 0;
+}
+
+.MuiPaper-root
+  .MuiPaper-elevation
+  .MuiPaper-rounded
+  .MuiPaper-elevation4
+  .tss-11quiee-MUIDataTable-paper
+  .tss-1x5mjc5-MUIDataTable-root
+  .css-11mde6h-MuiPaper-root {
+  box-shadow: 0 !important;
+}
+
+.css-1ex13cr-MuiPaper-root-MuiDrawer-paper {
+  border-radius: 0px;
+}
+
+.tss-1ork7hi-MUIDataTablePagination-tableCellContainer {
+  border-bottom: 0;
+}
+
+.css-1vqld49-MuiTablePagination-selectLabel {
+  margin-top: 11px;
+}
+
+.css-1xt6dcw-MuiTablePagination-displayedRows {
+  margin-top: 13px;
+}
+
+.MuiDrawer-root {
+  z-index: 101 !important;
+}
+
+.ant-input {
+  font-family: "Kanit", sans-serif;
+}
+
+.ant-typography {
+  font-family: "Kanit", sans-serif;
+  font-weight: 300 !important;
+}
+
+.pointer {
+  cursor: pointer;
+}
+
+.box-shadow-card {
+  box-shadow: 0;
+  transition: 0.05s;
+}
+
+.box-shadow-card:hover {
+  box-shadow: rgba(100, 100, 111, 0.2) 0px 7px 29px 0px;
+}
+
+.box-shadow-card-active {
+  border: 0;
+  box-shadow: rgba(0, 0, 0, 0.24) 0px 2px 4px 0px inset;
+}
+
+#main {
+  display: table;
+  width: 100%;
+  height: 100vh;
+  text-align: center;
+}
+
+.fof {
+  display: table-cell;
+  vertical-align: middle;
+}
+
+.fof h1 {
+  font-size: 50px;
+  display: inline-block;
+  padding-right: 12px;
+  animation: type 0.5s alternate infinite;
+}
+
+@keyframes type {
+  from {
+    box-shadow: inset -3px 0px 0px #888;
+  }
+  to {
+    box-shadow: inset -3px 0px 0px transparent;
+  }
+}
+
+
+.MuiTablePagination-selectLabel {
+  margin-top: 12px;
+}
+
+
+.MuiTablePagination-caption {
+  margin-top: 12px !important; /* Remove any unwanted top margin */
+  font-size: 0.875rem;      /* Optional: change font size */
+  text-align: center;       /* Center the caption text */
+  color: #333;              /* Optional: change font color */
+}

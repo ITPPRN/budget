@@ -1,6 +1,6 @@
 basePath: /v1
 definitions:
-  models.LoginReq:
+  p2p-back-end_modules_entities_models.LoginReq:
     properties:
       password:
         example: test1
@@ -9,7 +9,7 @@ definitions:
         example: test1
         type: string
     type: object
-  models.RegisterReq:
+  p2p-back-end_modules_entities_models.RegisterReq:
     properties:
       email:
         example: test@example.com
@@ -30,7 +30,7 @@ definitions:
         example: test1
         type: string
     type: object
-  models.ResponseData:
+  p2p-back-end_modules_entities_models.ResponseData:
     properties:
       data: {}
       message:
@@ -40,7 +40,7 @@ definitions:
       statusCode:
         type: integer
     type: object
-  models.ResponseError:
+  p2p-back-end_modules_entities_models.ResponseError:
     properties:
       message:
         type: string
@@ -49,7 +49,22 @@ definitions:
       statusCode:
         type: integer
     type: object
-host: localhost:8080 // แก้ไขเป็น host และ port ที่แอปฯ คุณรัน
+  p2p-back-end_modules_entities_models.UserInfo:
+    properties:
+      email:
+        type: string
+      name:
+        type: string
+      role:
+        items:
+          type: string
+        type: array
+      userId:
+        type: string
+      userName:
+        type: string
+    type: object
+host: localhost:8080
 info:
   contact: {}
   description: This is the API documentation for the P2P application back-end.
@@ -60,14 +75,59 @@ paths:
     post:
       consumes:
       - application/json
-      description: User login with username and password
+      description: Login user and set HttpOnly Cookie
       parameters:
-      - description: Login request
+      - description: Login Request
         in: body
-        name: login
+        name: req
         required: true
         schema:
-          $ref: '#/definitions/models.LoginReq'
+          $ref: '#/definitions/p2p-back-end_modules_entities_models.LoginReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Login success (Token in Cookie)
+          schema:
+            allOf:
+            - $ref: '#/definitions/p2p-back-end_modules_entities_models.ResponseData'
+            - properties:
+                data:
+                  $ref: '#/definitions/p2p-back-end_modules_entities_models.UserInfo'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/p2p-back-end_modules_entities_models.ResponseData'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/p2p-back-end_modules_entities_models.ResponseData'
+      summary: Login
+      tags:
+      - Auth
+  /v1/auth/logout:
+    post:
+      consumes:
+      - application/json
+      description: Logout user and clear access_token cookie
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Logged out successfully
+          schema:
+            $ref: '#/definitions/p2p-back-end_modules_entities_models.ResponseData'
+      security:
+      - ApiKeyAuth: []
+      summary: Logout
+      tags:
+      - Auth
+  /v1/auth/profile:
+    get:
+      consumes:
+      - application/json
+      description: Get current user info from HttpOnly Cookie
       produces:
       - application/json
       responses:
@@ -75,18 +135,16 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/models.ResponseData'
+            - $ref: '#/definitions/p2p-back-end_modules_entities_models.ResponseData'
             - properties:
                 data:
-                  type: string
+                  $ref: '#/definitions/p2p-back-end_modules_entities_models.UserInfo'
               type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/models.ResponseError'
-      summary: User login
+      security:
+      - ApiKeyAuth: []
+      summary: Get User Profile
       tags:
-      - User
+      - Auth
   /v1/auth/register:
     post:
       consumes:
@@ -98,7 +156,7 @@ paths:
         name: register
         required: true
         schema:
-          $ref: '#/definitions/models.RegisterReq'
+          $ref: '#/definitions/p2p-back-end_modules_entities_models.RegisterReq'
       produces:
       - application/json
       responses:
@@ -106,7 +164,7 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/models.ResponseData'
+            - $ref: '#/definitions/p2p-back-end_modules_entities_models.ResponseData'
             - properties:
                 data:
                   type: string
@@ -114,10 +172,10 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/models.ResponseError'
+            $ref: '#/definitions/p2p-back-end_modules_entities_models.ResponseError'
       summary: User registration
       tags:
-      - User
+      - Auth
 securityDefinitions:
   ApiKeyAuth:
     in: header

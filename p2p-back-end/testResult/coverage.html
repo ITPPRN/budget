@@ -1,0 +1,534 @@
+
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+		<title>controller: Go Coverage Report</title>
+		<style>
+			body {
+				background: black;
+				color: rgb(80, 80, 80);
+			}
+			body, pre, #legend span {
+				font-family: Menlo, monospace;
+				font-weight: bold;
+			}
+			#topbar {
+				background: black;
+				position: fixed;
+				top: 0; left: 0; right: 0;
+				height: 42px;
+				border-bottom: 1px solid rgb(80, 80, 80);
+			}
+			#content {
+				margin-top: 50px;
+			}
+			#nav, #legend {
+				float: left;
+				margin-left: 10px;
+			}
+			#legend {
+				margin-top: 12px;
+			}
+			#nav {
+				margin-top: 10px;
+			}
+			#legend span {
+				margin: 0 5px;
+			}
+			.cov0 { color: rgb(192, 0, 0) }
+.cov1 { color: rgb(128, 128, 128) }
+.cov2 { color: rgb(116, 140, 131) }
+.cov3 { color: rgb(104, 152, 134) }
+.cov4 { color: rgb(92, 164, 137) }
+.cov5 { color: rgb(80, 176, 140) }
+.cov6 { color: rgb(68, 188, 143) }
+.cov7 { color: rgb(56, 200, 146) }
+.cov8 { color: rgb(44, 212, 149) }
+.cov9 { color: rgb(32, 224, 152) }
+.cov10 { color: rgb(20, 236, 155) }
+
+		</style>
+	</head>
+	<body>
+		<div id="topbar">
+			<div id="nav">
+				<select id="files">
+				
+				<option value="file0">p2p-back-end/modules/auth/controller/auth.go (50.0%)</option>
+				
+				<option value="file1">p2p-back-end/modules/auth/controller/handler.go (16.7%)</option>
+				
+				<option value="file2">p2p-back-end/modules/auth/repository/auth_db.go (80.0%)</option>
+				
+				<option value="file3">p2p-back-end/modules/auth/service/auth_service.go (43.4%)</option>
+				
+				</select>
+			</div>
+			<div id="legend">
+				<span>not tracked</span>
+			
+				<span class="cov0">not covered</span>
+				<span class="cov8">covered</span>
+			
+			</div>
+		</div>
+		<div id="content">
+		
+		<pre class="file" id="file0" style="display: none">package controller
+
+import (
+        "time"
+
+        "github.com/gofiber/fiber/v2"
+
+        "p2p-back-end/logs"
+        "p2p-back-end/modules/entities/models"
+        "p2p-back-end/pkg/middlewares"
+)
+
+type authController struct {
+        authSrv models.AuthService
+}
+
+func NewUserController(router fiber.Router, authSrv models.AuthService) <span class="cov8" title="1">{
+        controller := &amp;authController{authSrv: authSrv}
+        router.Post("/register", controller.register)
+        router.Post("/login", controller.login)
+        router.Post("/login-dev-test", controller.loginDevTest)
+        router.Post("/logout",middlewares.JwtAuthentication(controller.logout))
+        router.Get("/profile", middlewares.JwtAuthentication(controller.getProfile))
+        router.Get("/tcf", controller.test11)
+        // router.Get("/user/check-by-id", middlewares.JwtAuthentication(controller.checkUserByID))
+        // router.Put("/user/reset-password", middlewares.JwtAuthentication(controller.resetPassword))
+}</span>
+
+func (h authController) test11(c *fiber.Ctx) error <span class="cov0" title="0">{
+        m := "hello"
+        return responseSuccess(c, m)
+}</span>
+
+// @Summary User registration
+// @Description Register a new user
+// @Tags Auth
+// @Accept json
+// @Produce json
+// @Param register body models.RegisterReq true "Registration request"
+// @Success 200 {object} models.ResponseData{data=string}
+// @Failure 400 {object} models.ResponseError
+// @Router /v1/auth/register [post]
+func (h authController) register(c *fiber.Ctx) error <span class="cov8" title="1">{
+        var req models.RegisterReq
+        if err := c.BodyParser(&amp;req); err != nil </span><span class="cov0" title="0">{
+                logs.Info("Invalid request: " + err.Error())
+                return badReqErrResponse(c, "Invalid request: "+err.Error())
+        }</span>
+        <span class="cov8" title="1">m, err := h.authSrv.Register(&amp;req)
+        if err != nil </span><span class="cov0" title="0">{
+                return responseWithError(c, err)
+        }</span>
+
+        <span class="cov8" title="1">return responseSuccess(c, m)</span>
+}
+
+// // @Summary User login
+// // @Description User login with username and password
+// // @Tags User
+// // @Accept json
+// // @Produce json
+// // @Param login body models.LoginReq true "Login request"
+// // @Success 200 {object} models.ResponseData{data=string}
+// // @Failure 400 {object} models.ResponseError
+// // @Router /v1/auth/login [post]
+
+// @Summary Login
+// @Description Login user and set HttpOnly Cookie
+// @Tags Auth
+// @Accept json
+// @Produce json
+// @Param req body models.LoginReq true "Login Request"
+// @Success 200 {object} models.ResponseData{data=models.UserInfo} "Login success (Token in Cookie)"
+// @Failure 400 {object} models.ResponseData
+// @Failure 401 {object} models.ResponseData
+// @Router /v1/auth/login [post]
+func (h authController) login(c *fiber.Ctx) error <span class="cov8" title="1">{
+        var req models.LoginReq
+        if err := c.BodyParser(&amp;req); err != nil </span><span class="cov0" title="0">{
+                logs.Info("Invalid request: " + err.Error())
+                return badReqErrResponse(c, "Invalid request: "+err.Error())
+        }</span>
+        <span class="cov8" title="1">m, err := h.authSrv.Login(&amp;req)
+        if err != nil </span><span class="cov0" title="0">{
+                return responseWithError(c, err)
+        }</span>
+        // สร้าง Cookie
+        <span class="cov8" title="1">cookie := new(fiber.Cookie)
+        cookie.Name = "access_token" // ชื่อ cookie
+        cookie.Value = m
+        cookie.HTTPOnly = true                          // สำคัญ! ป้องกัน JavaScript เข้าถึง
+        cookie.Expires = time.Now().Add(24 * time.Hour) // ตั้งเวลาให้ตรงกับอายุ Token
+
+        // Config ความปลอดภัยเพิ่มเติม
+        // cookie.Secure = true // เปิดเมื่อใช้ HTTPS (Production)
+        cookie.SameSite = "Lax" // หรือ "None" ถ้า Frontend/Backend คนละโดเมนและใช้ HTTPS
+
+        // ฝัง Cookie ลงใน Response
+        c.Cookie(cookie)
+
+        // ส่ง Response กลับไปแค่ว่าสำเร็จ (ไม่ต้องส่ง Token ใน Data แล้ว)
+        return responseSuccess(c, "Login successful")</span>
+
+        // return responseSuccess(c, m)
+}
+
+func (h authController) loginDevTest(c *fiber.Ctx)error<span class="cov0" title="0">{
+        var req models.LoginReq
+        if err := c.BodyParser(&amp;req); err != nil </span><span class="cov0" title="0">{
+                logs.Info("Invalid request: " + err.Error())
+                return badReqErrResponse(c, "Invalid request: "+err.Error())
+        }</span>
+        <span class="cov0" title="0">m, err := h.authSrv.Login(&amp;req)
+        if err != nil </span><span class="cov0" title="0">{
+                return responseWithError(c, err)
+        }</span>
+
+        <span class="cov0" title="0">return responseSuccess(c, m)</span>
+}
+
+
+
+// เพิ่มฟังก์ชันนี้ลงไปในไฟล์
+// @Summary Get User Profile
+// @Description Get current user info from HttpOnly Cookie
+// @Tags Auth
+// @Accept json
+// @Produce json
+// @Success 200 {object} models.ResponseData{data=models.UserInfo}
+// @Router /v1/auth/profile [get]
+// @Security ApiKeyAuth
+func (h authController) getProfile(c *fiber.Ctx, userInfo *models.UserInfo) error <span class="cov0" title="0">{
+        // Middleware (JwtAuthentication) ทำงานเสร็จแล้ว และส่ง userInfo มาให้เรา
+        // เราแค่ส่งมันกลับไปหา Frontend
+        return responseSuccess(c, userInfo)
+}</span>
+
+
+// @Summary Logout
+// @Description Logout user and clear access_token cookie
+// @Tags Auth
+// @Accept json
+// @Produce json
+// @Success 200 {object} models.ResponseData "Logged out successfully"
+// @Router /v1/auth/logout [post]
+// @Security ApiKeyAuth
+func (h authController) logout(c *fiber.Ctx, userInfo *models.UserInfo) error <span class="cov0" title="0">{
+    
+    cookie := new(fiber.Cookie)
+    cookie.Name = "access_token" 
+    cookie.Value = ""
+    cookie.Expires = time.Now().Add(-time.Hour) 
+    cookie.HTTPOnly = true
+    
+    c.Cookie(cookie)
+
+    return responseSuccess(c, "Logged out successfully")
+}</span>
+
+// // @Summary Check if user exists
+// // @Description Check if a user exists by user ID
+// // @Tags User
+// // @Accept json
+// // @Produce json
+// // @Param Authorization header string true "Bearer {token}"
+// // @Success 200 {object} models.ResponseData{data=bool}
+// // @Failure 400 {object} models.ResponseError
+// // @Router /v1/user/check-by-id [get]
+// // @Security ApiKeyAuth
+// func (h authController) checkUserByID(c *fiber.Ctx, userInfo *models.UserInfo) error {
+
+//         m, err := h.authSrv.IsUserExistByID(userInfo.UserId)
+//         if err != nil {
+//                 return responseWithError(c, err)
+//         }
+
+//         return responseSuccess(c, m)
+// }
+
+// // @Summary Reset Password
+// // @Description Reset the password for a user
+// // @Tags User
+// // @Accept json
+// // @Produce json
+// // @Param Authorization header string true "Bearer {token}"
+// // @Param req body models.ChangePasswordReq true "Change Password Request"
+// // @Success 200 {string} string "Password Changed Successfully"
+// // @Failure 400 {object} models.ResponseError
+// // @Router /v1/user/reset-password [put]
+// // @Security ApiKeyAuth
+// func (h authController) resetPassword(c *fiber.Ctx, userInfo *models.UserInfo) error {
+
+//         var req models.ChangePasswordReq
+//         if err := c.BodyParser(&amp;req); err != nil {
+//                 logs.Info("Invalid request: " + err.Error())
+//                 return badReqErrResponse(c, "Invalid request: "+err.Error())
+//         }
+
+//         m, err := h.authSrv.ChangePassword(&amp;req, userInfo)
+//         if err != nil {
+//                 return responseWithError(c, err)
+//         }
+//         return responseSuccess(c, m)
+// }
+</pre>
+		
+		<pre class="file" id="file1" style="display: none">package controller
+
+import (
+        //"errors"
+        //"fmt"
+
+        "github.com/gofiber/fiber/v2"
+
+        "p2p-back-end/modules/entities/models"
+        "p2p-back-end/pkg/errs"
+)
+
+func responseWithError(c *fiber.Ctx, err error) error <span class="cov0" title="0">{
+        switch e := err.(type) </span>{
+        case errs.AppError:<span class="cov0" title="0">
+                return c.Status(e.Code).JSON(
+                        models.ResponseError{
+                                Message:    e.Message,
+                                Status:     e.Status,
+                                StatusCode: e.Code,
+                        },
+                )</span>
+        case error:<span class="cov0" title="0">
+                return c.Status(fiber.StatusInternalServerError).JSON(
+                        models.ResponseError{
+                                Message:    e.Error(),
+                                Status:     fiber.ErrInternalServerError.Message,
+                                StatusCode: fiber.ErrInternalServerError.Code,
+                        },
+                )</span>
+        }
+        <span class="cov0" title="0">return nil</span>
+
+}
+
+func badReqErrResponse(c *fiber.Ctx, message string) error <span class="cov0" title="0">{
+        return c.Status(fiber.StatusBadRequest).JSON(
+                models.ResponseError{
+                        Message:    message,
+                        Status:     fiber.ErrBadRequest.Message,
+                        StatusCode: fiber.ErrBadRequest.Code,
+                },
+        )
+}</span>
+
+func responseSuccess(c *fiber.Ctx, data interface{}) error <span class="cov8" title="1">{
+        return c.Status(fiber.StatusOK).JSON(
+                models.ResponseData{
+                        Message:    "Succeed",
+                        Status:     "OK",
+                        StatusCode: fiber.StatusOK,
+                        Data:       data,
+                },
+        )
+}</span>
+</pre>
+		
+		<pre class="file" id="file2" style="display: none">package repository
+
+import (
+        "gorm.io/gorm"
+
+        "p2p-back-end/modules/entities/models"
+)
+
+type authRepositoryDB struct {
+        db *gorm.DB
+}
+
+func NewAuthRepositoryDB(db *gorm.DB) models.UserRepository <span class="cov8" title="1">{
+        return &amp;authRepositoryDB{db: db}
+}</span>
+
+func (r authRepositoryDB) IsUserExistByID(id string) (bool, error) <span class="cov8" title="1">{
+
+        var count int64
+        if err := r.db.Table("user_entities").Where("id = ?", id).Count(&amp;count).Error; err != nil </span><span class="cov0" title="0">{
+                return false, err
+        }</span>
+        <span class="cov8" title="1">return count &gt; 0, nil</span>
+}
+</pre>
+		
+		<pre class="file" id="file3" style="display: none">package service
+
+import (
+        "context"
+        "fmt"
+        "strings"
+
+        "github.com/Nerzal/gocloak/v13"
+
+        "p2p-back-end/configs"
+        "p2p-back-end/logs"
+        "p2p-back-end/modules/entities/models"
+        "p2p-back-end/pkg/errs"
+)
+
+type authService struct {
+        keycloak *gocloak.GoCloak
+        cfg      *configs.Config
+        authRepo models.AuthRepository
+}
+
+func NewAuthService(
+        keycloak *gocloak.GoCloak,
+        cfg *configs.Config,
+        authRepo models.AuthRepository,
+) models.AuthService <span class="cov8" title="1">{
+        return &amp;authService{keycloak, cfg, authRepo}
+}</span>
+
+func (s authService) Register(req *models.RegisterReq) (string, error) <span class="cov8" title="1">{
+        ctx := context.Background()
+
+        token, err := s.keycloak.LoginAdmin(ctx, s.cfg.KeyCloak.AdminUsername, s.cfg.KeyCloak.AdminPassword, "master")
+        if err != nil </span><span class="cov0" title="0">{
+                logs.Error(err)
+                return "", errs.NewUnexpectedError()
+        }</span>
+
+        <span class="cov8" title="1">user := gocloak.User{
+                FirstName: gocloak.StringP(req.FirstName),
+                LastName:  gocloak.StringP(req.LastName),
+                Email:     gocloak.StringP(req.Email),
+                Enabled:   gocloak.BoolP(true),
+                Username:  gocloak.StringP(req.Username),
+        }
+
+        roleName := strings.ToLower(req.Role)
+
+        role, err := s.keycloak.GetRealmRole(ctx, token.AccessToken, s.cfg.KeyCloak.RealmName, roleName)
+        // if err != nil {
+        //         logs.Error(err)
+        //         return "", errs.NewUnexpectedError()
+        // }
+        if err != nil </span><span class="cov0" title="0">{
+                // ถ้าเกิด Error: 404 Not Found (Could not find role)
+                // เราจะทำการสร้าง Role นั้นขึ้นมา
+                if strings.Contains(err.Error(), "404 Not Found") || strings.Contains(err.Error(), "Could not find role") </span><span class="cov0" title="0">{
+                        logs.Warnf("Role '%s' not found in Keycloak. Attempting to create it automatically.", roleName)
+
+                        // สร้าง Role object ใหม่
+                        newRole := gocloak.Role{
+                                Name:        gocloak.StringP(roleName),
+                                Description: gocloak.StringP(fmt.Sprintf("Auto-generated role for user type: %s", roleName)),
+                        }
+
+                        // เรียก API สร้าง Role
+                        _, err = s.keycloak.CreateRealmRole(ctx, token.AccessToken, s.cfg.KeyCloak.RealmName, newRole)
+                        if err != nil </span><span class="cov0" title="0">{
+                                logs.Errorf("FATAL: Failed to auto-create role '%s': %v", roleName, err)
+                                return "", errs.NewUnexpectedError()
+                        }</span>
+                        <span class="cov0" title="0">logs.Infof("✅ Successfully auto-created role: %s", roleName)
+
+                        // ดึง Role ที่สร้างใหม่มาอีกครั้งเพื่อใช้ในขั้นตอนต่อไป
+                        role, err = s.keycloak.GetRealmRole(ctx, token.AccessToken, s.cfg.KeyCloak.RealmName, roleName)
+                        if err != nil </span><span class="cov0" title="0">{
+                                logs.Errorf("Failed to retrieve newly created role '%s': %v", roleName, err)
+                                return "", errs.NewUnexpectedError()
+                        }</span>
+
+                } else<span class="cov0" title="0"> {
+                        // ถ้าเป็น Error อื่นๆ ที่ไม่ใช่ 404 (เช่น Connection Error) ให้ Fail
+                        logs.Error(err)
+                        return "", errs.NewUnexpectedError()
+                }</span>
+        }
+
+        <span class="cov8" title="1">userID, err := s.keycloak.CreateUser(ctx, token.AccessToken, s.cfg.KeyCloak.RealmName, user)
+        if err != nil </span><span class="cov0" title="0">{
+                logs.Error(err)
+                return "", errs.NewUnexpectedError()
+        }</span>
+
+        <span class="cov8" title="1">err = s.keycloak.SetPassword(ctx, token.AccessToken, userID, s.cfg.KeyCloak.RealmName, req.Password, false)
+        if err != nil </span><span class="cov0" title="0">{
+                logs.Error(err)
+                return "", errs.NewUnexpectedError()
+        }</span>
+
+        // กำหนดเฉพาะบทบาทที่ระบุใน req.Role
+        <span class="cov8" title="1">err = s.keycloak.AddRealmRoleToUser(ctx, token.AccessToken, s.cfg.KeyCloak.RealmName, userID, []gocloak.Role{*role})
+        if err != nil </span><span class="cov0" title="0">{
+                logs.Error(err)
+                return "", errs.NewUnexpectedError()
+        }</span>
+
+        // ลบบทบาท default-roles-master ถ้ามันถูกเพิ่มโดยอัตโนมัติ
+        <span class="cov8" title="1">defaultRole, err := s.keycloak.GetRealmRole(ctx, token.AccessToken, s.cfg.KeyCloak.RealmName, "default-roles-"+s.cfg.KeyCloak.RealmName)
+        if err == nil </span><span class="cov0" title="0">{
+                err = s.keycloak.DeleteRealmRoleFromUser(ctx, token.AccessToken, s.cfg.KeyCloak.RealmName, userID, []gocloak.Role{*defaultRole})
+                if err != nil </span><span class="cov0" title="0">{
+                        logs.Error(err)
+                        return "", errs.NewUnexpectedError()
+                }</span>
+        }
+
+        <span class="cov8" title="1">_, err = s.keycloak.Login(ctx, s.cfg.KeyCloak.ClientID, s.cfg.KeyCloak.ClientSecret, s.cfg.KeyCloak.RealmName, req.Username, req.Password)
+        if err != nil </span><span class="cov0" title="0">{
+                logs.Error(err)
+                return "", errs.NewLoginFailedError()
+        }</span>
+        <span class="cov8" title="1">return userID, nil</span>
+}
+
+func (s authService) Login(req *models.LoginReq) (string, error) <span class="cov8" title="1">{
+
+        ctx := context.Background()
+
+        token, err := s.keycloak.Login(ctx, s.cfg.KeyCloak.ClientID, s.cfg.KeyCloak.ClientSecret, s.cfg.KeyCloak.RealmName, req.Username, req.Password)
+        if err != nil </span><span class="cov0" title="0">{
+                logs.Error(err)
+                return "", errs.NewLoginFailedError()
+        }</span>
+
+        <span class="cov8" title="1">return token.AccessToken, nil</span>
+}
+</pre>
+		
+		</div>
+	</body>
+	<script>
+	(function() {
+		var files = document.getElementById('files');
+		var visible;
+		files.addEventListener('change', onChange, false);
+		function select(part) {
+			if (visible)
+				visible.style.display = 'none';
+			visible = document.getElementById(part);
+			if (!visible)
+				return;
+			files.value = part;
+			visible.style.display = 'block';
+			location.hash = part;
+		}
+		function onChange() {
+			select(files.value);
+			window.scrollTo(0, 0);
+		}
+		if (location.hash != "") {
+			select(location.hash.substr(1));
+		}
+		if (!visible) {
+			select("file0");
+		}
+	})();
+	</script>
+</html>
