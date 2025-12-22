@@ -8,8 +8,6 @@ import (
 	"sync"
 	"time"
 
-	// New and Updated Imports for JWKS
-
 	"github.com/gofiber/fiber/v2"
 	"github.com/lestrrat-go/jwx/v2/jwk"
 	jwxtoken "github.com/lestrrat-go/jwx/v2/jwt"
@@ -55,20 +53,6 @@ func InitKeycloakValidator(host string, port string, realm string, clientID stri
 		// ✅ แสดงข้อมูล key ที่ดึงมา
 		logs.Infof("✅ Keycloak Public Keys (JWKS) successfully fetched and cached. Total keys: %d", keySet.Len())
 
-		// for it := keySet.Keys(context.Background()); it.Next(context.Background()); {
-		// 	key := it.Pair().Value.(jwk.Key)
-		// 	kid := key.KeyID()
-		// 	alg := key.Algorithm()
-		// 	kty := key.KeyType()
-		// 	logs.Infof("🔑 Key ID: %s | Algorithm: %v | Type: %v", kid, alg, kty)
-		// }
-
-		// // (optional) ถ้าอยากดู raw JSON ทั้งหมด
-		// jsonBytes, err := json.MarshalIndent(keySet, "", "  ")
-		// if err == nil {
-		// 	logs.Debugf("JWKS Raw Data:\n%s", string(jsonBytes))
-		// }
-
 	})
 }
 
@@ -104,15 +88,6 @@ func JwtAuthentication(handler models.TokenHandler) fiber.Handler {
 }
 
 // --- Helper functions (Revised parseAndValidateToken) ---
-
-// func extractAccessToken(c *fiber.Ctx) string {
-// 	authHeader := c.Get("Authorization")
-// 	if strings.HasPrefix(authHeader, "Bearer ") {
-// 		return strings.TrimPrefix(authHeader, "Bearer ")
-// 	}
-// 	return ""
-// }
-// pkg/middlewares/authentication.go
 
 func extractAccessToken(c *fiber.Ctx) string {
 	// 1. ลองดึงจาก Cookie ก่อน (ชื่อต้องตรงกับที่ตั้งตอน Login)
@@ -154,30 +129,6 @@ func parseAndValidateToken(accessToken string) (*models.JWTPayload, error) {
 	// 2. Extract and Map Claims
 	claimsMap := token.PrivateClaims()
 
-	// 3. Safely map the claims to your struct
-	// We use token.Xxx() methods for standard claims and claimsMap[...] for custom ones.
-	// jwtPayload := models.JWTPayload{
-	// 	Azp:   token.Audience()[0],
-	// 	Email: claimsMap["email"].(string),
-	// 	// Use token methods for standard timestamps
-	// 	Exp: token.Expiration().Unix(),
-	// 	Iat: token.IssuedAt().Unix(),
-
-	// 	ID:    claimsMap["id"].(string), // Keycloak typically uses 'sub' (Subject) for user ID
-	// 	Iss:   token.Issuer(),
-	// 	Jti:   token.JwtID(),
-	// 	Name:  claimsMap["name"].(string),
-	// 	Scope: claimsMap["scope"].(string),
-	// 	Sid:   claimsMap["sid"].(string),
-	// 	// Keycloak often uses 'preferred_username' for the human-readable username
-	// 	Username: claimsMap["username"].(string),
-
-	// 	RealmAccess: models.RealmAccess{
-	// 		// Check and cast the deeply nested map/slice
-	// 		// Roles: convertInterfaceSliceToStringSlice(claimsMap["realm_access"].(map[string]interface{})["roles"].([]interface{})),
-	// 		Roles: utils.ConvertInterfaceSliceToStringSlice(claimsMap["realm_access"].(map[string]interface{})["roles"].([]interface{})),
-	// 	},
-	// }
 
 	var realmRoles []string
 	if rawAccess, ok := claimsMap["realm_access"].(map[string]interface{}); ok && rawAccess != nil {
