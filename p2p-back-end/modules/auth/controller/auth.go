@@ -19,7 +19,7 @@ func NewUserController(router fiber.Router, authSrv models.AuthService) {
 	router.Post("/register", controller.register)
 	router.Post("/login", controller.login)
 	router.Post("/login-dev-test", controller.loginDevTest)
-	router.Post("/logout",middlewares.JwtAuthentication(controller.logout))
+	router.Post("/logout", middlewares.JwtAuthentication(controller.logout))
 	router.Get("/profile", middlewares.JwtAuthentication(controller.getProfile))
 	router.Get("/tcf", controller.test11)
 	// router.Get("/user/check-by-id", middlewares.JwtAuthentication(controller.checkUserByID))
@@ -41,7 +41,7 @@ func (h authController) test11(c *fiber.Ctx) error {
 // @Failure 400 {object} models.ResponseError
 // @Router /v1/auth/register [post]
 func (h authController) register(c *fiber.Ctx) error {
-	var req models.RegisterReq
+	var req models.RegisterKCReq
 	if err := c.BodyParser(&req); err != nil {
 		logs.Info("Invalid request: " + err.Error())
 		return badReqErrResponse(c, "Invalid request: "+err.Error())
@@ -104,7 +104,7 @@ func (h authController) login(c *fiber.Ctx) error {
 	// return responseSuccess(c, m)
 }
 
-func (h authController) loginDevTest(c *fiber.Ctx)error{
+func (h authController) loginDevTest(c *fiber.Ctx) error {
 	var req models.LoginReq
 	if err := c.BodyParser(&req); err != nil {
 		logs.Info("Invalid request: " + err.Error())
@@ -117,8 +117,6 @@ func (h authController) loginDevTest(c *fiber.Ctx)error{
 
 	return responseSuccess(c, m)
 }
-
-
 
 // เพิ่มฟังก์ชันนี้ลงไปในไฟล์
 // @Summary Get User Profile
@@ -135,7 +133,6 @@ func (h authController) getProfile(c *fiber.Ctx, userInfo *models.UserInfo) erro
 	return responseSuccess(c, userInfo)
 }
 
-
 // @Summary Logout
 // @Description Logout user and clear access_token cookie
 // @Tags Auth
@@ -145,16 +142,16 @@ func (h authController) getProfile(c *fiber.Ctx, userInfo *models.UserInfo) erro
 // @Router /v1/auth/logout [post]
 // @Security ApiKeyAuth
 func (h authController) logout(c *fiber.Ctx, userInfo *models.UserInfo) error {
-    
-    cookie := new(fiber.Cookie)
-    cookie.Name = "access_token" 
-    cookie.Value = ""
-    cookie.Expires = time.Now().Add(-time.Hour) 
-    cookie.HTTPOnly = true
-    
-    c.Cookie(cookie)
 
-    return responseSuccess(c, "Logged out successfully")
+	cookie := new(fiber.Cookie)
+	cookie.Name = "access_token"
+	cookie.Value = ""
+	cookie.Expires = time.Now().Add(-time.Hour)
+	cookie.HTTPOnly = true
+
+	c.Cookie(cookie)
+
+	return responseSuccess(c, "Logged out successfully")
 }
 
 // // @Summary Check if user exists

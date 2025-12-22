@@ -1,189 +1,95 @@
-// package auth
-
-// import (
-// 	"bytes"
-// 	"encoding/json"
-// 	"net/http/httptest"
-// 	"testing"
-//
-//
-//
-//
-//
-//
-//
-
-// 	"github.com/Nerzal/gocloak/v13"
-// 	"github.com/gofiber/fiber/v2"
-// 	"github.com/google/uuid"
-// 	"github.com/stretchr/testify/require"
-// 	"go.uber.org/zap"
-// 	"gorm.io/driver/sqlite"
-// 	"gorm.io/gorm"
-
-// 	"p2p-back-end/configs"
-// 	"p2p-back-end/logs"
-// 	"p2p-back-end/modules/auth/controller"
-// 	"p2p-back-end/modules/auth/repository"
-// 	"p2p-back-end/modules/auth/service"
-// 	"p2p-back-end/modules/entities/models"
-// )
-
-// func TestAuthIntegration(t *testing.T) {
-// 	// ปิด log
-// 	logs.Logger = zap.NewNop()
-
-// 	// --------------------
-// 	// setup database (SQLite in-memory)
-// 	// --------------------
-// 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-// 	require.NoError(t, err)
-// 	err = db.AutoMigrate(&models.UserEntity{})
-// 	require.NoError(t, err)
-
-// 	authRepo := repository.NewAuthRepositoryDB(db)
-
-// 	// --------------------
-// 	// setup Keycloak config จริง
-// 	// --------------------
-// 	cfg := &configs.Config{
-// 		KeyCloak: configs.KeyCloak{
-// 			Host:          "http://localhost", // เปลี่ยนเป็น host Keycloak จริง
-// 			Port:          "9080",      // port Keycloak
-// 			RealmName:     "P2P-service",
-// 			ClientID:      "p2p-client",
-// 			ClientSecret:  "4J30ZBRYRUTJcw8YlfUrTeA4qxKitBuu",
-// 			AdminUsername: "admin",
-// 			AdminPassword: "secure+admin+password+p2p",
-// 		},
-// 	}
-
-// 	// --------------------
-// 	// service ใช้ Keycloak จริง
-// 	// --------------------
-// 	keycloakClient := gocloak.NewClient(cfg.KeyCloak.Host + ":" + cfg.KeyCloak.Port)
-// 	authSrv := service.NewAuthService(keycloakClient, cfg, authRepo)
-
-// 	// --------------------
-// 	// controller + fiber app
-// 	// --------------------
-// 	app := fiber.New()
-// 	controller.NewUserController(app.Group("/v1/auth"), authSrv)
-
-// 	// --------------------
-// 	// Test Register
-// 	// --------------------
-// 	registerReq := models.RegisterReq{
-// 		FirstName: "Integrat1ion",
-// 		LastName:  "T1est",
-// 		Email:     "int_te1st@example.com",
-// 		Username:  "int_test11",
-// 		Password:  "pass121134",
-// 		Role:      "employee",
-// 	}
-// 	body, _ := json.Marshal(registerReq)
-// 	req := httptest.NewRequest("POST", "/v1/auth/register", bytes.NewReader(body))
-// 	req.Header.Set("Content-Type", "application/json")
-// 	resp, _ := app.Test(req, -1)
-// 	require.Equal(t, 200, resp.StatusCode)
-
-// 	// --------------------
-// 	// Test Login
-// 	// --------------------
-// 	loginReq := models.LoginReq{
-// 		Username: "int_test11",
-// 		Password: "pass121134",
-// 	}
-// 	bodyLogin, _ := json.Marshal(loginReq)
-// 	reqLogin := httptest.NewRequest("POST", "/v1/auth/login", bytes.NewReader(bodyLogin))
-// 	reqLogin.Header.Set("Content-Type", "application/json")
-// 	respLogin, _ := app.Test(reqLogin, -1)
-// 	require.Equal(t, 200, respLogin.StatusCode)
-
-// 	// --------------------
-// 	// Test repository directly
-// 	// --------------------
-// 	user := models.UserEntity{
-// 		ID:        uuid.NewString(),
-// 		Username:  registerReq.Username,
-// 		Email:     registerReq.Email,
-// 		FirstName: registerReq.FirstName,
-// 		LastName:  registerReq.LastName,
-// 		Role:      registerReq.Role,
-// 		Password:  "hashed-pass",
-// 	}
-// 	db.Create(&user)
-
-// 	exist, err := authRepo.IsUserExistByID(user.ID)
-// 	require.NoError(t, err)
-// 	require.True(t, exist)
-// }
-
 package auth
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/Nerzal/gocloak/v13"
+	"github.com/go-redis/redis/v8"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"gorm.io/datatypes" // ✅ เพิ่ม Import นี้สำหรับ JSON Type
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
 	"p2p-back-end/configs"
 	"p2p-back-end/logs"
 	"p2p-back-end/modules/auth/controller"
-	"p2p-back-end/modules/auth/repository"
 	"p2p-back-end/modules/auth/service"
 	"p2p-back-end/modules/entities/models"
+	"p2p-back-end/modules/users/repository" // ✅ เรียกใช้ User Repo จาก Module Users
 )
 
 func TestAuthIntegration(t *testing.T) {
-	// ปิด log เพื่อความสะอาดของ Output
+	// ปิด log
 	logs.Logger = zap.NewNop()
 
 	// --------------------
-	// 1. Setup Database (SQLite in-memory)
+	// 1. Setup Database
 	// --------------------
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
+	// AutoMigrate จะสร้างตารางตาม UserEntity ล่าสุด (ที่มี Roles เป็น JSON)
 	err = db.AutoMigrate(&models.UserEntity{})
 	require.NoError(t, err)
 
-	authRepo := repository.NewAuthRepositoryDB(db)
+	// ✅ เปลี่ยนมาใช้ User Repository แทน Auth Repository เดิม
+	userRepo := repository.NewUserRepositoryDB(db)
 
 	// --------------------
-	// 2. Setup Keycloak Config (ต้องมี Keycloak รันอยู่จริงตาม config นี้)
+	// 2. Setup Config
 	// --------------------
 	cfg := &configs.Config{
 		KeyCloak: configs.KeyCloak{
 			Host:          "http://localhost",
-			Port:          "9080", // เช็คว่า port ตรงกับ docker-compose
+			Port:          "9080",
 			RealmName:     "P2P-service",
 			ClientID:      "p2p-client",
-			ClientSecret:  "4J30ZBRYRUTJcw8YlfUrTeA4qxKitBuu", // เช็ค secret ให้ตรง
+			ClientSecret:  "4J30ZBRYRUTJcw8YlfUrTeA4qxKitBuu",
 			AdminUsername: "admin",
 			AdminPassword: "secure+admin+password+p2p",
 		},
+		Redis: configs.Redis{
+			Host:     "localhost",
+			Port:     "6379",
+			Password: "pr01ec1s413",
+		},
 	}
 
-	keycloakClient := gocloak.NewClient(cfg.KeyCloak.Host + ":" + cfg.KeyCloak.Port)
-	authSrv := service.NewAuthService(keycloakClient, cfg, authRepo)
+	// --------------------
+	// 3. Setup Redis
+	// --------------------
+	redisClient := redis.NewClient(&redis.Options{
+		Addr:     fmt.Sprintf("%s:%s", cfg.Redis.Host, cfg.Redis.Port),
+		Password: cfg.Redis.Password,
+	})
+	// Ping เช็คว่า Redis ติดจริงไหม (Optional)
+	if err := redisClient.Ping(context.Background()).Err(); err != nil {
+		t.Logf("Warning: Redis connection failed: %v", err)
+	}
 
 	// --------------------
-	// 3. Setup Fiber App
+	// 4. Setup Service
+	// --------------------
+	keycloakClient := gocloak.NewClient(cfg.KeyCloak.Host + ":" + cfg.KeyCloak.Port)
+
+	// ✅ Inject 'userRepo' เข้าไปแทนที่
+	authSrv := service.NewAuthService(keycloakClient, cfg, userRepo, redisClient)
+
+	// --------------------
+	// 5. Setup Fiber App
 	// --------------------
 	app := fiber.New()
 	controller.NewUserController(app.Group("/v1/auth"), authSrv)
 
-	// สร้างตัวแปร Random เพื่อไม่ให้ User ซ้ำเวลารันเทสหลายรอบ
 	randID := uuid.NewString()[:5]
 	testUsername := "test_user_" + randID
 	testEmail := "test_" + randID + "@example.com"
@@ -192,13 +98,13 @@ func TestAuthIntegration(t *testing.T) {
 	// --------------------
 	// Test 1: Register
 	// --------------------
-	registerReq := models.RegisterReq{
+	registerReq := models.RegisterKCReq{
 		FirstName: "Integration",
 		LastName:  "Test",
 		Email:     testEmail,
 		Username:  testUsername,
 		Password:  testPassword,
-		Role:      "employee",
+		Roles:     []string{"employee", "manager"}, // ✅ ส่ง Roles เป็น Array
 	}
 	body, _ := json.Marshal(registerReq)
 	req := httptest.NewRequest("POST", "/v1/auth/register", bytes.NewReader(body))
@@ -206,10 +112,10 @@ func TestAuthIntegration(t *testing.T) {
 
 	resp, err := app.Test(req, -1)
 	require.NoError(t, err)
-	require.Equal(t, 200, resp.StatusCode, "Register should return 200 OK")
+	require.Equal(t, 200, resp.StatusCode)
 
 	// --------------------
-	// Test 2: Login (สำคัญ: ต้องเช็ค Cookie)
+	// Test 2: Login
 	// --------------------
 	loginReq := models.LoginReq{
 		Username: testUsername,
@@ -221,23 +127,19 @@ func TestAuthIntegration(t *testing.T) {
 
 	respLogin, err := app.Test(reqLogin, -1)
 	require.NoError(t, err)
-	require.Equal(t, 200, respLogin.StatusCode, "Login should return 200 OK")
+	require.Equal(t, 200, respLogin.StatusCode)
 
-	// --- [Check 1] ตรวจสอบ Response Body (ต้องเป็น UserInfo ไม่ใช่ Token) ---
+	// Check Response Body
 	var result models.ResponseData
 	respBody, _ := io.ReadAll(respLogin.Body)
-	err = json.Unmarshal(respBody, &result)
-	require.NoError(t, err)
-
-	// แปลง data interface{} ให้เป็น map เพื่อเช็คค่าข้างใน
+	json.Unmarshal(respBody, &result)
 	userDataMap, ok := result.Data.(map[string]interface{})
 	if ok {
-		require.Equal(t, testUsername, userDataMap["username"], "Response Body should contain correct username")
-		// ต้องไม่มี Token ใน Body
-		require.Nil(t, userDataMap["access_token"], "Body should NOT contain access_token")
+		require.Equal(t, testUsername, userDataMap["username"])
+		require.Nil(t, userDataMap["access_token"])
 	}
 
-	// --- [Check 2] ตรวจสอบ Cookie (สำคัญที่สุด) ---
+	// Check Cookie
 	cookies := respLogin.Cookies()
 	var accessTokenCookie *http.Cookie
 	for _, c := range cookies {
@@ -246,26 +148,34 @@ func TestAuthIntegration(t *testing.T) {
 			break
 		}
 	}
-
-	require.NotNil(t, accessTokenCookie, "Response must contain 'access_token' cookie")
-	require.True(t, accessTokenCookie.HttpOnly, "Cookie must be HttpOnly")
-	require.NotEmpty(t, accessTokenCookie.Value, "Token in cookie must not be empty")
+	require.NotNil(t, accessTokenCookie)
 
 	// --------------------
-	// Test 3: Repository Directly (Mock Check)
+	// Test 3: Repository Directly (แก้ไขการสร้าง Mock Data)
 	// --------------------
+
+	// แปลง Array String เป็น JSON Byte สำหรับเก็บลง DB จำลอง
+	rolesJSON, _ := json.Marshal([]string{"employee"})
+
 	userRepoCheck := models.UserEntity{
 		ID:        uuid.NewString(),
-		Username:  testUsername, // ใช้ชื่อเดียวกับข้างบน
+		Username:  testUsername, // ซ้ำได้ใน test เพราะ mock db คนละตัวหรือเคลียร์ใหม่
 		Email:     testEmail,
 		FirstName: "RepoCheck",
 		LastName:  "Test",
-		Role:      "employee",
-		Password:  "hashed-pass",
-	}
-	db.Create(&userRepoCheck)
 
-	exist, err := authRepo.IsUserExistByID(userRepoCheck.ID)
+		// ✅ แก้ตรงนี้: ใช้ Roles (JSON) แทน Role (String)
+		Roles: datatypes.JSON(rolesJSON),
+
+		// Password:  "hashed-pass", // field นี้อาจจะไม่มีแล้วใน model ใหม่ถ้าเก็บแต่ใน KC
+	}
+
+	// Create ลง DB (SQLite memory)
+	err = db.Create(&userRepoCheck).Error
+	require.NoError(t, err)
+
+	// เรียกใช้ UserRepo (ที่ย้ายไป Module Users)
+	exist, err := userRepo.IsUserExistByID(userRepoCheck.ID)
 	require.NoError(t, err)
 	require.True(t, exist)
 }

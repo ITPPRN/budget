@@ -2,13 +2,14 @@ package models
 
 // request
 
-type RegisterReq struct {
-	Username  string `json:"username" example:"test1"`
-	Password  string `json:"password" example:"test1"`
-	Email     string `json:"email" example:"test@example.com"`
-	FirstName string `json:"first_name" example:"test1"`
-	LastName  string `json:"last_name" example:"test1"`
-	Role      string `json:"role" example:"employee"`
+type RegisterKCReq struct {
+	Username  string   `json:"username" example:"test1"`
+	Password  string   `json:"password" example:"test1"`
+	Email     string   `json:"email" example:"test@example.com"`
+	FirstName string   `json:"first_name" example:"test1"`
+	LastName  string   `json:"last_name" example:"test1"`
+	Roles     []string `json:"roles" example:"[\"employee\", \"manager\"]"`
+	// Role      string `json:"role" example:"employee"`
 }
 
 type LoginReq struct {
@@ -20,9 +21,7 @@ type ChangePasswordReq struct {
 	NewPassword string `json:"new_password" example:"test1111"`
 }
 
-
-
-//res/////////////////////////////////////////////////////////
+// res/////////////////////////////////////////////////////////
 type UserInfo struct {
 	UserId   string   `json:"userId"`
 	UserName string   `json:"userName"`
@@ -42,8 +41,4 @@ type ResponseData struct {
 	Status     string      `json:"status"`
 	StatusCode int         `json:"statusCode"`
 	Data       interface{} `json:"data"`
-}
-
-type UserRepository interface {
-	IsUserExistByID(string) (bool, error)
 }
