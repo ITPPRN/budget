@@ -2,6 +2,7 @@ package logs
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -24,10 +25,33 @@ func Loginit() {
 	}
 	defer func() {
 		if err := Logger.Sync(); err != nil {
-			fmt.Println("Failed to sync logger:", err)
-		}
+            handleSyncError(err)
+        }
 	}()
-	
+
+}
+
+func handleSyncError(err error) {
+	// รายการ Error ที่ "ไม่อันตราย" สำหรับการ Sync ลง Terminal/Console
+	ignoredErrors := []string{
+		"inappropriate ioctl for device",
+		"invalid argument",
+		"bad file descriptor",
+		"enotty",
+	}
+
+	for _, msg := range ignoredErrors {
+		if containsIgnoreCase(err.Error(), msg) {
+			return // เป็น Error ปกติของระบบ terminal ให้ข้ามไปเลย
+		}
+	}
+
+	// ถ้าหลุดจากข้างบนมา แสดงว่าเป็น Error ที่อาจจะร้ายแรงจริงๆ ให้พิมพ์ออกมาดู
+	fmt.Printf("Logger Sync Error (Potential Issue): %v\n", err)
+}
+
+func containsIgnoreCase(str, substr string) bool {
+	return strings.Contains(strings.ToLower(str), strings.ToLower(substr))
 }
 
 func Info(message string, fields ...zap.Field) {

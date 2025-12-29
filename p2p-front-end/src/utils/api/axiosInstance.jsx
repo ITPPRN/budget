@@ -1,37 +1,7 @@
-// import axios from 'axios';
-// import { toast } from 'react-toastify';
-
-// const api = axios.create({
-//   baseURL: '/v1', 
-//   withCredentials: true, // สำคัญ! เพื่อส่ง Cookie
-//   headers: { 'Content-Type': 'application/json' },
-// });
-
-// // --- เพิ่ม Interceptor เพื่อดักจับ Error ---
-// api.interceptors.response.use(
-//   (response) => {
-//     return response;
-//   },
-//   (error) => {
-//     // เช็คว่า Backend ตอบกลับมาว่า 401 (หมดสิทธิ์/Token หมดอายุ) หรือไม่
-//     if (error.response && error.response.status === 401) {
-      
-//       // ถ้าไม่ใช่หน้า Login อยู่แล้ว ให้ดีดออก
-//       if (window.location.pathname !== '/login') {
-//         toast.error("Session หมดอายุ กรุณาเข้าสู่ระบบใหม่");
-//         window.location.href = '/login';
-//       }
-//     }
-//     return Promise.reject(error);
-//   }
-// );
-
-// export default api;
 import axios from 'axios';
 import { toast } from 'react-toastify';
 
-// 1. ฟังก์ชันช่วยแกะ Cookie (Helper Function)
-// ทำหน้าที่ค้นหา Cookie ที่ชื่อตามที่ส่งเข้ามา
+// 1. ฟังก์ชันช่วยแกะ Cookie
 function getCookie(name) {
   const value = `; ${document.cookie}`;
   const parts = value.split(`; ${name}=`);
@@ -39,20 +9,20 @@ function getCookie(name) {
 }
 
 const api = axios.create({
-  baseURL: '/v1', 
-  withCredentials: true, // สำคัญ! เพื่อส่ง Cookie (Auth & CSRF)
+  baseURL: '/v1', // ⚠️ เช็ค baseURL ให้ตรงกับที่ใช้ 
+  withCredentials: true, // สำคัญมาก! เพื่อส่ง Cookie (Auth & CSRF)
   headers: { 'Content-Type': 'application/json' },
 });
 
-// --- [เพิ่มใหม่] Interceptor ฝั่ง Request ---
-// ทำงานก่อนที่ Request จะถูกส่งออกไป
+// -------------------------------------------------------------------
+// ✅ 1. Request Interceptor: จัดการ CSRF 
+// -------------------------------------------------------------------
 api.interceptors.request.use(
   (config) => {
-    // พยายามอ่านค่า Cookie ที่ชื่อ "csrf_" (ต้องตรงกับ Backend: CookieName)
+    // อ่าน CSRF Token จาก Cookie
     const csrfToken = getCookie('csrf_');
     
-    // ถ้าเจอ Cookie ให้แนบไปใน Header "X-CSRF-Token" (ต้องตรงกับ Backend: KeyLookup)
-    // เฉพาะเมธอดที่เปลี่ยนแปลงข้อมูล (POST, PUT, DELETE, PATCH)
+    // ถ้ามี Token และเป็น Method ที่มีการแก้ไขข้อมูล ให้แนบ Header ไปด้วย
     if (csrfToken && ['post', 'put', 'delete', 'patch'].includes(config.method)) {
       config.headers['X-CSRF-Token'] = csrfToken;
     }
@@ -64,20 +34,43 @@ api.interceptors.request.use(
   }
 );
 
-// --- Interceptor ฝั่ง Response (ของเดิมของคุณ) ---
+// -------------------------------------------------------------------
+// ✅ 2. Response Interceptor: จัดการ Refresh Token 
+// -------------------------------------------------------------------
 api.interceptors.response.use(
   (response) => {
     return response;
   },
-  (error) => {
-    // เช็คว่า Backend ตอบกลับมาว่า 401 (หมดสิทธิ์/Token หมดอายุ) หรือไม่
-    if (error.response && error.response.status === 401) {
-      // ถ้าไม่ใช่หน้า Login อยู่แล้ว ให้ดีดออก
-      if (window.location.pathname !== '/login') {
-        toast.error("Session หมดอายุ กรุณาเข้าสู่ระบบใหม่");
-        window.location.href = '/login';
+  async (error) => {
+    const originalRequest = error.config;
+
+    // เงื่อนไข: เจอ 401 AND ยังไม่เคยลอง Refresh มาก่อน
+    if (
+      error.response?.status === 401 && 
+      !originalRequest._retry &&
+      !originalRequest.url.includes('refresh-token')
+    ) {
+      originalRequest._retry = true; // แปะป้ายว่ากำลังกู้ชีพ
+
+      try {
+        // 1. แอบยิงไปขอต่ออายุ Token (Backend จะอ่าน Refresh Token ใน Cookie เอง)
+        // ⚠️ เช็ค URL ตรงนี้ให้ชัวร์ว่า Backend คุณใช้ /v1/auth/refresh-token หรือ path ไหน
+        await api.post('/auth/refresh-token');
+
+        // 2. ถ้าผ่าน ให้ยิง Request เดิมซ้ำอีกรอบ
+        return api(originalRequest);
+
+      } catch (refreshError) {
+        // 3. ถ้าไม่ผ่าน (เช่น Refresh Token หมดอายุด้วย) -> ดีดไปหน้า Login
+        if (window.location.pathname !== '/login') {
+            toast.error("Session หมดอายุ กรุณาเข้าสู่ระบบใหม่");
+            window.location.href = '/login';
+        }
+        return Promise.reject(refreshError);
       }
     }
+
+    // ถ้าไม่ใช่ 401 หรือแก้ไม่ได้ ก็ส่ง Error ต่อไปตามปกติ
     return Promise.reject(error);
   }
 );

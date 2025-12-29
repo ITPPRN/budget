@@ -1,0 +1,177 @@
+sequenceDiagram
+    autonumber
+    actor User
+    participant API as Fiber Handler
+    participant Srv as AuthService
+    participant KC as Keycloak
+    participant DB as Postgres DB
+
+    User->>API: POST /register (Username, Email, Pass, Info)
+    API->>Srv: Register(req)
+    
+    rect rgb(240, 248, 255)
+        note right of Srv: 1. สร้างใน Keycloak
+        Srv->>KC: Login Admin (ขอ Admin Token)
+        KC-->>Srv: Admin Access Token
+        Srv->>KC: Create User (Username, Email, Pass)
+        KC-->>Srv: User Created ID (UUID)
+    end
+
+    rect rgb(255, 250, 240)
+        note right of Srv: 2. สร้างใน DB เรา
+        Srv->>DB: Create User Entity (ใช้ UUID จาก KC)
+        DB-->>Srv: Success
+    end
+
+    Srv-->>API: Success
+    API-->>User: 201 Created
+
+    autonumber
+    actor User
+    participant API as Fiber Handler
+    participant Redis
+    participant Srv as AuthService
+    participant KC as Keycloak
+
+    User->>API: POST /login (User, Pass)
+    
+    rect rgb(255, 230, 230)
+        note right of API: Security Check
+        API->>Redis: Incr Login Attempts (Username)
+        Redis-->>API: Count < 5 OK
+    end
+
+    API->>Srv: Login(req)
+    Srv->>KC: Login (Direct Grant)
+    KC-->>Srv: Return {Access, Refresh, Expires}
+    Srv-->>API: Return Token Object
+
+    rect rgb(230, 255, 230)
+        note right of API: Set Cookies (HttpOnly)
+        API->>API: Cookie: access_token (15m)
+        API->>API: Cookie: refresh_token (1d)
+        API->>API: Cookie: csrf_
+    end
+
+    API-->>User: 200 OK (Login Success)
+
+    autonumber
+    participant Client
+    participant API as Fiber Handler
+    participant Srv as AuthService
+    participant KC as Keycloak
+
+    Client->>API: POST /refresh-token (Cookie refresh_token)
+    
+    API->>API: Check Cookie Exists?
+    
+    API->>Srv: RefreshToken(oldRefreshToken)
+    Srv->>KC: Refresh Token Grant
+    KC-->>Srv: Return New {Access, Refresh}
+    
+    rect rgb(230, 255, 255)
+        note right of API: Token Rotation
+        API->>API: Update Cookie: access_token (New)
+        API->>API: Update Cookie: refresh_token (New)
+    end
+
+    API-->>Client: 200 OK (Refreshed)
+
+    autonumber
+    actor User
+    participant Mid as Middleware (Auth)
+    participant API as Fiber Handler
+    participant Srv as UserService
+    participant DB as Postgres DB
+
+    User->>Mid: GET /profile (Cookie access_token)
+    
+    rect rgb(240, 255, 240)
+        note right of Mid: Authentication
+        Mid->>Mid: Validate JWT
+        Mid->>Mid: Extract UserID & Role
+        Mid->>API: Set c.Locals("user") -> Next
+    end
+
+    API->>Srv: GetProfile(UserID)
+    Srv->>DB: Find User By ID
+    DB-->>Srv: User Entity
+    Srv-->>API: User Model
+    API-->>User: 200 OK (JSON)
+
+    autonumber
+    actor User
+    participant Mid as Middleware (Auth)
+    participant API as Fiber Handler
+    participant Srv as AuthService
+    participant KC as Keycloak
+
+    User->>Mid: POST /change-password (Old, New)
+    Mid->>Mid: Extract UserID from Token
+    Mid->>API: Next(c, UserID)
+
+    API->>Srv: ChangePassword(UserID, Old, New)
+    
+    rect rgb(255, 255, 224)
+        note right of Srv: 1. Verify Old Pass
+        Srv->>KC: Try Login (User, OldPass)
+        KC-->>Srv: Success (รหัสถูก)
+    end
+
+    rect rgb(224, 255, 255)
+        note right of Srv: 2. Set New Pass
+        Srv->>KC: Login Admin (Service Account)
+        Srv->>KC: SetPassword(UserID, New, temp=false)
+    end
+
+    Srv-->>API: Success
+    API-->>User: 200 OK
+
+    autonumber
+    actor Admin
+    participant Mid as JwtAuth
+    participant Guard as RolesGuard
+    participant API as Fiber Handler
+    participant Srv as AuthService
+    participant KC as Keycloak
+
+    Admin->>Mid: POST /admin/users/123/reset-password (NewPass)
+    Mid->>Guard: Token Valid -> Next
+    
+    rect rgb(255, 200, 200)
+        note right of Guard: Check Permissions
+        Guard->>Guard: Check User Role == "admin"?
+        Guard-->>API: Allowed -> Next
+    end
+
+    API->>Srv: AdminResetUserPassword(TargetID, NewPass)
+    
+    rect rgb(255, 250, 205)
+        note right of Srv: Force Change Next Login
+        Srv->>KC: Login Admin
+        Srv->>KC: SetPassword(TargetID, New, temp=TRUE)
+    end
+
+    Srv-->>API: Success
+    API-->>Admin: 200 OK
+
+    autonumber
+    actor User
+    participant Mid as Middleware (Auth)
+    participant API as Fiber Handler
+    participant Srv as AuthService
+    participant KC as Keycloak
+
+    User->>Mid: POST /logout
+    Mid->>API: Token Valid -> Next
+    
+    API->>Srv: Logout(refreshToken)
+    Srv->>KC: Revoke Token (แจ้ง KC ให้ยกเลิกใบนี้)
+    
+    rect rgb(255, 200, 200)
+        note right of API: Clear Client Cookies
+        API->>API: Set access_token = "" (Expires Now)
+        API->>API: Set refresh_token = "" (Expires Now)
+    end
+
+    API-->>User: 200 OK

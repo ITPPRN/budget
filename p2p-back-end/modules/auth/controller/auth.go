@@ -19,11 +19,12 @@ func NewUserController(router fiber.Router, authSrv models.AuthService) {
 	router.Post("/register", controller.register)
 	router.Post("/login", controller.login)
 	router.Post("/login-dev-test", controller.loginDevTest)
+	router.Post("/refresh-token", controller.refreshToken)
+	router.Post("/change-password", middlewares.JwtAuthentication(controller.changePassword))
+	router.Post("/admin/users/:id/reset-password", middlewares.JwtAuthentication(middlewares.RolesGuard(controller.adminResetUserPassword, models.RoleAdmin)))
 	router.Post("/logout", middlewares.JwtAuthentication(controller.logout))
 	router.Get("/profile", middlewares.JwtAuthentication(controller.getProfile))
 	router.Get("/tcf", controller.test11)
-	// router.Get("/user/check-by-id", middlewares.JwtAuthentication(controller.checkUserByID))
-	// router.Put("/user/reset-password", middlewares.JwtAuthentication(controller.resetPassword))
 }
 
 func (h authController) test11(c *fiber.Ctx) error {
@@ -54,16 +55,6 @@ func (h authController) register(c *fiber.Ctx) error {
 	return responseSuccess(c, m)
 }
 
-// // @Summary User login
-// // @Description User login with username and password
-// // @Tags User
-// // @Accept json
-// // @Produce json
-// // @Param login body models.LoginReq true "Login request"
-// // @Success 200 {object} models.ResponseData{data=string}
-// // @Failure 400 {object} models.ResponseError
-// // @Router /v1/auth/login [post]
-
 // @Summary Login
 // @Description Login user and set HttpOnly Cookie
 // @Tags Auth
@@ -80,28 +71,76 @@ func (h authController) login(c *fiber.Ctx) error {
 		logs.Info("Invalid request: " + err.Error())
 		return badReqErrResponse(c, "Invalid request: "+err.Error())
 	}
-	m, err := h.authSrv.Login(&req)
+	token, err := h.authSrv.Login(&req)
 	if err != nil {
 		return responseWithError(c, err)
 	}
-	// สร้าง Cookie
-	cookie := new(fiber.Cookie)
-	cookie.Name = "access_token" // ชื่อ cookie
-	cookie.Value = m
-	cookie.HTTPOnly = true                          // สำคัญ! ป้องกัน JavaScript เข้าถึง
-	cookie.Expires = time.Now().Add(24 * time.Hour) // ตั้งเวลาให้ตรงกับอายุ Token
 
-	// Config ความปลอดภัยเพิ่มเติม
-	// cookie.Secure = true // เปิดเมื่อใช้ HTTPS (Production)
-	cookie.SameSite = "Lax" // หรือ "None" ถ้า Frontend/Backend คนละโดเมนและใช้ HTTPS
+	// สร้าง Cookie 1: Access Token (อายุสั้น 15 นาที ตาม Keycloak)
+	accessCookie := new(fiber.Cookie)
+	accessCookie.Name = "access_token"
+	accessCookie.Value = token.AccessToken
+	accessCookie.HTTPOnly = true
+	accessCookie.Expires = time.Now().Add(time.Duration(token.ExpiresIn) * time.Second)
+	accessCookie.SameSite = "Lax" // หรือ "None" ถ้าใช้ HTTPS
+	c.Cookie(accessCookie)
 
-	// ฝัง Cookie ลงใน Response
-	c.Cookie(cookie)
+	// สร้าง Cookie 2: Refresh Token (อายุนาน 1 วัน ตาม Keycloak)
+	refreshCookie := new(fiber.Cookie)
+	refreshCookie.Name = "refresh_token"
+	refreshCookie.Value = token.RefreshToken
+	refreshCookie.HTTPOnly = true
+	refreshCookie.Path = "/v1/auth" // ส่งมาเฉพาะตอนจะ Login/Refresh ก็พอเพื่อความปลอดภัย
+	refreshCookie.Expires = time.Now().Add(time.Duration(token.RefreshExpiresIn) * time.Second)
+	refreshCookie.SameSite = "Lax"
+	c.Cookie(refreshCookie)
 
-	// ส่ง Response กลับไปแค่ว่าสำเร็จ (ไม่ต้องส่ง Token ใน Data แล้ว)
 	return responseSuccess(c, "Login successful")
+}
 
-	// return responseSuccess(c, m)
+// RefreshToken godoc
+// @Summary      Refresh Access Token
+// @Description  ตรวจสอบ Refresh Token จาก HttpOnly Cookie และออก Token ใหม่ให้ (ฝัง Cookie กลับไปอัตโนมัติ)
+// @Tags         Auth
+// @Accept       json
+// @Produce      json
+// @Param        refresh_token cookie string true "Refresh Token (ส่งมาอัตโนมัติผ่าน Browser Cookie)"
+// @Success      200 {object} models.ResponseData "Token refreshed successfully"
+// @Failure      401 {object} models.ResponseData "Unauthorized: No token or Invalid token"
+// @Router       /v1/auth/refresh-token [post]
+func (h *authController) refreshToken(c *fiber.Ctx) error {
+	// ดึง Refresh Token จาก Cookie
+	refreshToken := c.Cookies("refresh_token")
+	if refreshToken == "" {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "No refresh token found"})
+	}
+
+	// เรียก Service ไปขอ Token ใหม่
+	newToken, err := h.authSrv.RefreshToken(refreshToken)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Invalid refresh token", "detail": err.Error()})
+	}
+
+	// Update Access Token
+	accessCookie := new(fiber.Cookie)
+	accessCookie.Name = "access_token"
+	accessCookie.Value = newToken.AccessToken
+	accessCookie.HTTPOnly = true
+	accessCookie.Expires = time.Now().Add(time.Duration(newToken.ExpiresIn) * time.Second)
+	accessCookie.SameSite = "Lax"
+	c.Cookie(accessCookie)
+
+	// Update Refresh Token (Keycloak จะหมุน Refresh Token ใหม่มาให้ด้วยเสมอ)
+	refreshCookie := new(fiber.Cookie)
+	refreshCookie.Name = "refresh_token"
+	refreshCookie.Value = newToken.RefreshToken
+	refreshCookie.HTTPOnly = true
+	refreshCookie.Path = "/v1/auth"
+	refreshCookie.Expires = time.Now().Add(time.Duration(newToken.RefreshExpiresIn) * time.Second)
+	refreshCookie.SameSite = "Lax"
+	c.Cookie(refreshCookie)
+
+	return responseSuccess(c, "Token refreshed")
 }
 
 func (h authController) loginDevTest(c *fiber.Ctx) error {
@@ -128,13 +167,80 @@ func (h authController) loginDevTest(c *fiber.Ctx) error {
 // @Router /v1/auth/profile [get]
 // @Security ApiKeyAuth
 func (h authController) getProfile(c *fiber.Ctx, userInfo *models.UserInfo) error {
-	// Middleware (JwtAuthentication) ทำงานเสร็จแล้ว และส่ง userInfo มาให้เรา
-	// เราแค่ส่งมันกลับไปหา Frontend
 	return responseSuccess(c, userInfo)
 }
 
+// ChangePassword godoc
+// @Summary      Change Password
+// @Description  เปลี่ยนรหัสผ่าน (ต้อง Login ก่อน)
+// @Tags         Auth
+// @Accept       json
+// @Produce      json
+// @Param        req body models.ChangePasswordReq true "Password Info"
+// @Success      200 {object} models.ResponseData "Success"
+// @Failure      400,401 {object} models.ResponseData
+// @Router       /v1/auth/change-password [post]
+func (h *authController) changePassword(c *fiber.Ctx, userInfo *models.UserInfo) error {
+	// 1. รับค่าจาก Body
+	req := new(models.ChangePasswordReq)
+	if err := c.BodyParser(req); err != nil {
+		return badReqErrResponse(c, "Invalid request format")
+	}
+
+	// 2. Validate ข้อมูล (เช็คว่า New กับ Confirm ตรงกันไหม ฯลฯ)
+	// ... (ถ้ามี Validator library) ...
+	if req.NewPassword != req.ConfirmPassword {
+		return badReqErrResponse(c, "รหัสผ่านใหม่และการยืนยันไม่ตรงกัน")
+	}
+
+	// 3. เรียก Service
+	err := h.authSrv.ChangePassword(req.OldPassword, req.NewPassword, userInfo)
+	if err != nil {
+		// แยก Error ว่าเป็น 400 (รหัสผิด) หรือ 500 (ระบบพัง)
+		if err.Error() == "รหัสผ่านเดิมไม่ถูกต้อง" {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		}
+		return responseWithError(c, err)
+	}
+
+	return responseSuccess(c, "เปลี่ยนรหัสผ่านสำเร็จ")
+}
+
+// AdminResetPassword godoc
+// @Summary      Admin Reset User Password (สำหรับ Admin เท่านั้น)
+// @Description  เปลี่ยนรหัสผ่านให้ User อื่น (โดยไม่ต้องรู้รหัสเดิม) และบังคับเปลี่ยนใหม่ตอน Login
+// @Tags         Admin
+// @Accept       json
+// @Produce      json
+// @Param        id   path      string                     true  "User ID (UUID)"
+// @Param        req  body      models.AdminResetPasswordReq true  "New Password"
+// @Success      200  {object}  models.ResponseData "Success"
+// @Failure      403  {object}  models.ResponseData "Forbidden"
+// @Router       /v1/admin/users/{id}/reset-password [post]
+func (h *authController) adminResetUserPassword(c *fiber.Ctx, userInfo *models.UserInfo) error {
+	// 1. รับ ID ของ User ที่จะแก้จาก URL
+	targetUserID := c.Params("id")
+	if targetUserID == "" {
+		return badReqErrResponse(c, "User ID is required")
+	}
+
+	// 2. รับรหัสใหม่จาก Body
+	req := new(models.AdminResetPasswordReq)
+	if err := c.BodyParser(req); err != nil {
+		return badReqErrResponse(c, "Invalid request")
+	}
+
+	// 3. เรียก Service
+	err := h.authSrv.AdminResetUserPassword(targetUserID, req.NewPassword)
+	if err != nil {
+		return responseWithError(c, err)
+	}
+
+	return responseSuccess(c, "รีเซ็ตรหัสผ่านสำเร็จ ผู้ใช้ต้องเปลี่ยนรหัสใหม่ในการเข้าสู่ระบบครั้งถัดไป")
+}
+
 // @Summary Logout
-// @Description Logout user and clear access_token cookie
+// @Description Logout user and clear all token cookie
 // @Tags Auth
 // @Accept json
 // @Produce json
@@ -143,59 +249,29 @@ func (h authController) getProfile(c *fiber.Ctx, userInfo *models.UserInfo) erro
 // @Security ApiKeyAuth
 func (h authController) logout(c *fiber.Ctx, userInfo *models.UserInfo) error {
 
-	cookie := new(fiber.Cookie)
-	cookie.Name = "access_token"
-	cookie.Value = ""
-	cookie.Expires = time.Now().Add(-time.Hour)
-	cookie.HTTPOnly = true
+	// 1. ลบ Access Token (สำคัญที่สุด)
+	c.Cookie(&fiber.Cookie{
+		Name:     "access_token",
+		Value:    "",
+		Expires:  time.Now().Add(-time.Hour),
+		HTTPOnly: true,
+	})
 
-	c.Cookie(cookie)
+	// 2. ลบ Refresh Token (สำคัญรองลงมา)
+	c.Cookie(&fiber.Cookie{
+		Name:     "refresh_token",
+		Value:    "",
+		Expires:  time.Now().Add(-time.Hour),
+		HTTPOnly: true,
+		Path:     "/v1/auth", // ต้องตรงกับตอนสร้าง
+	})
+
+	// 3. (Optional) ลบ csrf_ ก็ได้ถ้าต้องการคลีนๆ
+	// c.Cookie(&fiber.Cookie{
+	//     Name:    "csrf_",
+	//     Value:   "",
+	//     Expires: time.Now().Add(-time.Hour),
+	// })
 
 	return responseSuccess(c, "Logged out successfully")
 }
-
-// // @Summary Check if user exists
-// // @Description Check if a user exists by user ID
-// // @Tags User
-// // @Accept json
-// // @Produce json
-// // @Param Authorization header string true "Bearer {token}"
-// // @Success 200 {object} models.ResponseData{data=bool}
-// // @Failure 400 {object} models.ResponseError
-// // @Router /v1/user/check-by-id [get]
-// // @Security ApiKeyAuth
-// func (h authController) checkUserByID(c *fiber.Ctx, userInfo *models.UserInfo) error {
-
-// 	m, err := h.authSrv.IsUserExistByID(userInfo.UserId)
-// 	if err != nil {
-// 		return responseWithError(c, err)
-// 	}
-
-// 	return responseSuccess(c, m)
-// }
-
-// // @Summary Reset Password
-// // @Description Reset the password for a user
-// // @Tags User
-// // @Accept json
-// // @Produce json
-// // @Param Authorization header string true "Bearer {token}"
-// // @Param req body models.ChangePasswordReq true "Change Password Request"
-// // @Success 200 {string} string "Password Changed Successfully"
-// // @Failure 400 {object} models.ResponseError
-// // @Router /v1/user/reset-password [put]
-// // @Security ApiKeyAuth
-// func (h authController) resetPassword(c *fiber.Ctx, userInfo *models.UserInfo) error {
-
-// 	var req models.ChangePasswordReq
-// 	if err := c.BodyParser(&req); err != nil {
-// 		logs.Info("Invalid request: " + err.Error())
-// 		return badReqErrResponse(c, "Invalid request: "+err.Error())
-// 	}
-
-// 	m, err := h.authSrv.ChangePassword(&req, userInfo)
-// 	if err != nil {
-// 		return responseWithError(c, err)
-// 	}
-// 	return responseSuccess(c, m)
-// }

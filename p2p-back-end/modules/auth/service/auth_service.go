@@ -174,7 +174,7 @@ func (s authService) Register(req *models.RegisterKCReq) (string, error) {
 	return userID, nil
 }
 
-func (s authService) Login(req *models.LoginReq) (string, error) {
+func (s authService) Login(req *models.LoginReq) (*gocloak.JWT, error) {
 
 	ctx := context.Background()
 
@@ -188,7 +188,7 @@ func (s authService) Login(req *models.LoginReq) (string, error) {
 		errStr := err.Error()
 		// เช็คข้อความ Error ที่ Keycloak ส่งมา
 		if strings.Contains(errStr, "Account disabled") || strings.Contains(errStr, "Account temporarily disabled") {
-			return "", errors.New("Account Locked: บัญชีของคุณถูกระงับถาวร กรุณาติดต่อผู้ดูแลระบบ")
+			return nil, errors.New("Account Locked: บัญชีของคุณถูกระงับถาวร กรุณาติดต่อผู้ดูแลระบบ")
 		}
 
 		// --- 2. นับจำนวนผิดใน Redis (เฉพาะกรณีที่ยังไม่โดนล็อค) ---
@@ -202,19 +202,82 @@ func (s authService) Login(req *models.LoginReq) (string, error) {
 		// --- 3. เช็คเงื่อนไขการแจ้งเตือน ---
 		if failCount == 3 {
 			// ผิดครั้งที่ 3: ส่ง Error Message เตือน
-			return "", errors.New("Warning: คุณใส่รหัสผิด 3 ครั้งแล้ว โปรดตรวจสอบรหัสให้ดี")
+			return nil, errors.New("Warning: คุณใส่รหัสผิด 3 ครั้งแล้ว โปรดตรวจสอบรหัสให้ดี")
 		}
 
 		if failCount >= 5 {
 			// ผิดครั้งที่ 5 หรือมากกว่า: แจ้งว่าโดนล็อค (User จะเห็นข้อความนี้ก่อนที่ Keycloak จะส่ง error disabled ในครั้งถัดไป)
-			return "", errors.New("Account Locked: คุณใส่รหัสผิดเกิน 5 ครั้ง บัญชีถูกระงับถาวร กรุณาติดต่อผู้ดูแลระบบ")
+			return nil, errors.New("Account Locked: คุณใส่รหัสผิดเกิน 5 ครั้ง บัญชีถูกระงับถาวร กรุณาติดต่อผู้ดูแลระบบ")
 		}
-		return "", errs.NewLoginFailedError()
+		return nil, errs.NewLoginFailedError()
 	}
 
 	// --- กรณี Login สำเร็จ ---
 	// ล้างตัวนับใน Redis ทิ้งทันที (Reset Counter)
 	s.Redis.Del(ctx, redisKey)
 
-	return token.AccessToken, nil
+	return token, nil
+}
+
+func (s *authService) RefreshToken(refreshToken string) (*gocloak.JWT, error) {
+    ctx := context.Background()
+    // ส่ง Refresh Token ใบเดิมไปแลกใบใหม่
+    token, err := s.keycloak.RefreshToken(ctx, refreshToken, s.cfg.KeyCloak.ClientID, s.cfg.KeyCloak.ClientSecret, s.cfg.KeyCloak.RealmName)
+    if err != nil {
+        return nil, err
+    }
+    return token, nil
+}
+
+func (s *authService) ChangePassword(oldPassword, newPassword string,userInfo *models.UserInfo) error {
+    ctx := context.Background()
+
+    // ขั้นตอนที่ 1: ตรวจสอบรหัสเดิม (ลอง Login ดู)
+    _, err := s.keycloak.Login(ctx, s.cfg.KeyCloak.ClientID, s.cfg.KeyCloak.ClientSecret, s.cfg.KeyCloak.RealmName, userInfo.UserName, oldPassword)
+    if err != nil {
+        return errors.New("รหัสผ่านเดิมไม่ถูกต้อง")
+    }
+
+    // ขั้นตอนที่ 2: Login เป็น Admin เพื่อขอสิทธิ์แก้ไข User (Service Account)
+    // หมายเหตุ: ต้องมั่นใจว่าใน Config มี AdminUsername/Password แล้ว
+    adminToken, err := s.keycloak.LoginAdmin(ctx, 
+        s.cfg.KeyCloak.AdminUsername, 
+        s.cfg.KeyCloak.AdminPassword, 
+        "master",
+    )
+    if err != nil {
+        return errors.New("ไม่สามารถเชื่อมต่อระบบจัดการผู้ใช้ได้ (Admin Login Failed)")
+    }
+
+    // ขั้นตอนที่ 3: สั่งเปลี่ยนรหัสผ่าน (SetPassword)
+    // temporary = false (ไม่ต้องเปลี่ยนใหม่ตอนล็อกอินหน้า)
+    err = s.keycloak.SetPassword(ctx, adminToken.AccessToken, userInfo.UserId, s.cfg.KeyCloak.RealmName, newPassword, false)
+    if err != nil {
+        return err
+    }
+
+    // (Optional) สั่ง Logout ทุกเครื่องเพื่อความปลอดภัย (ถ้าต้องการ)
+    // s.keycloak.LogoutAllSessions(ctx, adminToken.AccessToken, s.cfg.KeyCloak.RealmName, userID)
+
+    return nil
+}
+
+func (s *authService) AdminResetUserPassword(targetUserID string, newPassword string) error {
+    ctx := context.Background()
+
+    // 1. Login เป็น Admin ใหญ่ของ Keycloak (Service Account)
+    adminToken, err := s.keycloak.LoginAdmin(ctx, 
+        s.cfg.KeyCloak.AdminUsername, 
+        s.cfg.KeyCloak.AdminPassword, 
+        s.cfg.KeyCloak.RealmName,
+    )
+    if err != nil {
+        return errors.New("Admin connection failed")
+    }
+
+    // 2. สั่งตั้งรหัสผ่านใหม่
+    // temporary = true (สำคัญ! เพื่อบังคับให้ User ต้องเปลี่ยนรหัสเองอีกครั้งตอน Login)
+    err = s.keycloak.SetPassword(ctx, adminToken.AccessToken, targetUserID, s.cfg.KeyCloak.RealmName, newPassword, true)
+    
+    return err
 }
