@@ -7,7 +7,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/csrf"
 	"github.com/gofiber/fiber/v2/utils"
-	fiberSwagger "github.com/swaggo/fiber-swagger"
+	// fiberSwagger "github.com/swaggo/fiber-swagger"
 
 	"p2p-back-end/logs"
 	_authCon "p2p-back-end/modules/auth/controller"
@@ -20,13 +20,13 @@ func (s *server) Handlers() error {
 
 	v1 := s.App.Group("/v1")
 	// Register swagger handler
-	v1.Get("/swagger/*", fiberSwagger.WrapHandler)
+	// v1.Get("/swagger/*", fiberSwagger.WrapHandler)
 	v1.Use(middlewares.NewCorsOriginMiddleWare())
 	v1.Use(csrf.New(csrf.Config{
 		// 1. Frontend ต้องส่ง Token กลับมาทาง Header นี้
 		KeyLookup: "header:X-CSRF-Token",
 
-		// 2. ชื่อ Cookie ที่จะใช้เก็บ Token (คนละตัวกับ access_token นะ)
+		// 2. ชื่อ Cookie ที่จะใช้เก็บ Token (คนละตัวกับ access_token)
 		CookieName: "csrf_",
 
 		// 3. ความปลอดภัยของ Cookie

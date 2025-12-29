@@ -2,6 +2,10 @@ package models
 
 // request
 
+type UserRegisReq struct{
+	
+}
+
 type RegisterKCReq struct {
 	Username  string   `json:"username" example:"test1"`
 	Password  string   `json:"password" example:"test1"`
@@ -18,7 +22,13 @@ type LoginReq struct {
 }
 
 type ChangePasswordReq struct {
-	NewPassword string `json:"new_password" example:"test1111"`
+    OldPassword     string `json:"old_password" validate:"required" example:"old_secret123"`
+    NewPassword     string `json:"new_password" validate:"required,min=6" example:"new_secret123"`
+    ConfirmPassword string `json:"confirm_password" validate:"required,eqfield=NewPassword" example:"new_secret123"`
+}
+
+type AdminResetPasswordReq struct {
+	NewPassword string `json:"new_password" validate:"required,min=6"`
 }
 
 // res/////////////////////////////////////////////////////////
@@ -41,4 +51,8 @@ type ResponseData struct {
 	Status     string      `json:"status"`
 	StatusCode int         `json:"statusCode"`
 	Data       interface{} `json:"data"`
+}
+
+type UserRes struct{
+
 }
