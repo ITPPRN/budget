@@ -4,9 +4,10 @@ services:
     container_name: infisical_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: infisical
-      POSTGRES_PASSWORD: infisical
-      POSTGRES_DB: infisical
+      POSTGRES_DB: infisical_project
+      POSTGRES_USER: infisical_project
+      POSTGRES_PASSWORD: infisicalpass123
+
     volumes:
       - infisical_pgdata:/var/lib/postgresql/data
     networks:
@@ -18,7 +19,6 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-
   infisical_redis:
     image: redis:7-alpine
     container_name: infisical_redis
@@ -34,42 +34,36 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-
-  # เพิ่ม Service Infisical Server (Backend)
   infisical_server:
     image: infisical/infisical:latest
     container_name: infisical_server
     restart: unless-stopped
     environment:
-      # ดึงค่าจาก docker run เดิมมาใส่
       ENCRYPTION_KEY: 5f2e653aafcd04130c06d84038e32f25
       AUTH_SECRET: V1IaQPiNfhBThyH3IxR0Pk0HsipaQot+UmIbyXoObFo=
-      
-      # การเชื่อมต่อ DB: ใช้ชื่อ Service และพอร์ตภายใน Docker Compose
+
       DB_CONNECTION_URI: postgresql://infisical:infisical@infisical_postgres:5432/infisical
-      
-      # การเชื่อมต่อ Redis: ใช้ชื่อ Service และพอร์ตภายใน Docker Compose
+
       REDIS_URL: redis://infisical_redis:6379
-      
-      # SITE_URL ควรชี้ไปยัง URL ที่ผู้ใช้เข้าถึง (localhost) และพอร์ตที่เปิดออกไป
+
       SITE_URL: http://localhost:8121
-    
+
     ports:
-      - "8121:8080" # พอร์ต 8121 สำหรับ UI
-      
+      - "8121:8080"
+
     depends_on:
       infisical_postgres:
         condition: service_healthy
       infisical_redis:
         condition: service_healthy
-    
+
     networks:
       - infisical_net
-
 volumes:
   infisical_pgdata:
   infisical_redis:
-
 networks:
   infisical_net:
     driver: bridge
+
+    # docker compose up -d

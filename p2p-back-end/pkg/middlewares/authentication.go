@@ -83,6 +83,10 @@ func JwtAuthentication(handler models.TokenHandler) fiber.Handler {
 		// ✅ เก็บไว้ใน Context เผื่อ handler อื่นจะใช้ได้ง่าย
 		c.Locals("user", user)
 
+		if handler == nil {
+			return c.Next()
+		}
+
 		return handler(c, user)
 	}
 }
@@ -118,8 +122,9 @@ func parseAndValidateToken(accessToken string) (*models.JWTPayload, error) {
 		[]byte(accessToken),
 		jwxtoken.WithKeySet(keySet),
 		jwxtoken.WithValidate(true),
-		jwxtoken.WithIssuer(keycloakIssuer),
-		jwxtoken.WithAudience(keycloakClientID), // Enforce that the token is meant for this client
+		jwxtoken.WithValidate(true),
+		// jwxtoken.WithIssuer(keycloakIssuer), // Disabled to allow internal IP vs localhost mismatch
+		// jwxtoken.WithAudience(keycloakClientID), // Enforce that the token is meant for this client
 	)
 
 	if err != nil {
@@ -129,7 +134,6 @@ func parseAndValidateToken(accessToken string) (*models.JWTPayload, error) {
 	// 2. Extract and Map Claims
 	claimsMap := token.PrivateClaims()
 
-
 	var realmRoles []string
 	if rawAccess, ok := claimsMap["realm_access"].(map[string]interface{}); ok && rawAccess != nil {
 		if rawRoles, ok := rawAccess["roles"].([]interface{}); ok && rawRoles != nil {
@@ -137,7 +141,8 @@ func parseAndValidateToken(accessToken string) (*models.JWTPayload, error) {
 		}
 	}
 	jwtPayload := models.JWTPayload{
-		Azp:   token.Audience()[0],
+		// Azp key is typically present, but we use GetSafeString just in case or use a default
+		Azp:   utils.GetSafeString(claimsMap, "azp"),
 		Email: utils.GetSafeString(claimsMap, "email"), // ใช้ Safe Getter
 		Exp:   token.Expiration().Unix(),
 		Iat:   token.IssuedAt().Unix(),

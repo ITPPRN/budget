@@ -1,41 +1,31 @@
 services:
-  # ใช้เวอร์ชัน 16 แทน 18
   postgres:
-    image: postgres:16-alpine # เปลี่ยนเป็น 16-alpine
-    container_name: p2p_db
+    image: postgres:16-alpine
+    container_name: db_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: p2p-service
-      POSTGRES_USER: p2padmin
-      POSTGRES_PASSWORD: p2padmin++ 
+      POSTGRES_DB: budget-service
+      POSTGRES_USER: budgetadmin
+      POSTGRES_PASSWORD: budgetadmin++
     volumes:
-      - postgres_data:/var/lib/postgresql/data 
+      - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "9432:5432"
     networks:
       - app_network
-
-  # Redis ยังคงเหมือนเดิม
   redis:
-    image: redis:7-alpine 
-    container_name: p2p_redis
+    image: redis:7-alpine
+    container_name: rd_portgres
     restart: unless-stopped
     command: redis-server --requirepass pr01ec1s413
     ports:
       - "6379:6379"
     networks:
       - app_network
-# ... ส่วน Volumes และ Networks ที่เหลือ
-
-# Volumes สำหรับเก็บข้อมูลถาวร
 volumes:
   postgres_data:
-  # redis_data: # ไม่ได้ใช้ volume สำหรับ redis ในตัวอย่างนี้ แต่ถ้าต้องการเก็บข้อมูลไว้ถาวรก็สามารถเพิ่มได้
-
-# Network สำหรับให้คอนเทนเนอร์สื่อสารกัน
 networks:
   app_network:
     driver: bridge
 
-# sudo lsof -i :5432
-# sudo kill -9 298
+    # docker compose up -d

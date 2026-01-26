@@ -1,40 +1,33 @@
 services:
-  # ฐานข้อมูล Keycloak PostgreSQL
   kc-postgres:
     image: postgres:16
-    container_name: kc_postgres_db
+    container_name: keycloak_postgres_db
     environment:
-      # --- PostgreSQL Credentials (กำหนดตรงนี้เลย) ---
       POSTGRES_DB: keycloakdb
       POSTGRES_USER: keycloakuser
       POSTGRES_PASSWORD: very+secret+db+pass+p2p++
     volumes:
-      - kc_postgres_data:/var/lib/postgresql/data 
+      - kc_postgres_data:/var/lib/postgresql/data
     networks:
       - keycloak_network
     restart: unless-stopped
-
-  # Keycloak Server
   kc-server:
     image: quay.io/keycloak/keycloak:latest
     container_name: keycloak_server
     environment:
-      # --- Keycloak Admin Credentials (กำหนดตรงนี้เลย) ---
       KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: secure+admin+password+p2p
-      
-      # --- การตั้งค่าฐานข้อมูล (ใช้ค่าเดียวกับ kc-postgres) ---
+      KEYCLOAK_ADMIN_PASSWORD: adminkeycloakpass123
+
       KC_DB: postgres
-      KC_DB_URL: jdbc:postgresql://kc-postgres/keycloakdb 
+      KC_DB_URL: jdbc:postgresql://kc-postgres/keycloakdb
       KC_DB_USERNAME: keycloakuser
       KC_DB_PASSWORD: very+secret+db+pass+p2p++
-      
-      # การตั้งค่า Hostname สำหรับ Dev Mode
+
       KC_HOSTNAME: localhost
       KC_HOSTNAME_PORT: 9080
-      KC_HEALTH_ENABLED: true 
-      
-    command: start-dev 
+      KC_HEALTH_ENABLED: true
+
+    command: start-dev
     ports:
       - "9080:8080"
     depends_on:
@@ -42,12 +35,10 @@ services:
     networks:
       - keycloak_network
     restart: unless-stopped
-
 volumes:
-  kc_postgres_data: 
-
+  kc_postgres_data:
 networks:
   keycloak_network:
     driver: bridge
 
-# รันด้วย: docker compose up -d
+    # docker compose up -d

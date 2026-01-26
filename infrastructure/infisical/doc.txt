@@ -1,7 +1,0 @@
-// docker run -d -p 8121:8080 \
-//   -e ENCRYPTION_KEY=5f2e653aafcd04130c06d84038e32f25 \
-//   -e AUTH_SECRET="V1IaQPiNfhBThyH3IxR0Pk0HsipaQot+UmIbyXoObFo=" \
-//   -e DB_CONNECTION_URI="postgresql://infisical:infisical@192.168.1.131:5435/infisical" \
-//   -e REDIS_URL="redis://192.168.1.131:5436" \
-//   -e SITE_URL="http://localhost:8121" \
-//   infisical/infisical:latest

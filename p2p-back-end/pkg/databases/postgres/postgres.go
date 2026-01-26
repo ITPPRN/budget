@@ -13,52 +13,53 @@ import (
 )
 
 func NewPostgresConnection(cfg *configs.Config) (*gorm.DB, error) {
-    dsn, err := utils.UrlBuilder("postgres", cfg)
-    if err != nil {
-        return nil, err
-    }
+	dsn, err := utils.UrlBuilder("postgres", cfg)
+	if err != nil {
+		return nil, err
+	}
 
-    db, err := gorm.Open(postgres.New(postgres.Config{
-        DSN:                  dsn,
-        PreferSimpleProtocol: true,
-    }), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Error),
-        // Logger: logger.Default.LogMode(logger.Info), // เปิด Info เพื่อดู SQL ที่เกิดขึ้นจริง
+	db, err := gorm.Open(postgres.New(postgres.Config{
+		DSN:                  dsn,
+		PreferSimpleProtocol: true,
+	}), &gorm.Config{
+		Logger:                                   logger.Default.LogMode(logger.Error),
 		DisableForeignKeyConstraintWhenMigrating: true,
-    })
+	})
 
-    if err != nil {
-        logs.Error("Failed to connect to database: ", zap.Error(err))
-        return nil, err
-    }
+	if err != nil {
+		logs.Error("Failed to connect to database: ", zap.Error(err))
+		return nil, err
+	}
 
-    // 1. สร้าง Extension
-    db.Exec("CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\";")
+	// 1. สร้าง Extension
+	db.Exec("CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\";")
 
-    // 2. สั่ง AutoMigrate ทั้งหมด (ตอนนี้จะผ่านฉลุยเพราะมันจะสร้างแค่ตาราง ไม่เช็ค FK)
-    err = db.AutoMigrate(
-        &models.DepartmentEntity{},
-        &models.UserEntity{},
-        &models.VendorEntity{},
-        &models.ProductEntity{},
-        &models.PurchaseRequestEntity{},
-        &models.PrItemEntity{},
-        &models.PurchaseOrderEntity{},
-        &models.GoodsReceiptEntity{},
-        &models.ApVoucherEntity{},
-        &models.PaymentEntity{},
-    )
+	// 2. Auto Migrate (สร้าง Table อัตโนมัติ)
+	err = db.AutoMigrate(
+		// Auth & Base
+		&models.UserEntity{},
+		&models.DepartmentEntity{},
 
-    if err != nil {
-        logs.Error("Critical: AutoMigrate failed: ", zap.Error(err))
-        return nil, err
-    }
+		// Budget & Capex (Flattened Type 2: Header + Detail)
+		&models.FileBudgetEntity{},
+		&models.FileCapexBudgetEntity{},
+		&models.FileCapexActualEntity{},
 
-    // 3. ✅ (Optional) ถ้าต้องการให้มี Foreign Key ใน Database จริงๆ 
-    // หลังจาก Migrate ตารางเสร็จแล้ว ให้เปิดการสร้าง FK แล้วสั่ง Migrate ซ้ำอีกรอบ
-    db.Config.DisableForeignKeyConstraintWhenMigrating = false
-    db.AutoMigrate(&models.DepartmentEntity{}, &models.UserEntity{})
+		&models.BudgetFactEntity{},
+		&models.BudgetAmountEntity{}, // New Detail Table
 
-    logs.Info("Database connected and migrated successfully with Base Practice 🐘")
-    return db, nil
+		&models.CapexBudgetFactEntity{},
+		&models.CapexBudgetAmountEntity{}, // New Detail Table
+
+		&models.CapexActualFactEntity{},
+		&models.CapexActualAmountEntity{}, // New Detail Table
+	)
+
+	if err != nil {
+		logs.Error("Failed to migrate database: ", zap.Error(err))
+		return nil, err
+	}
+
+	logs.Info("Database connected and migrated successfully with Base Practice 🐘")
+	return db, nil
 }
