@@ -1,25 +1,30 @@
 import HomeIcon from '@mui/icons-material/Home';
 import SettingsIcon from '@mui/icons-material/Settings';
 import PersonIcon from '@mui/icons-material/Person';
+import StepIcon from '@mui/material/StepIcon';
+import BusinessCenterIcon from '@mui/icons-material/BusinessCenter';
+import WorkIcon from '@mui/icons-material/Work'
 
 // กำหนดรายการเมนูที่นี่ที่เดียว
 export const MENU_ITEMS = [
   {
-    title: 'หน้าหลัก',
+    title: 'Dashboard',
     path: '/home',
     icon: <HomeIcon />,
   },
   {
-    title: 'กลุ่มลูกค้าคาดหวัง',
-    path: '/prospect',
-    icon: <PersonIcon />,
+    title: 'Detail Report',
+    path: '/detail',
+    icon: <BusinessCenterIcon />,
   },
   {
-    title: 'จัดการข้อมูล',
-    icon: <SettingsIcon />,
-    children: [ // เมนูย่อย
-      { title: 'ใบเสนอราคา', path: '/manage/quotation' },
-      { title: 'ข้อมูลลูกค้า', path: '/manage/customer' },
-    ]
+    title: 'User Management',
+    path: '/user',
+    icon: <PersonIcon />
+  },
+  {
+    title: 'Data Management',
+    path: '/data',
+    icon: <SettingsIcon />
   }
 ];

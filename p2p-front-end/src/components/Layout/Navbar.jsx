@@ -23,8 +23,8 @@ const Navbar = ({ user, onLogout, onToggle }) => {
         </IconButton>
 
         {/* ชื่อระบบ */}
-        <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1, fontWeight: 'bold' }}>
-          P2P Service System
+        <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1, fontWeight: 'bold', color: 'white' }}>
+          Budget Service System
         </Typography>
 
         {/* โซนขวา: Theme + User + Logout */}
@@ -36,10 +36,10 @@ const Navbar = ({ user, onLogout, onToggle }) => {
             {/* ถ้ามี User ให้โชว์ชื่อ */}
             {user && (
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Avatar sx={{ bgcolor: 'secondary.main', width: 32, height: 32 }}>
+                    <Avatar sx={{ bgcolor: 'secondary.main', width: 32, height: 32 , }}>
                         {user.username ? user.username.charAt(0).toUpperCase() : 'U'}
                     </Avatar>
-                    <Typography variant="subtitle2" sx={{ display: { xs: 'none', sm: 'block' } }}>
+                    <Typography variant="subtitle2" sx={{ display: { xs: 'none', sm: 'block', color: 'white' } }}>
                         {user.username || 'ผู้ใช้งาน'}
                     </Typography>
                 </Box>
