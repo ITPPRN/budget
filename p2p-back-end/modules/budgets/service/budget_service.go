@@ -2,7 +2,10 @@ package service
 
 import (
 	"fmt"
+	"io"
 	"mime/multipart"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -24,27 +27,112 @@ func NewBudgetService(repo models.BudgetRepository) models.BudgetService {
 // ---------------------------------------------------------------------
 // 1. Import Budget (PL)
 // ---------------------------------------------------------------------
-func (s *budgetService) ImportBudget(fileHeader *multipart.FileHeader, userID string) error {
-	xlsx, err := openExcelFile(fileHeader)
-	if err != nil {
+
+// ---------------------------------------------------------------------
+// 1. Import Budget (PL) - Upload ONLY
+// ---------------------------------------------------------------------
+func (s *budgetService) ImportBudget(fileHeader *multipart.FileHeader, userID string, versionName string) error {
+	// 1. Create File Record First to get ID
+	fileNameToSave := fileHeader.Filename
+	if versionName != "" {
+		fileNameToSave = versionName
+	}
+	fileEntity := &models.FileBudgetEntity{
+		ID: uuid.New(), FileName: fileNameToSave, UploadAt: time.Now(), UserID: userID,
+	}
+
+	if err := s.repo.CreateFileBudget(fileEntity); err != nil {
 		return err
+	}
+
+	// 2. Save File to Disk
+	if err := saveFileToDisk(fileHeader, "budget", fileEntity.ID.String()); err != nil {
+		// Clean up DB if save fails
+		s.repo.DeleteFileBudget(fileEntity.ID.String())
+		return err
+	}
+
+	return nil
+}
+
+// ---------------------------------------------------------------------
+// 2. Import Capex Budget
+// ---------------------------------------------------------------------
+func (s *budgetService) ImportCapexBudget(fileHeader *multipart.FileHeader, userID string, versionName string) error {
+	fileNameToSave := fileHeader.Filename
+	if versionName != "" {
+		fileNameToSave = versionName
+	}
+	fileEntity := &models.FileCapexBudgetEntity{
+		ID: uuid.New(), FileName: fileNameToSave, UploadAt: time.Now(), UserID: userID,
+	}
+
+	if err := s.repo.CreateFileCapexBudget(fileEntity); err != nil {
+		return err
+	}
+
+	if err := saveFileToDisk(fileHeader, "capex_budget", fileEntity.ID.String()); err != nil {
+		s.repo.DeleteFileCapexBudget(fileEntity.ID.String())
+		return err
+	}
+
+	return nil
+}
+
+// ---------------------------------------------------------------------
+// 3. Import Capex Actual
+// ---------------------------------------------------------------------
+func (s *budgetService) ImportCapexActual(fileHeader *multipart.FileHeader, userID string, versionName string) error {
+	fileNameToSave := fileHeader.Filename
+	if versionName != "" {
+		fileNameToSave = versionName
+	}
+	fileEntity := &models.FileCapexActualEntity{
+		ID: uuid.New(), FileName: fileNameToSave, UploadAt: time.Now(), UserID: userID,
+	}
+
+	if err := s.repo.CreateFileCapexActual(fileEntity); err != nil {
+		return err
+	}
+
+	if err := saveFileToDisk(fileHeader, "capex_actual", fileEntity.ID.String()); err != nil {
+		s.repo.DeleteFileCapexActual(fileEntity.ID.String())
+		return err
+	}
+
+	return nil
+}
+
+// Sync Budget - Process & Replace Data
+func (s *budgetService) SyncBudget(fileID string) error {
+	// Check if file exists on disk
+	filePath := fmt.Sprintf("./uploads/budget/%s.xlsx", fileID)
+	xlsx, err := excelize.OpenFile(filePath)
+	if err != nil {
+		return fmt.Errorf("file not found on server: %v", err)
 	}
 	defer xlsx.Close()
 
+	// Debug: Print all sheets
+	sheets := xlsx.GetSheetList()
+	fmt.Printf("[Debug] FileID: %s, Sheets found: %v\n", fileID, sheets)
+
 	sheetName, err := findTargetSheet(xlsx, isBudgetHeader)
 	if err != nil {
-		return fmt.Errorf("invalid Budget file format: missing required columns (Branch, GL)")
+		return fmt.Errorf("invalid Budget file format: missing required columns")
 	}
+	fmt.Printf("[Debug] Selected Sheet: %s\n", sheetName)
 
+	// 2. Transaction: Delete All & Insert New
 	return s.repo.WithTrx(func(trxRepo models.BudgetRepository) error {
-		fileEntity := &models.FileBudgetEntity{
-			ID: uuid.New(), FileName: fileHeader.Filename, UploadAt: time.Now(), UserID: userID,
-		}
-		if err := trxRepo.CreateFileBudget(fileEntity); err != nil {
+		// Delete All Existing Data
+		if err := trxRepo.DeleteAllBudgetFacts(); err != nil {
 			return err
 		}
 
-		headers, err := s.processBudgetFact(xlsx, sheetName, fileEntity.ID)
+		// Process & Insert
+		parsedUUID, _ := uuid.Parse(fileID)
+		headers, err := s.processBudgetFact(xlsx, sheetName, parsedUUID)
 		if err != nil {
 			return err
 		}
@@ -55,30 +143,27 @@ func (s *budgetService) ImportBudget(fileHeader *multipart.FileHeader, userID st
 	})
 }
 
-// ---------------------------------------------------------------------
-// 2. Import CAPEX Budget (Plan)
-// ---------------------------------------------------------------------
-func (s *budgetService) ImportCapexBudget(fileHeader *multipart.FileHeader, userID string) error {
-	xlsx, err := openExcelFile(fileHeader)
+// Sync Capex Budget
+func (s *budgetService) SyncCapexBudget(fileID string) error {
+	filePath := fmt.Sprintf("./uploads/capex_budget/%s.xlsx", fileID)
+	xlsx, err := excelize.OpenFile(filePath)
 	if err != nil {
-		return err
+		return fmt.Errorf("file not found on server: %v", err)
 	}
 	defer xlsx.Close()
 
 	sheetName, err := findTargetSheet(xlsx, isCapexBudgetHeader)
 	if err != nil {
-		return fmt.Errorf("invalid CAPEX Plan file format: missing required columns (CAPEX No)")
+		return fmt.Errorf("invalid Capex Budget file format: missing required columns")
 	}
 
 	return s.repo.WithTrx(func(trxRepo models.BudgetRepository) error {
-		fileEntity := &models.FileCapexBudgetEntity{
-			ID: uuid.New(), FileName: fileHeader.Filename, UploadAt: time.Now(), UserID: userID,
-		}
-		if err := trxRepo.CreateFileCapexBudget(fileEntity); err != nil {
+		if err := trxRepo.DeleteAllCapexBudgetFacts(); err != nil {
 			return err
 		}
 
-		headers, err := s.processCapexBudgetFact(xlsx, sheetName, fileEntity.ID)
+		parsedUUID, _ := uuid.Parse(fileID)
+		headers, err := s.processCapexBudgetFact(xlsx, sheetName, parsedUUID)
 		if err != nil {
 			return err
 		}
@@ -89,30 +174,27 @@ func (s *budgetService) ImportCapexBudget(fileHeader *multipart.FileHeader, user
 	})
 }
 
-// ---------------------------------------------------------------------
-// 3. Import CAPEX Actual
-// ---------------------------------------------------------------------
-func (s *budgetService) ImportCapexActual(fileHeader *multipart.FileHeader, userID string) error {
-	xlsx, err := openExcelFile(fileHeader)
+// Sync Capex Actual
+func (s *budgetService) SyncCapexActual(fileID string) error {
+	filePath := fmt.Sprintf("./uploads/capex_actual/%s.xlsx", fileID)
+	xlsx, err := excelize.OpenFile(filePath)
 	if err != nil {
-		return err
+		return fmt.Errorf("file not found on server: %v", err)
 	}
 	defer xlsx.Close()
 
-	sheetName, err := findTargetSheet(xlsx, isCapexBudgetHeader) // Reuse same check
+	sheetName, err := findTargetSheet(xlsx, isCapexBudgetHeader)
 	if err != nil {
-		return fmt.Errorf("invalid CAPEX Actual file format: missing required columns")
+		return fmt.Errorf("invalid Capex Actual file format: missing required columns")
 	}
 
 	return s.repo.WithTrx(func(trxRepo models.BudgetRepository) error {
-		fileEntity := &models.FileCapexActualEntity{
-			ID: uuid.New(), FileName: fileHeader.Filename, UploadAt: time.Now(), UserID: userID,
-		}
-		if err := trxRepo.CreateFileCapexActual(fileEntity); err != nil {
+		if err := trxRepo.DeleteAllCapexActualFacts(); err != nil {
 			return err
 		}
 
-		headers, err := s.processCapexActualFact(xlsx, sheetName, fileEntity.ID)
+		parsedUUID, _ := uuid.Parse(fileID)
+		headers, err := s.processCapexActualFact(xlsx, sheetName, parsedUUID)
 		if err != nil {
 			return err
 		}
@@ -121,53 +203,6 @@ func (s *budgetService) ImportCapexActual(fileHeader *multipart.FileHeader, user
 		}
 		return nil
 	})
-}
-
-// ---------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------
-
-func openExcelFile(fileHeader *multipart.FileHeader) (*excelize.File, error) {
-	src, err := fileHeader.Open()
-	if err != nil {
-		return nil, err
-	}
-	defer src.Close()
-
-	return excelize.OpenReader(src)
-}
-
-func findTargetSheet(f *excelize.File, validator func([]string) bool) (string, error) {
-	for _, name := range f.GetSheetList() {
-		rows, err := f.GetRows(name, excelize.Options{RawCellValue: true})
-		if err != nil || len(rows) == 0 {
-			continue
-		}
-		for i := 0; i < 3 && i < len(rows); i++ {
-			if validator(rows[i]) {
-				return name, nil
-			}
-		}
-	}
-	return "", fmt.Errorf("not found")
-}
-
-func isBudgetHeader(row []string) bool {
-	if len(row) > 1 && containsIgnoreCase(row[1], "Branch") {
-		return true
-	}
-	return false
-}
-
-func isCapexBudgetHeader(row []string) bool {
-	if len(row) > 2 && containsIgnoreCase(row[2], "CAPEX No") {
-		return true
-	}
-	return false
-}
-
-func containsIgnoreCase(s, substr string) bool {
-	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
 }
 
 // ---------------------------------------------------------------------
@@ -192,6 +227,12 @@ func (s *budgetService) processBudgetFact(f *excelize.File, sheetName string, fi
 	months := []string{"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"}
 
 	fmt.Printf("[Debug] Budget Import - Sheet: %s, Total Rows: %d\n", sheetName, len(rows))
+	if len(rows) > 0 {
+		fmt.Printf("[Debug] Header Row: %v\n", rows[0])
+	}
+	if len(rows) > 1 {
+		fmt.Printf("[Debug] First Data Row: %v\n", rows[1])
+	}
 
 	for i, row := range rows {
 		if i == 0 {
@@ -200,6 +241,7 @@ func (s *budgetService) processBudgetFact(f *excelize.File, sheetName string, fi
 
 		// Minimal check: Entity(0) to Dept(6)
 		if len(row) < 7 {
+			fmt.Printf("[Debug] Skipping Row %d: Not enough columns (%d)\n", i, len(row))
 			continue
 		}
 
@@ -356,4 +398,120 @@ func parseDecimal(s string) decimal.Decimal {
 		return decimal.Zero
 	}
 	return d
+}
+
+// ---------------------------------------------------------------------
+// List Files Methods
+// ---------------------------------------------------------------------
+
+func (s *budgetService) ListBudgetFiles() ([]models.FileBudgetEntity, error) {
+	return s.repo.ListFileBudgets()
+}
+
+func (s *budgetService) ListCapexBudgetFiles() ([]models.FileCapexBudgetEntity, error) {
+	return s.repo.ListFileCapexBudgets()
+}
+
+func (s *budgetService) ListCapexActualFiles() ([]models.FileCapexActualEntity, error) {
+	return s.repo.ListFileCapexActuals()
+}
+
+// ---------------------------------------------------------------------
+// Management Methods (Delete / Rename)
+// ---------------------------------------------------------------------
+
+func (s *budgetService) DeleteBudgetFile(id string) error {
+	return s.repo.DeleteFileBudget(id)
+}
+func (s *budgetService) DeleteCapexBudgetFile(id string) error {
+	return s.repo.DeleteFileCapexBudget(id)
+}
+func (s *budgetService) DeleteCapexActualFile(id string) error {
+	return s.repo.DeleteFileCapexActual(id)
+}
+
+func (s *budgetService) RenameBudgetFile(id string, newName string) error {
+	return s.repo.UpdateFileBudget(id, newName)
+}
+func (s *budgetService) RenameCapexBudgetFile(id string, newName string) error {
+	return s.repo.UpdateFileCapexBudget(id, newName)
+}
+func (s *budgetService) RenameCapexActualFile(id string, newName string) error {
+	return s.repo.UpdateFileCapexActual(id, newName)
+}
+
+// ---------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------
+
+func saveFileToDisk(fileHeader *multipart.FileHeader, subDir string, id string) error {
+	// 1. Prepare Directory
+	uploadDir := fmt.Sprintf("./uploads/%s", subDir)
+	if err := os.MkdirAll(uploadDir, os.ModePerm); err != nil {
+		return err
+	}
+
+	// 2. Open Source File
+	src, err := fileHeader.Open()
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+
+	// 3. Create Dest File
+	dstPath := filepath.Join(uploadDir, fmt.Sprintf("%s.xlsx", id))
+	dst, err := os.Create(dstPath)
+	if err != nil {
+		return err
+	}
+	defer dst.Close()
+
+	// 4. Copy
+	if _, err := io.Copy(dst, src); err != nil {
+		return err
+	}
+	return nil
+}
+
+func openExcelFile(fileHeader *multipart.FileHeader) (*excelize.File, error) {
+	src, err := fileHeader.Open()
+	if err != nil {
+		return nil, err
+	}
+	defer src.Close()
+
+	return excelize.OpenReader(src)
+}
+
+func findTargetSheet(f *excelize.File, validator func([]string) bool) (string, error) {
+	for _, name := range f.GetSheetList() {
+		rows, err := f.GetRows(name, excelize.Options{RawCellValue: true})
+		if err != nil || len(rows) == 0 {
+			continue
+		}
+		for i := 0; i < 3 && i < len(rows); i++ {
+			if validator(rows[i]) {
+				return name, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("not found")
+}
+
+func isBudgetHeader(row []string) bool {
+	if len(row) > 1 && containsIgnoreCase(row[1], "Branch") {
+		return true
+	}
+	return false
+}
+
+func isCapexBudgetHeader(row []string) bool {
+	if len(row) > 2 && containsIgnoreCase(row[2], "CAPEX No") {
+		return true
+	}
+	return false
+}
+
+func containsIgnoreCase(s, substr string) bool {
+	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
 }

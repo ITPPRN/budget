@@ -9,16 +9,12 @@ const ConfigContext = createContext();
 export const useConfig = () => useContext(ConfigContext);
 
 export const ConfigProvider = ({ children }) => {
-  // 1. อ่านค่าจาก LocalStorage ก่อน (ถ้าไม่มีให้เป็น 'light')
-  const [mode, setMode] = useState(localStorage.getItem('themeMode') || 'light');
+  // 1. Force 'light' mode
+  const mode = 'light';
 
-  // 2. ฟังก์ชันสลับโหมด
+  // 2. Disable toggle function
   const toggleColorMode = () => {
-    setMode((prevMode) => {
-      const newMode = prevMode === 'light' ? 'dark' : 'light';
-      localStorage.setItem('themeMode', newMode); // บันทึกลงเครื่อง
-      return newMode;
-    });
+    // No-op
   };
 
   // 3. สร้าง Theme Object จริงๆ จากโหมดปัจจุบัน

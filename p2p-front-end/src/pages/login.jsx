@@ -117,10 +117,10 @@ function Login() {
                   onError={(e) => { e.target.style.display = 'none' }} // ถ้าไม่มีรูปให้ซ่อน
                 />
                 <Typography variant="h5" sx={{ mt: 2, fontWeight: 'bold' }} >
-                  P2P Service
+                  Budget Service
                 </Typography>
                 <Typography variant="body2" >
-                  ระบบจัดซื้อและการจัดการ
+                  ระบบบริการงบประมาณ
                 </Typography>
               </Box>
 
