@@ -8,7 +8,7 @@ import ActualTable from '../components/Budget/ActualTable';
 
 // Inner component that consumes the context
 const DetailContent = () => {
-  const { selectedLeaves } = useBudget();
+  const { selectedLeaves, getAllLeafIds } = useBudget();
 
   // Data Fetching State
   const [budgetDetails, setBudgetDetails] = useState([]);
@@ -16,17 +16,27 @@ const DetailContent = () => {
 
   // Auto Fetch Details when Selection Changes
   useEffect(() => {
+    let isMounted = true;
+
     const fetchDetails = async () => {
-      if (selectedLeaves.size === 0) {
-        setBudgetDetails([]);
+      // Logic: If selection is empty -> Fetch ALL. If selection exists -> Fetch Selected.
+      const idsToFetch = selectedLeaves.size > 0
+        ? Array.from(selectedLeaves)
+        : getAllLeafIds();
+
+      // Ensure we have IDs to fetch (edge case: empty tree)
+      if (idsToFetch.length === 0) {
+        if (isMounted) setBudgetDetails([]);
         return;
       }
 
-      setLoadingDetails(true);
+      if (isMounted) setLoadingDetails(true);
       try {
-        const selectedArr = Array.from(selectedLeaves);
-        const payload = { conso_gls: selectedArr };
+        const payload = { conso_gls: idsToFetch };
         const res = await api.post('/budgets/details', payload);
+
+        if (!isMounted) return;
+
         const rawData = res.data || [];
 
         // Aggregate Data by GL Code + GL Name
@@ -60,16 +70,20 @@ const DetailContent = () => {
           }
         });
 
-        setBudgetDetails(Array.from(aggregatedMap.values()));
+        if (isMounted) setBudgetDetails(Array.from(aggregatedMap.values()));
       } catch (error) {
         console.error("Fetch details error:", error);
       } finally {
-        setLoadingDetails(false);
+        if (isMounted) setLoadingDetails(false);
       }
     };
 
     fetchDetails();
-  }, [selectedLeaves]);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedLeaves, getAllLeafIds]);
 
   return (
     <Box sx={{ p: 2, height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -77,7 +91,7 @@ const DetailContent = () => {
       {/* Header */}
       <Box sx={{ mb: 1, flexShrink: 0 }}>
         <Box sx={{ color: 'primary.main', fontWeight: 'bold', fontSize: '1.5rem' }}>
-          Budget Detail Report
+          รายงานรายละเอียด
         </Box>
       </Box>
 
@@ -85,7 +99,7 @@ const DetailContent = () => {
       <Box sx={{
         display: 'grid',
         gridTemplateColumns: { xs: '1fr', md: '280px minmax(0, 1fr)' },
-        gridTemplateRows: '1fr',
+        gridTemplateRows: { xs: '320px 1fr', md: '1fr' },
         gap: 2,
         flexGrow: 1,
         overflow: 'hidden',
@@ -100,7 +114,8 @@ const DetailContent = () => {
         <Box sx={{
           display: 'flex',
           flexDirection: 'column',
-          overflow: 'hidden',
+          overflowX: 'hidden',
+          overflowY: { xs: 'auto', md: 'hidden' }, // Scroll on mobile, hidden on desktop
           height: '100%',
           minWidth: 0
         }}>

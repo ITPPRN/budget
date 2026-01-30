@@ -383,6 +383,7 @@ export const STATIC_FILTER_OPTIONS = [
             }
         ]
     },
+
     {
         id: "Selling Expense", name: "Selling Expense", level: 1,
         children: [
@@ -390,7 +391,7 @@ export const STATIC_FILTER_OPTIONS = [
                 id: "SELL1_Staff expense", name: "SELL1_Staff expense", level: 2,
                 children: [
                     {
-                        id: "Staff1_Salary&OT", name: "Staff1_Salary&OT", level: 3,
+                        id: "SELL_Staff1_Salary&OT", name: "Staff1_Salary&OT", level: 3,
                         children: [
                             { id: "61110010", name: "61110010-ค่านายหน้าในการขาย", level: 4 },
                             { id: "61110015", name: "61110015-ค่านายหน้าอื่น", level: 4 },
@@ -412,11 +413,11 @@ export const STATIC_FILTER_OPTIONS = [
                         ]
                     },
                     {
-                        id: "Staff2_Welfare", name: "Staff2_Welfare", level: 3,
+                        id: "SELL_Staff2_Welfare", name: "Staff2_Welfare", level: 3,
                         children: [{ id: "61110020", name: "61110020-ค่าสวัสดิการพนักงาน-ขาย", level: 4 }]
                     },
                     {
-                        id: "Staff4_Other benefits", name: "Staff4_Other benefits", level: 3,
+                        id: "SELL_Staff4_Other benefits", name: "Staff4_Other benefits", level: 3,
                         children: [
                             { id: "61110023", name: "61110023-เงินสมทบประกันสังคมนายจ้าง-ขาย", level: 4 },
                             { id: "61110024", name: "61110024-กองทุนสํารองเลี้ยงชีพ-ขาย", level: 4 },
@@ -429,11 +430,11 @@ export const STATIC_FILTER_OPTIONS = [
                         ]
                     },
                     {
-                        id: "Staff7_EBO", name: "Staff7_EBO", level: 3,
+                        id: "SELL_Staff7_EBO", name: "Staff7_EBO", level: 3,
                         children: [{ id: "61110019", name: "61110019-ผลประโยชน์พนักงานหลังออกจากงาน-ขาย", level: 4 }]
                     },
                     {
-                        id: "Staff9_Travelling", name: "Staff9_Travelling", level: 3,
+                        id: "SELL_Staff9_Travelling", name: "Staff9_Travelling", level: 3,
                         children: [
                             { id: "61110021", name: "61110021-ค่าน้ำมันเชื้อเพลิง-ขาย", level: 4 },
                             { id: "61110033", name: "61110033-ค่าใช้จ่ายในการเดินทาง-ขาย", level: 4 }
@@ -445,15 +446,15 @@ export const STATIC_FILTER_OPTIONS = [
                 id: "SELL2_Marketing expense", name: "SELL2_Marketing expense", level: 2,
                 children: [
                     {
-                        id: "Market1_Advertising", name: "Market1_Advertising", level: 3,
+                        id: "SELL_Market1_Advertising", name: "Market1_Advertising", level: 3,
                         children: [{ id: "61110013", name: "61110013-ค่าโฆษณา", level: 4 }]
                     },
                     {
-                        id: "Market2_Promotion", name: "Market2_Promotion", level: 3,
+                        id: "SELL_Market2_Promotion", name: "Market2_Promotion", level: 3,
                         children: [{ id: "61110012", name: "61110012-ค่าส่งเสริมการขาย-อื่น", level: 4 }]
                     },
                     {
-                        id: "Market3_Event", name: "Market3_Event", level: 3,
+                        id: "SELL_Market3_Event", name: "Market3_Event", level: 3,
                         children: [{ id: "61110014", name: "61110014-ค่าจัดกิจกรรมทางการตลาด", level: 4 }]
                     }
                 ]
@@ -462,7 +463,7 @@ export const STATIC_FILTER_OPTIONS = [
                 id: "SELL3_D&A", name: "SELL3_D&A", level: 2,
                 children: [
                     {
-                        id: "D&A1_Depreciation", name: "D&A1_Depreciation", level: 3,
+                        id: "SELL_D&A1_Depreciation", name: "D&A1_Depreciation", level: 3,
                         children: [
                             { id: "61110016", name: "61110016-ค่าเสื่อมราคา-ขาย", level: 4 },
                             { id: "61110028", name: "61110028-ค่าเสื่อมราคาสัญญาเช่า-ขาย", level: 4 }
@@ -474,7 +475,7 @@ export const STATIC_FILTER_OPTIONS = [
                 id: "SELL4_Maintenance", name: "SELL4_Maintenance", level: 2,
                 children: [
                     {
-                        id: "Maint1_Repair", name: "Maint1_Repair", level: 3,
+                        id: "SELL_Maint1_Repair", name: "Maint1_Repair", level: 3,
                         children: [{ id: "61110032", name: "61110032-ค่าซ่อมแซมบำรุงรักษา-ขาย", level: 4 }]
                     }
                 ]
@@ -483,7 +484,7 @@ export const STATIC_FILTER_OPTIONS = [
                 id: "SELL5_Other selling", name: "SELL5_Other selling", level: 2,
                 children: [
                     {
-                        id: "Finance4_Fee", name: "Finance4_Fee", level: 3,
+                        id: "SELL_Finance4_Fee", name: "Finance4_Fee", level: 3,
                         children: [
                             { id: "61110029", name: "61110029-ค่าธรรมเนียมการขาย-ออนไลน์", level: 4 },
                             { id: "61110030", name: "61110030-ค่าธุรกรรมการชําระเงินออนไลน์", level: 4 },
@@ -491,18 +492,18 @@ export const STATIC_FILTER_OPTIONS = [
                         ]
                     },
                     {
-                        id: "Freight1_Freight", name: "Freight1_Freight", level: 3,
+                        id: "SELL_Freight1_Freight", name: "Freight1_Freight", level: 3,
                         children: [
                             { id: "61110018", name: "61110018-ค่าขนส่งรถยนต์และอะไหล่-ขาย", level: 4 },
                             { id: "61110031", name: "61110031-ค่าขนส่ง-ออนไลน์", level: 4 }
                         ]
                     },
                     {
-                        id: "Miscellaneous expenses", name: "Miscellaneous expenses", level: 3,
+                        id: "SELL_Miscellaneous expenses", name: "Miscellaneous expenses", level: 3,
                         children: [{ id: "61110034", name: "61110034-ค่าใช้จ่ายเบ็ดเตล็ด-ขาย", level: 4 }]
                     },
                     {
-                        id: "Rent2_Land", name: "Rent2_Land", level: 3,
+                        id: "SELL_Rent2_Land", name: "Rent2_Land", level: 3,
                         children: [{ id: "61110025", name: "61110025-ค่าเช่าที่ดิน-ขาย", level: 4 }]
                     }
                 ]
@@ -516,30 +517,30 @@ export const STATIC_FILTER_OPTIONS = [
                 id: "SVC10_Other costs", name: "SVC10_Other costs", level: 2,
                 children: [
                     {
-                        id: "Postage1_Postage", name: "Postage1_Postage", level: 3,
+                        id: "SVC_Postage1_Postage", name: "Postage1_Postage", level: 3,
                         children: [
                             { id: "51310030", name: "51310030-ค่าขนส่งพัสดุ-บริการ", level: 4 },
                             { id: "51310040", name: "51310040-ค่าขนส่งอื่น-ไม่ใช่รถยนต์และอะไหล่-บริการ", level: 4 }
                         ]
                     },
                     {
-                        id: "Rent2_Land", name: "Rent2_Land", level: 3,
+                        id: "SVC_Rent2_Land", name: "Rent2_Land", level: 3,
                         children: [{ id: "51310023", name: "51310023-ค่าเช่าที่ดิน-บริการ", level: 4 }]
                     },
                     {
-                        id: "Supplies1_Supplies", name: "Supplies1_Supplies", level: 3,
+                        id: "SVC_Supplies1_Supplies", name: "Supplies1_Supplies", level: 3,
                         children: [{ id: "51310020", name: "51310020-วัสดุสิ้นเปลืองใช้ไป-บริการ", level: 4 }]
                     },
                     {
-                        id: "Supplies2_Stationary", name: "Supplies2_Stationary", level: 3,
+                        id: "SVC_Supplies2_Stationary", name: "Supplies2_Stationary", level: 3,
                         children: [{ id: "51310021", name: "51310021-เครื่องเขียนแบบพิมพ์-บริการ", level: 4 }]
                     },
                     {
-                        id: "Supplies4_Miscellaneous", name: "Supplies4_Miscellaneous", level: 3,
+                        id: "SVC_Supplies4_Miscellaneous", name: "Supplies4_Miscellaneous", level: 3,
                         children: [{ id: "51310042", name: "51310042-ค่าใช้จ่ายเบ็ดเตล็ด-บริการ", level: 4 }]
                     },
                     {
-                        id: "ว่าง", name: "ว่าง", level: 3,
+                        id: "SVC_Empty", name: "ว่าง", level: 3,
                         children: [{ id: "51310012", name: "51310012-ต้นทุนค่าบริการ-อื่น", level: 4 }]
                     }
                 ]
@@ -548,7 +549,7 @@ export const STATIC_FILTER_OPTIONS = [
                 id: "SVC7_Overhead", name: "SVC7_Overhead", level: 2,
                 children: [
                     {
-                        id: "Staff1_Salary&OT", name: "Staff1_Salary&OT", level: 3,
+                        id: "SVC_Staff1_Salary&OT", name: "Staff1_Salary&OT", level: 3,
                         children: [
                             { id: "51310010", name: "51310010-เงินเดือน/ค่าล่วงเวลา-บริการ", level: 4 },
                             { id: "51310013", name: "51310013-ค่านายหน้า-บริการ", level: 4 },
@@ -561,14 +562,14 @@ export const STATIC_FILTER_OPTIONS = [
                         ]
                     },
                     {
-                        id: "Staff2_Welfare", name: "Staff2_Welfare", level: 3,
+                        id: "SVC_Staff2_Welfare", name: "Staff2_Welfare", level: 3,
                         children: [
                             { id: "51310016", name: "51310016-ค่าสวัสดิการพนักงาน-บริการ", level: 4 },
                             { id: "51310017", name: "51310017-ค่ารักษาพยาบาล-บริการ", level: 4 }
                         ]
                     },
                     {
-                        id: "Staff4_Other benefits", name: "Staff4_Other benefits", level: 3,
+                        id: "SVC_Staff4_Other benefits", name: "Staff4_Other benefits", level: 3,
                         children: [
                             { id: "51310018", name: "51310018-เงินสมทบประกันสังคมนายจ้าง-บริการ", level: 4 },
                             { id: "51310043", name: "51310043-กองทุนสํารองเลี้ยงชีพ-บริการ", level: 4 },
@@ -576,22 +577,22 @@ export const STATIC_FILTER_OPTIONS = [
                         ]
                     },
                     {
-                        id: "Staff5_Training", name: "Staff5_Training", level: 3,
+                        id: "SVC_Staff5_Training", name: "Staff5_Training", level: 3,
                         children: [{ id: "51310036", name: "51310036-การอบรมและพัฒนาบุคลากร-บริการ", level: 4 }]
                     },
                     {
-                        id: "Staff7_EBO", name: "Staff7_EBO", level: 3,
+                        id: "SVC_Staff7_EBO", name: "Staff7_EBO", level: 3,
                         children: [{ id: "51310019", name: "51310019-ผลประโยชน์พนักงานหลังออกจากงาน-บริการ", level: 4 }]
                     },
                     {
-                        id: "Staff8_Outsorce", name: "Staff8_Outsorce", level: 3,
+                        id: "SVC_Staff8_Outsorce", name: "Staff8_Outsorce", level: 3,
                         children: [
                             { id: "51310033", name: "51310033-ค่ารักษาความปลอดภัย-บริการ", level: 4 },
                             { id: "51310034", name: "51310034-ค่าทำความสะอาด-บริการ", level: 4 }
                         ]
                     },
                     {
-                        id: "Staff9_Travelling", name: "Staff9_Travelling", level: 3,
+                        id: "SVC_Staff9_Travelling", name: "Staff9_Travelling", level: 3,
                         children: [
                             { id: "51310028", name: "51310028-ค่าน้ำมันเชื้อเพลิง-บริการ", level: 4 },
                             { id: "51310032", name: "51310032-ค่าใช้จ่ายในการเดินทาง-บริการ", level: 4 },
@@ -604,14 +605,14 @@ export const STATIC_FILTER_OPTIONS = [
                 id: "SVC8_D&A", name: "SVC8_D&A", level: 2,
                 children: [
                     {
-                        id: "D&A1_Depreciation", name: "D&A1_Depreciation", level: 3,
+                        id: "SVC_D&A1_Depreciation", name: "D&A1_Depreciation", level: 3,
                         children: [
                             { id: "51310038", name: "51310038-ค่าเสื่อมราคา-บริการ", level: 4 },
                             { id: "51310045", name: "51310045-ค่าเสื่อมราคาสัญญาเช่า-บริการ", level: 4 }
                         ]
                     },
                     {
-                        id: "D&A2_Amortization", name: "D&A2_Amortization", level: 3,
+                        id: "SVC_D&A2_Amortization", name: "D&A2_Amortization", level: 3,
                         children: [{ id: "51310039", name: "51310039-ค่าลิขสิทธิ์โปรแกรมตัดจ่าย-บริการ", level: 4 }]
                     }
                 ]
@@ -620,7 +621,7 @@ export const STATIC_FILTER_OPTIONS = [
                 id: "SVC9_Maintenance", name: "SVC9_Maintenance", level: 2,
                 children: [
                     {
-                        id: "Maint1_Repair", name: "Maint1_Repair", level: 3,
+                        id: "SVC_Maint1_Repair", name: "Maint1_Repair", level: 3,
                         children: [
                             { id: "51310037", name: "51310037-ค่าซ่อมแซมบำรุงรักษา-บริการ", level: 4 },
                             { id: "51310038-repair", name: "51310038-ค่าเสื่อมราคา-บริการ", level: 4 }

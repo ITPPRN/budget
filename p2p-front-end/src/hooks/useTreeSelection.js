@@ -70,20 +70,26 @@ export const useTreeSelection = (data) => {
     // 4. Utilities
     const clearSelection = useCallback(() => setSelectedLeaves(new Set()), []);
 
-    // Optional: Select All
-    const selectAll = useCallback(() => {
-        // Collect ALL leaves from the map values? Or just top level nodes?
-        // Easiest is to iterate all values in map that are leaves?
-        // Or just iterate root nodes from data.
-        // But creating a Set of *all* leaves is straightforward if we collected them.
-        // For now, clear is user requirement, select all is extra.
-    }, []);
+    // Get all potential leaf IDs (for "Select All" or "Default All" behavior)
+    const getAllLeafIds = useCallback(() => {
+        // Since mapped values are arrays of leaves, we can collect them.
+        // However, nodeLeafMap contains parents too which duplicate leaves.
+        // We only want unique leaves.
+        // We can iterate the data passed in to get root nodes, then aggregate their leaves from map.
+        let all = [];
+        data.forEach(root => {
+            const leaves = nodeLeafMap.get(root.id);
+            if (leaves) all = all.concat(leaves);
+        });
+        return all;
+    }, [data, nodeLeafMap]);
 
     return {
         selectedLeaves,
         toggleNode,
         getNodeState,
         clearSelection,
+        getAllLeafIds,
         nodeLeafMap // exposed for debugging if needed
     };
 };

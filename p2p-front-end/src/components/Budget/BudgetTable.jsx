@@ -23,7 +23,7 @@ const BudgetTable = ({ loading, data, selectedCount }) => {
             borderRadius: 2,
             mb: 2,
             flexGrow: 1,
-            minHeight: 0,
+            minHeight: { xs: '400px', md: 0 }, // Mobile gets fixed minHeight, Desktop fits available space
             overflow: 'hidden'
         }}>
             <Typography variant="h6" sx={{ color: 'white', bgcolor: '#1976d2', p: 1, borderRadius: 1, mb: 2, flexShrink: 0 }}>

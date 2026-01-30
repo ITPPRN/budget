@@ -10,7 +10,8 @@ export const BudgetProvider = ({ children }) => {
         selectedLeaves,
         toggleNode,
         getNodeState,
-        clearSelection
+        clearSelection,
+        getAllLeafIds
     } = useTreeSelection(STATIC_FILTER_OPTIONS);
 
     // We can also manage data fetching state here if we want to share it,
@@ -22,6 +23,7 @@ export const BudgetProvider = ({ children }) => {
         toggleNode,
         getNodeState,
         clearSelection,
+        getAllLeafIds,
     };
 
     return (
