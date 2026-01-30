@@ -181,33 +181,36 @@ func (PaymentEntity) TableName() string { return "payment_entities" }
 // --- FILE ENTITIES (3 Distinct Tables) ---
 type FileBudgetEntity struct {
 	gorm.Model
-	ID       uuid.UUID   `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
-	FileName string      `json:"file_name"`
-	UploadAt time.Time   `json:"upload_at"`
-	UserID   string      `gorm:"type:varchar(36)" json:"user_id"`
-	User     *UserEntity `gorm:"foreignKey:UserID" json:"user,omitempty"`
+	ID       uuid.UUID      `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
+	FileName string         `json:"file_name"`
+	UploadAt time.Time      `json:"upload_at"`
+	UserID   string         `gorm:"type:varchar(36)" json:"user_id"`
+	User     *UserEntity    `gorm:"foreignKey:UserID" json:"user,omitempty"`
+	Data     datatypes.JSON `gorm:"type:jsonb" json:"-"` // Store parsed Excel content
 }
 
 func (FileBudgetEntity) TableName() string { return "file_budget_entities" }
 
 type FileCapexBudgetEntity struct {
 	gorm.Model
-	ID       uuid.UUID   `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
-	FileName string      `json:"file_name"`
-	UploadAt time.Time   `json:"upload_at"`
-	UserID   string      `gorm:"type:varchar(36)" json:"user_id"`
-	User     *UserEntity `gorm:"foreignKey:UserID" json:"user,omitempty"`
+	ID       uuid.UUID      `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
+	FileName string         `json:"file_name"`
+	UploadAt time.Time      `json:"upload_at"`
+	UserID   string         `gorm:"type:varchar(36)" json:"user_id"`
+	User     *UserEntity    `gorm:"foreignKey:UserID" json:"user,omitempty"`
+	Data     datatypes.JSON `gorm:"type:jsonb" json:"-"`
 }
 
 func (FileCapexBudgetEntity) TableName() string { return "file_capex_budget_entities" }
 
 type FileCapexActualEntity struct {
 	gorm.Model
-	ID       uuid.UUID   `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
-	FileName string      `json:"file_name"`
-	UploadAt time.Time   `json:"upload_at"`
-	UserID   string      `gorm:"type:varchar(36)" json:"user_id"`
-	User     *UserEntity `gorm:"foreignKey:UserID" json:"user,omitempty"`
+	ID       uuid.UUID      `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
+	FileName string         `json:"file_name"`
+	UploadAt time.Time      `json:"upload_at"`
+	UserID   string         `gorm:"type:varchar(36)" json:"user_id"`
+	User     *UserEntity    `gorm:"foreignKey:UserID" json:"user,omitempty"`
+	Data     datatypes.JSON `gorm:"type:jsonb" json:"-"`
 }
 
 func (FileCapexActualEntity) TableName() string { return "file_capex_actual_entities" }

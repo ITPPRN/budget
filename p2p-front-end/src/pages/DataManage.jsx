@@ -428,8 +428,6 @@ const DataManagePage = () => {
                               <IconButton size="small" onClick={() => handleDelete(item.id)} sx={{ color: 'error.main' }}>
                                 <DeleteIcon fontSize="small" />
                               </IconButton>
-                              <Divider orientation="vertical" flexItem sx={{ mx: 0.5, height: 20, alignSelf: 'center' }} />
-                              <Switch size="small" defaultChecked disabled />
                             </>
                           )}
                         </Box>

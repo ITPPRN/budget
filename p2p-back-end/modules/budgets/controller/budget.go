@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"fmt"
 	"p2p-back-end/modules/entities/models"
 
 	"github.com/gofiber/fiber/v2"
@@ -35,11 +36,43 @@ func NewBudgetController(router fiber.Router, budgetSrv models.BudgetService) {
 	router.Post("/files-budget/:id/sync", controller.syncBudget)
 	router.Post("/files-capex-budget/:id/sync", controller.syncCapexBudget)
 	router.Post("/files-capex-actual/:id/sync", controller.syncCapexActual)
+
+	// Dashboard APIs
+	router.Get("/filter-options", controller.getFilterOptions)
+	router.Post("/details", controller.getBudgetDetails)
 }
 
 // ---------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------
+
+func (c *budgetController) getFilterOptions(ctx *fiber.Ctx) error {
+	options, err := c.budgetSrv.GetFilterOptions()
+	if err != nil {
+		fmt.Printf("[Error] getFilterOptions failed: %v\n", err)
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	return ctx.JSON(options)
+}
+
+func (c *budgetController) getBudgetDetails(ctx *fiber.Ctx) error {
+	type FilterRequest struct {
+		Groups      []string `json:"groups"`
+		Departments []string `json:"departments"`
+		EntityGLs   []string `json:"entity_gls"`
+		ConsoGLs    []string `json:"conso_gls"`
+	}
+	var req FilterRequest
+	if err := ctx.BodyParser(&req); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
+	}
+
+	details, err := c.budgetSrv.GetBudgetDetails(req.Groups, req.Departments, req.EntityGLs, req.ConsoGLs)
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	return ctx.JSON(details)
+}
 
 func (c *budgetController) importBudget(ctx *fiber.Ctx) error {
 	fileHeader, err := ctx.FormFile("file")

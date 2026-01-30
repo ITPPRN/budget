@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"fmt"
 	"p2p-back-end/modules/entities/models"
 
 	"gorm.io/gorm"
@@ -119,6 +120,68 @@ func (r *budgetRepositoryDB) ListFileCapexActuals() ([]models.FileCapexActualEnt
 	var files []models.FileCapexActualEntity
 	err := r.db.Order("upload_at desc").Find(&files).Error
 	return files, err
+}
+
+func (r *budgetRepositoryDB) GetFileBudget(id string) (*models.FileBudgetEntity, error) {
+	var file models.FileBudgetEntity
+	if err := r.db.First(&file, "id = ?", id).Error; err != nil {
+		return nil, err
+	}
+	return &file, nil
+}
+
+func (r *budgetRepositoryDB) GetFileCapexBudget(id string) (*models.FileCapexBudgetEntity, error) {
+	var file models.FileCapexBudgetEntity
+	if err := r.db.First(&file, "id = ?", id).Error; err != nil {
+		return nil, err
+	}
+	return &file, nil
+}
+
+func (r *budgetRepositoryDB) GetFileCapexActual(id string) (*models.FileCapexActualEntity, error) {
+	var file models.FileCapexActualEntity
+	if err := r.db.First(&file, "id = ?", id).Error; err != nil {
+		return nil, err
+	}
+	return &file, nil
+}
+
+// ---------------------------------------------------------------------
+// Dashboard / Detail View
+// ---------------------------------------------------------------------
+
+func (r *budgetRepositoryDB) GetBudgetFilterOptions() ([]models.BudgetFactEntity, error) {
+	fmt.Println("[DEBUG] Repo: GetBudgetFilterOptions START")
+	var results []models.BudgetFactEntity
+	// Select distinct combinations for hierarchy building
+	err := r.db.Model(&models.BudgetFactEntity{}).
+		Distinct("\"group\"", "department", "entity_gl", "conso_gl", "gl_name").
+		Order("\"group\", department, entity_gl, conso_gl").
+		Find(&results).Error
+	fmt.Printf("[DEBUG] Repo: GetBudgetFilterOptions END - Count: %d, Err: %v\n", len(results), err)
+	return results, err
+}
+
+func (r *budgetRepositoryDB) GetBudgetDetails(groups []string, departments []string, entityGLs []string, consoGLs []string) ([]models.BudgetFactEntity, error) {
+	var results []models.BudgetFactEntity
+	query := r.db.Model(&models.BudgetFactEntity{}).Preload("BudgetAmounts")
+
+	// Dynamic Filtering
+	if len(groups) > 0 {
+		query = query.Where("\"group\" IN ?", groups)
+	}
+	if len(departments) > 0 {
+		query = query.Where("department IN ?", departments)
+	}
+	if len(entityGLs) > 0 {
+		query = query.Where("entity_gl IN ?", entityGLs)
+	}
+	if len(consoGLs) > 0 {
+		query = query.Where("conso_gl IN ?", consoGLs)
+	}
+
+	err := query.Order("\"group\", department, entity_gl, conso_gl, gl_name").Find(&results).Error
+	return results, err
 }
 
 // ---------------------------------------------------------
