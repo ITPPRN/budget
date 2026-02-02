@@ -605,8 +605,39 @@ func (s *budgetService) GetFilterOptions() ([]models.FilterOptionDTO, error) {
 	return rootNodes, nil
 }
 
-func (s *budgetService) GetBudgetDetails(groups []string, departments []string, entityGLs []string, consoGLs []string) ([]models.BudgetFactEntity, error) {
-	return s.repo.GetBudgetDetails(groups, departments, entityGLs, consoGLs)
+func (s *budgetService) GetOrganizationStructure() ([]models.OrganizationDTO, error) {
+	facts, err := s.repo.GetOrganizationStructure()
+	if err != nil {
+		return nil, err
+	}
+
+	// Map Entity -> []Branches
+	structure := make(map[string][]string)
+	for _, f := range facts {
+		if f.Entity == "" {
+			continue
+		}
+		if structure[f.Entity] == nil {
+			structure[f.Entity] = []string{}
+		}
+		// Add Branch if not empty and unique (Repo distincts entity,branch so uniqueness is guaranteed per row, but let's be safe)
+		if f.Branch != "" {
+			structure[f.Entity] = append(structure[f.Entity], f.Branch)
+		}
+	}
+
+	var result []models.OrganizationDTO
+	for entity, branches := range structure {
+		result = append(result, models.OrganizationDTO{
+			Entity:   entity,
+			Branches: branches,
+		})
+	}
+	return result, nil
+}
+
+func (s *budgetService) GetBudgetDetails(groups []string, departments []string, entityGLs []string, consoGLs []string, entities []string, branches []string) ([]models.BudgetFactEntity, error) {
+	return s.repo.GetBudgetDetails(groups, departments, entityGLs, consoGLs, entities, branches)
 }
 
 // ---------------------------------------------------------------------

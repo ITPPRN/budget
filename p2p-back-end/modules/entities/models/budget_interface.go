@@ -31,7 +31,8 @@ type BudgetRepository interface {
 
 	// Dashboard / Detail View
 	GetBudgetFilterOptions() ([]BudgetFactEntity, error)
-	GetBudgetDetails(groups []string, departments []string, entityGLs []string, consoGLs []string) ([]BudgetFactEntity, error)
+	GetOrganizationStructure() ([]BudgetFactEntity, error)
+	GetBudgetDetails(groups []string, departments []string, entityGLs []string, consoGLs []string, entities []string, branches []string) ([]BudgetFactEntity, error)
 
 	// Delete Files
 	DeleteFileBudget(id string) error
@@ -63,7 +64,8 @@ type BudgetService interface {
 
 	// Dashboard Service
 	GetFilterOptions() ([]FilterOptionDTO, error)
-	GetBudgetDetails(groups []string, departments []string, entityGLs []string, consoGLs []string) ([]BudgetFactEntity, error)
+	GetOrganizationStructure() ([]OrganizationDTO, error)
+	GetBudgetDetails(groups []string, departments []string, entityGLs []string, consoGLs []string, entities []string, branches []string) ([]BudgetFactEntity, error)
 
 	// List Files (For UI)
 	ListBudgetFiles() ([]FileBudgetEntity, error)
@@ -87,4 +89,9 @@ type FilterOptionDTO struct {
 	Name     string            `json:"name"`
 	Level    int               `json:"level"`
 	Children []FilterOptionDTO `json:"children,omitempty"`
+}
+
+type OrganizationDTO struct {
+	Entity   string   `json:"entity"`
+	Branches []string `json:"branches"`
 }

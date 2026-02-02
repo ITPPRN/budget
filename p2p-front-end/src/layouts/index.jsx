@@ -13,18 +13,18 @@ export default function MainLayout() {
   return (
     <Box sx={{ display: 'flex' }}>
       {/* ส่ง Props เข้าไป ไม่ต้องเขียน Logic รกๆ ตรงนี้ */}
-      <Navbar 
-        user={user} 
-        onLogout={logout} 
-        onToggle={() => setSidebarOpen(!isSidebarOpen)} 
+      <Navbar
+        user={user}
+        onLogout={logout}
+        onToggle={() => setSidebarOpen(!isSidebarOpen)}
       />
-      
-      <Sidebar 
-        isOpen={isSidebarOpen} 
+
+      <Sidebar
+        isOpen={isSidebarOpen}
         menuItems={MENU_ITEMS} // ส่งรายการเมนูเข้าไป
       />
 
-      <Box component="main" sx={{ flexGrow: 1, p: 3 }}>
+      <Box component="main" sx={{ flexGrow: 1, minWidth: 0, width: '100%', overflowX: 'hidden' }}>
         <Toolbar /> {/* ดัน Content ลงมา */}
         <Outlet />  {/* เนื้อหาเปลี่ยนไปตาม Route */}
       </Box>

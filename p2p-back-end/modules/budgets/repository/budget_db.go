@@ -162,7 +162,16 @@ func (r *budgetRepositoryDB) GetBudgetFilterOptions() ([]models.BudgetFactEntity
 	return results, err
 }
 
-func (r *budgetRepositoryDB) GetBudgetDetails(groups []string, departments []string, entityGLs []string, consoGLs []string) ([]models.BudgetFactEntity, error) {
+func (r *budgetRepositoryDB) GetOrganizationStructure() ([]models.BudgetFactEntity, error) {
+	var results []models.BudgetFactEntity
+	err := r.db.Model(&models.BudgetFactEntity{}).
+		Distinct("entity", "branch").
+		Order("entity, branch").
+		Find(&results).Error
+	return results, err
+}
+
+func (r *budgetRepositoryDB) GetBudgetDetails(groups []string, departments []string, entityGLs []string, consoGLs []string, entities []string, branches []string) ([]models.BudgetFactEntity, error) {
 	var results []models.BudgetFactEntity
 	query := r.db.Model(&models.BudgetFactEntity{}).Preload("BudgetAmounts")
 
@@ -178,6 +187,12 @@ func (r *budgetRepositoryDB) GetBudgetDetails(groups []string, departments []str
 	}
 	if len(consoGLs) > 0 {
 		query = query.Where("conso_gl IN ?", consoGLs)
+	}
+	if len(entities) > 0 {
+		query = query.Where("entity IN ?", entities)
+	}
+	if len(branches) > 0 {
+		query = query.Where("branch IN ?", branches)
 	}
 
 	err := query.Order("\"group\", department, entity_gl, conso_gl, gl_name").Find(&results).Error

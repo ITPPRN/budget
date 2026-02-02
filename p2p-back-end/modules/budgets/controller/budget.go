@@ -39,6 +39,7 @@ func NewBudgetController(router fiber.Router, budgetSrv models.BudgetService) {
 
 	// Dashboard APIs
 	router.Get("/filter-options", controller.getFilterOptions)
+	router.Get("/organization-structure", controller.getOrganizationStructure)
 	router.Post("/details", controller.getBudgetDetails)
 }
 
@@ -55,19 +56,29 @@ func (c *budgetController) getFilterOptions(ctx *fiber.Ctx) error {
 	return ctx.JSON(options)
 }
 
+func (c *budgetController) getOrganizationStructure(ctx *fiber.Ctx) error {
+	structure, err := c.budgetSrv.GetOrganizationStructure()
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	return ctx.JSON(structure)
+}
+
 func (c *budgetController) getBudgetDetails(ctx *fiber.Ctx) error {
 	type FilterRequest struct {
 		Groups      []string `json:"groups"`
 		Departments []string `json:"departments"`
 		EntityGLs   []string `json:"entity_gls"`
 		ConsoGLs    []string `json:"conso_gls"`
+		Entities    []string `json:"entities"`
+		Branches    []string `json:"branches"`
 	}
 	var req FilterRequest
 	if err := ctx.BodyParser(&req); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
 
-	details, err := c.budgetSrv.GetBudgetDetails(req.Groups, req.Departments, req.EntityGLs, req.ConsoGLs)
+	details, err := c.budgetSrv.GetBudgetDetails(req.Groups, req.Departments, req.EntityGLs, req.ConsoGLs, req.Entities, req.Branches)
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
