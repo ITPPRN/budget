@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Box, Grid, Typography, Button, Container, Select, MenuItem, FormControl, InputLabel, Stack } from '@mui/material';
+import { Box, Grid, Typography, Button, Container, Select, MenuItem, FormControl, InputLabel, Stack, Paper } from '@mui/material';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api/axiosInstance';
 import { STATIC_FILTER_OPTIONS } from '../constants/budgetData';
 import StatCard from '../components/Dashboard/StatCard';
+import { TotalBudgetCard, RemainingBudgetCard } from '../components/Dashboard/BudgetStatsCard';
 import DepartmentTable from '../components/Dashboard/DepartmentTable';
 import BudgetChart from '../components/Dashboard/BudgetChart';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
@@ -12,144 +13,122 @@ import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
 import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import { useNavigate } from 'react-router-dom';
+import ErrorBoundary from '../components/ErrorBoundary';
+
+const gridItemStyle = { display: 'flex', flexDirection: 'column' }; // Re-add if missing or define inline
 
 const HomePage = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
 
+  const [isSyncing, setIsSyncing] = useState(false); // New state
+
   const [loading, setLoading] = useState(true);
   const [totalBudget, setTotalBudget] = useState(0);
+  const [totalActual, setTotalActual] = useState(0); // New State
   const [chartData, setChartData] = useState([]);
   const [departmentData, setDepartmentData] = useState([]);
 
-  // --- Filter State ---
-  const [orgStructure, setOrgStructure] = useState([]);
+  // Filters State
   const [selectedEntity, setSelectedEntity] = useState('');
   const [selectedBranch, setSelectedBranch] = useState('');
+  const [selectedDepartment, setSelectedDepartment] = useState(''); // New State
+  const [orgStructure, setOrgStructure] = useState([]);
 
-  // Common Grid Item Styles
-  const gridItemStyle = { minWidth: 0 };
+  // Pagination State
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [totalCount, setTotalCount] = useState(0);
 
-  // 1. Fetch Organization Structure on Mount
+  // Sorting State
+  const [order, setOrder] = useState('desc');
+  const [orderBy, setOrderBy] = useState('actual');
+
+  // Derived state for branches
+  const availableBranches = useMemo(() => {
+    if (!selectedEntity) return [];
+    const entityObj = orgStructure.find(o => o.entity === selectedEntity);
+    return entityObj ? entityObj.branches : [];
+  }, [selectedEntity, orgStructure]);
+
+  // Fetch Filter Options
   useEffect(() => {
-    const fetchOrgStructure = async () => {
+    const fetchFilters = async () => {
       try {
         const res = await api.get('/budgets/organization-structure');
         setOrgStructure(res.data || []);
       } catch (err) {
-        console.error("Failed to fetch organization structure", err);
+        console.error("Filter Fetch Error", err);
       }
     };
-    fetchOrgStructure();
+    fetchFilters();
   }, []);
 
-  // 2. Computed Branches based on Selected Entity
-  const availableBranches = useMemo(() => {
-    if (!selectedEntity) return [];
-    const entityData = orgStructure.find(e => e.entity === selectedEntity);
-    return entityData ? entityData.branches : [];
-  }, [orgStructure, selectedEntity]);
+  // Handlers
+  const handleChangePage = (event, newPage) => {
+    setPage(newPage);
+  };
 
+  const handleChangeRowsPerPage = (event) => {
+    setRowsPerPage(parseInt(event.target.value, 10));
+    setPage(0);
+  };
 
+  const handleRequestSort = (property) => {
+    const isAsc = orderBy === property && order === 'asc';
+    setOrder(isAsc ? 'desc' : 'asc');
+    setOrderBy(property);
+    setPage(0); // Reset to first page on sort change
+  };
 
-  // 3. Build Map: Leaf ID -> Level 1 Name (Keep for fallback or categorization if needed)
-  // Actually, user wants "Department" column to be the real Department name (e.g. HR), not Budget Group.
-  // So we use item.department directly.
-
-  // 4. Fetch Dashboard Data when Filters Change
+  // 4. Fetch Dashboard Data when Filters or Pagination Change
   useEffect(() => {
     const fetchDashboardData = async () => {
+      // Prevent loading flash if just selecting department? Maybe keep it for feedback.
       setLoading(true);
       try {
-        // If filtering by Entity, we need to pass it.
-        // If "All", we pass nothing.
         const payload = {
-          conso_gls: [], // Empty acts as "All" or similar depending on backend? Backend checks length > 0.
-          // Wait, previous code sent "leafToCategoryMap.allLeaves".
-          // If backend treats empty "conso_gls" as "Fetch All", we are good.
-          // Let's assume we need to send filters if specific filtering is actually needed by backend logic
-          // OR if backend returns everything by default.
-          // Current Backend: if len > 0 -> Where In. Else -> No filter (All).
-          // So sending empty arrays is correct for "Select All".
           entities: selectedEntity ? [selectedEntity] : [],
-          branches: selectedBranch ? [selectedBranch] : []
+          branches: selectedBranch ? [selectedBranch] : [],
+          departments: selectedDepartment ? [selectedDepartment] : [], // Pass Department Filter
+          page: page + 1, // Backend is 1-based
+          limit: rowsPerPage,
+          sort_by: orderBy,
+          sort_order: order
         };
 
-        const res = await api.post('/budgets/details', payload);
-        const data = res.data || [];
+        console.log("Dashboard: Fetching Summary...", payload);
+        const { data } = await api.post('/budgets/dashboard-summary', payload);
+        console.log("Dashboard: Summary Received", data);
 
-        // Aggregation
-        let sumTotal = 0;
-        const monthlySums = {
-          "JAN": 0, "FEB": 0, "MAR": 0, "APR": 0, "MAY": 0, "JUN": 0,
-          "JUL": 0, "AUG": 0, "SEP": 0, "OCT": 0, "NOV": 0, "DEC": 0
-        };
+        setTotalBudget(data.total_budget || 0);
+        setTotalActual(data.total_actual || 0);
+        // Only update Table Data if NOT filtering by department (to keep the list visible)
+        // OR better: Always update data, but if filtering by dept, the chart updates. 
+        // User wants: "Select 1 Dept -> Graph shows only that Dept".
+        // BUT: Does user want table to filter to 1 row too? Usually yes ("Drill down"). 
+        // If user wants table to stay giving context but CHART to filter, we need separate API calls or client side filtering.
+        // User said: "แสดงเฉพาะกราฟของที่เราเลือก" (Show graph of what we selected).
+        // If we filter API, the table will also shrink to 1 row. This is usually acceptable drill-down behavior.
+        // Let's stick to API filtering for consistency of "Total Budget Card" etc.
 
-        // Grouping Logic: Key = Unique ID for Table Row
-        // User requirement: Group duplicates ONLY if same Entity & Branch.
-        // Meaning: (Dept="HR", Entity="A", Branch="1") is different from (Dept="HR", Entity="A", Branch="2").
-        // Key = `${dept}|${entity}|${branch}`
-        const deptGroups = {};
+        setTotalCount(data.total_count || 0);
+        setOrgStructure(prev => prev.length ? prev : []); // Keep structure
 
-        data.forEach(item => {
-          const amt = parseFloat(item.year_total || 0);
-          sumTotal += amt;
-
-          // Monthly Sums (Global for Chart)
-          item.budget_amounts?.forEach(m => {
-            const mName = m.month.toUpperCase().substring(0, 3); // Ensure format JAN, FEB
-            if (monthlySums.hasOwnProperty(mName)) {
-              monthlySums[mName] += parseFloat(m.amount || 0);
-            }
-          });
-
-          // Table Grouping
-          // Display Name Logic:
-          // If Filtered by Branch -> Just "Department Name"
-          // If All Branches -> "Department Name (Branch)" or "Department Name (Entity - Branch)"
-          const deptName = item.department || "(No Dept)";
-          const entityName = item.entity || "-";
-          const branchName = item.branch || "-";
-
-          // Unique Key to separate rows
-          const key = `${deptName}|${entityName}|${branchName}`;
-
-          if (!deptGroups[key]) {
-            // Construct Display Label
-            let label = deptName;
-            if (!selectedBranch) {
-              // If viewing All or just Entity, show context to differentiate
-              if (selectedEntity) {
-                label = `${deptName} (${branchName})`;
-              } else {
-                label = `${deptName} (${entityName} - ${branchName})`;
-              }
-            }
-
-            deptGroups[key] = {
-              name: label,
-              budget: 0,
-              spending: 0,
-              deptRaw: deptName // For sorting if needed
-            };
-          }
-          deptGroups[key].budget += amt;
-        });
-
-        setTotalBudget(sumTotal);
-
-        // Transform for Chart (Monthly)
-        const monthsOrder = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
-        const monthlyChartData = monthsOrder.map(m => ({
-          name: m,
-          budget: monthlySums[m],
-          actual: 0 // Placeholder
+        const mappedChart = (data.chart_data || []).map(item => ({
+          name: item.month,
+          budget: item.budget,
+          actual: item.actual
         }));
-        setChartData(monthlyChartData);
+        setChartData(mappedChart);
 
-        // Transform for Table
-        const deptTableData = Object.values(deptGroups).sort((a, b) => b.budget - a.budget); // Sort by budget desc
-        setDepartmentData(deptTableData);
+        const transformedTable = (data.department_data || []).map(d => ({
+          name: d.department,
+          budget: d.budget,
+          spending: d.actual,
+          deptRaw: d.department
+        }));
+        setDepartmentData(transformedTable);
 
       } catch (err) {
         console.error("Dashboard Fetch Error", err);
@@ -159,7 +138,14 @@ const HomePage = () => {
     };
 
     fetchDashboardData();
-  }, [selectedEntity, selectedBranch]); // dependencies
+  }, [selectedEntity, selectedBranch, selectedDepartment, page, rowsPerPage, orderBy, order]);
+
+  // Handle Row Click
+  const handleDepartmentClick = (deptName) => {
+    // Toggle selection: If clicking same dept, unselect.
+    setSelectedDepartment(prev => prev === deptName ? '' : deptName);
+    setPage(0); // Reset pagination on filter change
+  };
 
   // Format Helpers
   const formatMB = (val) => {
@@ -168,102 +154,99 @@ const HomePage = () => {
   };
 
   return (
-    <Box sx={{ mt: 4, mb: 4, px: 3, width: '100%' }}>
+    <ErrorBoundary>
+      <Box sx={{ mt: 4, mb: 4, px: 3, width: '100%' }}>
+        {/* Header & Filters */}
+        <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, justifyContent: 'space-between', alignItems: 'flex-start', mb: 3, gap: 2 }}>
+          {/* ... Box content same as before ... */}
+          <Box>
+            <Typography variant="h4" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
+              Dashboard
+            </Typography>
+            <Typography variant="subtitle1" color="text.secondary">
+              ภาพรวมงบประมาณ
+            </Typography>
+          </Box>
 
-      {/* Header & Filters */}
-      <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, justifyContent: 'space-between', alignItems: 'flex-start', mb: 3, gap: 2 }}>
-        <Box>
-          <Typography variant="h4" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
-            Dashboard
-          </Typography>
-          <Typography variant="subtitle1" color="text.secondary">
-            ภาพรวมงบประมาณ
-          </Typography>
+          {/* Filter Controls */}
+          <Stack direction="row" spacing={2} sx={{ minWidth: 300, alignItems: 'center' }}>
+
+
+            <FormControl size="small" sx={{ minWidth: 200, bgcolor: 'white', borderRadius: 1 }}>
+              <InputLabel>Entity (บริษัท)</InputLabel>
+              <Select
+                value={selectedEntity}
+                label="Entity (บริษัท)"
+                onChange={(e) => {
+                  setSelectedEntity(e.target.value);
+                  setSelectedBranch('');
+                }}
+              >
+                <MenuItem value=""><em>All Entities</em></MenuItem>
+                {orgStructure.map((org) => (
+                  <MenuItem key={org.entity} value={org.entity}>{org.entity}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            <FormControl size="small" sx={{ minWidth: 200, bgcolor: 'white', borderRadius: 1 }} disabled={!selectedEntity}>
+              <InputLabel>Branch (สาขา)</InputLabel>
+              <Select
+                value={selectedBranch}
+                label="Branch (สาขา)"
+                onChange={(e) => setSelectedBranch(e.target.value)}
+              >
+                <MenuItem value=""><em>All Branches</em></MenuItem>
+                {availableBranches.map((branch) => (
+                  <MenuItem key={branch} value={branch}>{branch}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Stack>
         </Box>
 
-        {/* Filter Controls */}
-        <Stack direction="row" spacing={2} sx={{ minWidth: 300 }}>
-          <FormControl size="small" sx={{ minWidth: 200, bgcolor: 'white', borderRadius: 1 }}>
-            <InputLabel>Entity (บริษัท)</InputLabel>
-            <Select
-              value={selectedEntity}
-              label="Entity (บริษัท)"
-              onChange={(e) => {
-                setSelectedEntity(e.target.value);
-                setSelectedBranch(''); // Always reset branch when Entity changes
-              }}
-            >
-              <MenuItem value=""><em>All Entities</em></MenuItem>
-              {orgStructure.map((org) => (
-                <MenuItem key={org.entity} value={org.entity}>{org.entity}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+        {/* 1. Summary Cards */}
+        <Grid container spacing={3} sx={{ mb: 4 }}>
+          {/* Total Budget Card */}
+          <Grid item xs={12} md={6}>
+            <TotalBudgetCard totalBudget={totalBudget} totalActual={totalActual} />
+          </Grid>
 
-          <FormControl size="small" sx={{ minWidth: 200, bgcolor: 'white', borderRadius: 1 }} disabled={!selectedEntity}>
-            <InputLabel>Branch (สาขา)</InputLabel>
-            <Select
-              value={selectedBranch}
-              label="Branch (สาขา)"
-              onChange={(e) => setSelectedBranch(e.target.value)}
-            >
-              <MenuItem value=""><em>All Branches</em></MenuItem>
-              {availableBranches.map((branch) => (
-                <MenuItem key={branch} value={branch}>{branch}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        </Stack>
+          {/* Remaining Budget Card */}
+          <Grid item xs={12} md={6}>
+            <RemainingBudgetCard totalBudget={totalBudget} totalActual={totalActual} />
+          </Grid>
+        </Grid>
+
+        {/* Charts & Tables */}
+        <Grid container spacing={3}>
+          <Grid item xs={12} md={4} sx={{ ...gridItemStyle, width: '100%' }}>
+            {/* Department Status Table */}
+            <Box sx={{ height: 500, width: '100%' }}>
+              <DepartmentTable
+                data={departmentData}
+                count={totalCount}
+                page={page}
+                rowsPerPage={rowsPerPage}
+                onPageChange={handleChangePage}
+                onRowsPerPageChange={handleChangeRowsPerPage}
+                orderBy={orderBy}
+                order={order}
+                onRequestSort={handleRequestSort}
+                selectedDept={selectedDepartment} // Prop
+                onRowClick={handleDepartmentClick} // Prop
+              />
+            </Box>
+          </Grid>
+          <Grid item xs={12} md={8} sx={{ ...gridItemStyle, width: '100%' }}>
+            {/* Main Chart */}
+            <Box sx={{ height: 450, width: '100%' }}>
+              <BudgetChart data={chartData} />
+            </Box>
+          </Grid>
+        </Grid>
       </Box>
-
-      {/* KPI Cards */}
-      <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid item xs={12} md={4} sx={gridItemStyle}>
-          <StatCard
-            title="Total Organization Budget"
-            value={loading ? "..." : formatMB(totalBudget)}
-            subValues={[`of ${formatMB(totalBudget)} (Approved)`]}
-            icon={<AccountBalanceIcon />}
-            color="primary.main"
-          />
-        </Grid>
-        <Grid item xs={12} md={4} sx={gridItemStyle}>
-          <StatCard
-            title="Remaining Budget"
-            value={loading ? "..." : formatMB(totalBudget - 0)}
-            subValues={["100% Remaining"]}
-            icon={<AttachMoneyIcon />}
-            color="#36b9cc" // Teal
-          />
-        </Grid>
-        <Grid item xs={12} md={4} sx={gridItemStyle}>
-          <StatCard
-            title="Department Status Alert"
-            value="N/A"
-            subValues={["No data available"]}
-            icon={<AssignmentTurnedInIcon />}
-            color="#e74a3b" // Red
-          />
-        </Grid>
-      </Grid>
-
-      {/* Charts & Tables */}
-      <Grid container spacing={3}>
-        <Grid item xs={12} md={4} sx={{ ...gridItemStyle, width: '100%' }}>
-          {/* Department Status Table */}
-          <Box sx={{ height: 450, width: '100%' }}>
-            <DepartmentTable data={departmentData} />
-          </Box>
-        </Grid>
-        <Grid item xs={12} md={8} sx={{ ...gridItemStyle, width: '100%' }}>
-          {/* Main Chart */}
-          <Box sx={{ height: 450, width: '100%' }}>
-            <BudgetChart data={chartData} />
-          </Box>
-        </Grid>
-      </Grid>
-
-    </Box>
+    </ErrorBoundary>
   );
 };
 

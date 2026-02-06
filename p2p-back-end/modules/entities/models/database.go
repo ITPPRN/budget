@@ -317,3 +317,39 @@ type CapexActualAmountEntity struct { // DETAIL
 }
 
 func (CapexActualAmountEntity) TableName() string { return "capex_actual_amount_entities" }
+
+// 4. Actual Budget (Operational / P2P) - Aggregated from External Sources
+type ActualFactEntity struct { // HEADER
+	gorm.Model
+	ID uuid.UUID `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
+
+	// No File Source ID as this comes from DB Sync
+
+	// Dimensions
+	Entity     string `gorm:"index" json:"entity"`
+	Branch     string `gorm:"index" json:"branch"`
+	Department string `json:"department"` // Mapped from Global_Dimension_1
+	// Group      string `json:"group"` // Mapped via GL mapping?
+	EntityGL string `json:"entity_gl"`
+	ConsoGL  string `json:"conso_gl"`
+	GLName   string `json:"gl_name"`
+	Year     string `gorm:"index" json:"year"` // New Field for Sync by Year
+
+	// Summary
+	YearTotal decimal.Decimal `gorm:"type:decimal(18,2)" json:"year_total"`
+
+	// Amounts
+	ActualAmounts []ActualAmountEntity `gorm:"foreignKey:ActualFactID" json:"actual_amounts,omitempty"`
+}
+
+func (ActualFactEntity) TableName() string { return "actual_fact_entities" }
+
+type ActualAmountEntity struct { // DETAIL
+	gorm.Model
+	ID           uuid.UUID       `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
+	ActualFactID uuid.UUID       `gorm:"type:uuid;index" json:"actual_fact_id"`
+	Month        string          `json:"month"` // JAN, FEB
+	Amount       decimal.Decimal `gorm:"type:decimal(18,2)" json:"amount"`
+}
+
+func (ActualAmountEntity) TableName() string { return "actual_amount_entities" }

@@ -1,8 +1,8 @@
 import React from 'react';
-import { Paper, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Box } from '@mui/material';
+import { Paper, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Box, TablePagination, TableSortLabel } from '@mui/material';
 import FlagIcon from '@mui/icons-material/Flag';
 
-const DepartmentTable = ({ data }) => {
+const DepartmentTable = ({ data, count, page, rowsPerPage, onPageChange, onRowsPerPageChange, orderBy, order, onRequestSort, selectedDept, onRowClick }) => {
     // Helper to format numbers (Always in MB)
     const formatMoney = (amount) => {
         const mb = amount / 1000000;
@@ -18,11 +18,15 @@ const DepartmentTable = ({ data }) => {
         return '#1cc88a'; // Green (Good)
     };
 
+    const createSortHandler = (property) => (event) => {
+        onRequestSort(property);
+    };
+
     return (
         <Paper sx={{ p: 2, height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
                 <Typography variant="h6" sx={{ fontWeight: 'bold', color: 'primary.main', bgcolor: '#e3f2fd', px: 2, py: 0.5, borderRadius: 2 }}>
-                    Department Budget Status
+                    Department Budget Status (Top Spenders)
                 </Typography>
             </Box>
 
@@ -32,19 +36,56 @@ const DepartmentTable = ({ data }) => {
                         <TableRow>
                             <TableCell sx={{ fontWeight: 'bold', bgcolor: '#eaecf4' }}>Status</TableCell>
                             <TableCell sx={{ fontWeight: 'bold', bgcolor: '#eaecf4' }}>Department</TableCell>
-                            <TableCell align="right" sx={{ fontWeight: 'bold', bgcolor: '#eaecf4' }}>Budget</TableCell>
-                            <TableCell align="right" sx={{ fontWeight: 'bold', bgcolor: '#eaecf4' }}>Spend</TableCell>
-                            <TableCell align="right" sx={{ fontWeight: 'bold', bgcolor: '#eaecf4' }}>Remaining</TableCell>
+
+                            <TableCell align="right" sortDirection={orderBy === 'budget' ? order : false} sx={{ fontWeight: 'bold', bgcolor: '#eaecf4' }}>
+                                <TableSortLabel
+                                    active={orderBy === 'budget'}
+                                    direction={orderBy === 'budget' ? order : 'asc'}
+                                    onClick={createSortHandler('budget')}
+                                >
+                                    Budget
+                                </TableSortLabel>
+                            </TableCell>
+
+                            <TableCell align="right" sortDirection={orderBy === 'actual' ? order : false} sx={{ fontWeight: 'bold', bgcolor: '#eaecf4' }}>
+                                <TableSortLabel
+                                    active={orderBy === 'actual'}
+                                    direction={orderBy === 'actual' ? order : 'asc'}
+                                    onClick={createSortHandler('actual')}
+                                >
+                                    Spend
+                                </TableSortLabel>
+                            </TableCell>
+
+                            <TableCell align="right" sortDirection={orderBy === 'remaining' ? order : false} sx={{ fontWeight: 'bold', bgcolor: '#eaecf4' }}>
+                                <TableSortLabel
+                                    active={orderBy === 'remaining'}
+                                    direction={orderBy === 'remaining' ? order : 'asc'}
+                                    onClick={createSortHandler('remaining')}
+                                >
+                                    Remaining
+                                </TableSortLabel>
+                            </TableCell>
                         </TableRow>
                     </TableHead>
                     <TableBody>
                         {data.map((row) => {
-                            const spending = row.spending || 0; // Default to 0 for now
+                            const spending = row.spending || 0;
                             const remaining = row.budget - spending;
                             const statusColor = getStatusColor(row.budget, spending);
+                            const isSelected = selectedDept === row.deptRaw; // Check selection
 
                             return (
-                                <TableRow key={row.name} hover>
+                                <TableRow
+                                    key={row.name}
+                                    hover
+                                    onClick={() => onRowClick && onRowClick(row.deptRaw)}
+                                    selected={isSelected} // MUI Selected Style
+                                    sx={{
+                                        cursor: 'pointer',
+                                        bgcolor: isSelected ? 'rgba(25, 118, 210, 0.08) !important' : 'inherit'
+                                    }}
+                                >
                                     <TableCell>
                                         <FlagIcon sx={{ color: statusColor, fontSize: '1rem' }} />
                                     </TableCell>
@@ -60,6 +101,16 @@ const DepartmentTable = ({ data }) => {
                     </TableBody>
                 </Table>
             </TableContainer>
+
+            <TablePagination
+                component="div"
+                count={count || 0}
+                page={page || 0}
+                onPageChange={onPageChange}
+                rowsPerPage={rowsPerPage || 10}
+                onRowsPerPageChange={onRowsPerPageChange}
+                rowsPerPageOptions={[10, 20, 50, 100]}
+            />
         </Paper >
     );
 };

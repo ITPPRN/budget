@@ -58,7 +58,7 @@ func (s *server) Handlers() error {
 	// Budget Module
 	budgetRepo := _budgetRe.NewBudgetRepositoryDB(s.Db)
 	budgetSrv := _budgetSer.NewBudgetService(budgetRepo)
-	_budgetCon.NewBudgetController(v1.Group("/budgets", middlewares.JwtAuthentication(nil)), budgetSrv)
+	_budgetCon.NewBudgetController(v1.Group("/budgets"), budgetSrv)
 
 	s.App.Use(func(c *fiber.Ctx) error {
 		return c.Status(fiber.ErrInternalServerError.Code).JSON(fiber.Map{

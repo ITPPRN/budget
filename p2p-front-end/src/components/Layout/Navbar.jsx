@@ -30,10 +30,11 @@ const Navbar = ({ user, onLogout, onToggle }) => {
           {user && (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <Avatar sx={{ bgcolor: 'secondary.main', width: 32, height: 32, }}>
-                {user.username ? user.username.charAt(0).toUpperCase() : 'U'}
+                {/* JSON from Backend: { userName, name, ... } */}
+                {(user.name || user.userName || 'U').charAt(0).toUpperCase()}
               </Avatar>
               <Typography variant="subtitle2" sx={{ display: { xs: 'none', sm: 'block', color: 'white' } }}>
-                {user.username || 'ผู้ใช้งาน'}
+                {user.name || user.userName || 'ผู้ใช้งาน'}
               </Typography>
             </Box>
           )}

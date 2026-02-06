@@ -12,11 +12,16 @@ export const AuthProvider = ({ children }) => {
 
   // ฟังก์ชันเช็ค User (ใช้ตอนเปิดเว็บ หรือหลัง Login)
   const checkUser = async () => {
+    console.log("AuthProvider: checkUser called");
     try {
       // ⚠️ เช็ค URL ให้ตรงกับ Backend ของคุณ (เช่น /v1/auth/profile)
-      const response = await api.get('/auth/profile'); 
-      setUser(response.data);
-    } catch  {
+      const response = await api.get('/auth/profile');
+      // Backend Returns { data: UserInfo, status: "OK", ... }
+      // Axios returns { data: { data: UserInfo, ... } }
+      console.log("AuthProvider: User found", response.data);
+      setUser(response.data.data);
+    } catch {
+      console.log("AuthProvider: No user found");
       setUser(null);
     } finally {
       setIsLoading(false);
@@ -25,7 +30,9 @@ export const AuthProvider = ({ children }) => {
 
   // เช็ค User ครั้งแรกตอนเปิดเว็บ
   useEffect(() => {
+    console.log("AuthProvider: MOUNTED");
     checkUser();
+    return () => console.log("AuthProvider: UNMOUNTED");
   }, []);
 
   // ฟังก์ชัน Login

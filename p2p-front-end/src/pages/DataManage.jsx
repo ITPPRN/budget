@@ -180,6 +180,36 @@ const DataManagePage = () => {
   const [syncing, setSyncing] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(new Date());
 
+  // Actual Sync Handlers
+  const [openActualSyncModal, setOpenActualSyncModal] = useState(false);
+  const [syncYear, setSyncYear] = useState(new Date().getFullYear());
+  const [syncingActuals, setSyncingActuals] = useState(false);
+
+  // Initialize from localStorage to persist across navigation
+  const [lastSyncedYear, setLastSyncedYear] = useState(() => {
+    return localStorage.getItem('lastSyncedActualYear') || null;
+  });
+
+  const handleSyncActuals = async () => {
+    setSyncingActuals(true);
+    try {
+      await api.post('/budgets/sync-actuals', { year: String(syncYear) });
+      toast.success(`Synced Actuals for Year ${syncYear} Successfully!`);
+
+      // Update State and Storage
+      setLastSyncedYear(syncYear);
+      localStorage.setItem('lastSyncedActualYear', syncYear);
+
+      setOpenActualSyncModal(false);
+    } catch (err) {
+      console.error(err);
+      toast.error("Sync Failed: " + (err.response?.data?.error || err.message));
+    } finally {
+      setSyncingActuals(false);
+    }
+  };
+
+
   const handleGlobalSync = async () => {
     const tasks = [];
     if (selectedBudget) tasks.push({ endpoint: `/budgets/files-budget/${selectedBudget}/sync`, label: 'Budget' });
@@ -231,30 +261,101 @@ const DataManagePage = () => {
 
         {/* Sync Widget */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, alignSelf: { xs: 'flex-end', md: 'auto' } }}>
-          <Box sx={{ textAlign: 'right' }}>
-            <Typography variant="h6" sx={{ fontWeight: 'bold', lineHeight: 1.2 }}>Sync data</Typography>
-            <Typography variant="caption" display="block" color="text.secondary">
-              Last update
-            </Typography>
-            <Typography variant="caption" display="block" color="text.secondary" sx={{ fontWeight: 'bold' }}>
-              {lastUpdate.toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
-            </Typography>
+
+          {/* Sync Actuals Widget */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Box sx={{ textAlign: 'right' }}>
+              <Typography variant="h6" sx={{ fontWeight: 'bold', lineHeight: 1.2 }}>Sync Actuals</Typography>
+              <Typography variant="caption" display="block" color={syncingActuals ? "primary" : "text.secondary"} sx={{ fontWeight: syncingActuals ? 'bold' : 'normal' }}>
+                {syncingActuals
+                  ? `Syncing ${syncYear}...`
+                  : lastSyncedYear
+                    ? `Last Sync: ${lastSyncedYear}`
+                    : "Sync specific year"
+                }
+              </Typography>
+            </Box>
+            <IconButton
+              onClick={() => setOpenActualSyncModal(true)}
+              disabled={syncingActuals}
+              sx={{
+                width: 50, height: 50,
+                border: '3px solid',
+                borderColor: syncingActuals ? 'grey.400' : '#1976d2', // Blue for Actuals
+                color: syncingActuals ? 'grey.400' : '#1976d2',
+                '&:hover': { bgcolor: 'rgba(25, 118, 210, 0.05)' }
+              }}
+            >
+              {syncingActuals ? <CircularProgress size={24} color="inherit" /> : <SyncIcon sx={{ fontSize: 30 }} />}
+            </IconButton>
           </Box>
-          <IconButton
-            onClick={handleGlobalSync}
-            disabled={syncing}
-            sx={{
-              width: 50, height: 50,
-              border: '3px solid',
-              borderColor: syncing ? 'grey.400' : 'black',
-              color: syncing ? 'grey.400' : 'black',
-              '&:hover': { bgcolor: 'rgba(0,0,0,0.05)' }
-            }}
-          >
-            {syncing ? <CircularProgress size={24} color="inherit" /> : <SyncIcon sx={{ fontSize: 30 }} />}
-          </IconButton>
+
+          <Divider orientation="vertical" flexItem sx={{ mx: 2, display: { xs: 'none', md: 'block' } }} />
+
+          {/* Sync Data Widget (Existing) */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Box sx={{ textAlign: 'right' }}>
+              <Typography variant="h6" sx={{ fontWeight: 'bold', lineHeight: 1.2 }}>Sync data</Typography>
+              <Typography variant="caption" display="block" color="text.secondary">
+                Last update
+              </Typography>
+              <Typography variant="caption" display="block" color="text.secondary" sx={{ fontWeight: 'bold' }}>
+                {lastUpdate.toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
+              </Typography>
+            </Box>
+            <IconButton
+              onClick={handleGlobalSync}
+              disabled={syncing}
+              sx={{
+                width: 50, height: 50,
+                border: '3px solid',
+                borderColor: syncing ? 'grey.400' : 'black',
+                color: syncing ? 'grey.400' : 'black',
+                '&:hover': { bgcolor: 'rgba(0,0,0,0.05)' }
+              }}
+            >
+              {syncing ? <CircularProgress size={24} color="inherit" /> : <SyncIcon sx={{ fontSize: 30 }} />}
+            </IconButton>
+          </Box>
         </Box>
       </Box>
+
+      {/* Actual Sync Modal */}
+      <Dialog open={openActualSyncModal} onClose={() => setOpenActualSyncModal(false)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ bgcolor: '#1976d2', color: 'white' }}>Sync Actuals Data</DialogTitle>
+        <DialogContent sx={{ p: 3, pt: 4 }}>
+          <Typography variant="body1" sx={{ mb: 2 }}>
+            Please select the year you want to sync. <br />
+            <span style={{ color: 'red', fontSize: '0.85rem' }}>*This will replace ALL existing actual data with data for the selected year.</span>
+          </Typography>
+
+          <TextField
+            select
+            label="Select Year"
+            fullWidth
+            value={syncYear}
+            onChange={(e) => setSyncYear(e.target.value)}
+            variant="outlined"
+          >
+            {/* Generate past 5 years + next 1 year */}
+            {Array.from({ length: 7 }, (_, i) => new Date().getFullYear() - 5 + i).reverse().map(year => (
+              <MenuItem key={year} value={year}>{year}</MenuItem>
+            ))}
+          </TextField>
+
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 2, mt: 3 }}>
+            <Button onClick={() => setOpenActualSyncModal(false)} color="inherit">Cancel</Button>
+            <Button
+              variant="contained"
+              onClick={handleSyncActuals}
+              disabled={syncingActuals}
+              startIcon={syncingActuals ? <CircularProgress size={20} color="inherit" /> : <SyncIcon />}
+            >
+              {syncingActuals ? 'Syncing...' : 'Confirm Sync'}
+            </Button>
+          </Box>
+        </DialogContent>
+      </Dialog>
 
       {/* 2. Main Logic Area */}
       <Paper elevation={0} sx={{ p: { xs: 2, md: 4 }, borderRadius: '15px', border: '1px solid #e3e6f0' }}>

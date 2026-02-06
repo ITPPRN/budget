@@ -206,6 +206,186 @@ func (s *budgetService) SyncCapexActual(fileID string) error {
 }
 
 // ---------------------------------------------------------------------
+// 4. Sync Actuals (P2P / Operational)
+// ---------------------------------------------------------------------
+
+func (s *budgetService) SyncActuals(year string) error {
+	fmt.Printf("[DEBUG] SyncActuals: Start DB Sync (Optimized) for Year %s...\n", year)
+
+	// 2. Fetch Aggregated Data (Source)
+	// We optimize by aggregating in DB (GROUP BY ...)
+	hmwAgg, err := s.repo.GetAggregatedHMW(year)
+	if err != nil {
+		return fmt.Errorf("failed to fetch HMW aggregated data: %v", err)
+	}
+	fmt.Printf("[DEBUG] SyncActuals: HMW Rows Fetched for %s: %d\n", year, len(hmwAgg))
+
+	clikAgg, err := s.repo.GetAggregatedCLIK(year)
+	if err != nil {
+		return fmt.Errorf("failed to fetch CLIK aggregated data: %v", err)
+	}
+	fmt.Printf("[DEBUG] SyncActuals: CLIK Rows Fetched for %s: %d\n", year, len(clikAgg))
+	fmt.Printf("[DEBUG] SyncActuals: Fetched %d HMW rows, %d CLIK rows (Aggregated)\n", len(hmwAgg), len(clikAgg))
+
+	// 3. Merge HMW + CLIK
+	// Use Map to merge duplicates across sources (if any, though unlikely given distinct tables)
+	// Key: Entity|Branch|Dept|GLCode|Month
+	type AggKey struct {
+		Entity, Branch, Dept, GLCode, GLName, Month string
+	}
+	mergedMap := make(map[AggKey]decimal.Decimal)
+
+	// --- MAPPING LOGIC START ---
+	// User Requirement: Map Source Names -> Codes for Database Storage
+
+	// 1. Entity Map (Name -> Code)
+	entityNameMap := map[string]string{
+		"HONDA MALIWAN":    "HMW",
+		"AUTOCORP HOLDING": "ACG",
+		"CLIK":             "CLIK",
+	}
+
+	// 2. Branch Map (Name -> Code)
+	branchNameMap := map[string]string{
+		// HMW Branches
+		"BURIRUM":      "BUR",
+		"HEAD OFFICE":  "HOF",
+		"KRABI":        "KBI",
+		"MINI_SURIN":   "MSR",
+		"MUEANG KRABI": "MKB",
+		"NAKA":         "NAK",
+		"NANGRONG":     "AVN",
+		"PHACHA":       "PHC",
+		"PHUKET":       "PRA",
+		"SURIN":        "SUR",
+		"VEERAWAT":     "VEE",
+
+		// ACG Branches
+		"AUTOCORP HEAD OFFICE": "HQ",
+
+		// CLIK Branches (Normalize to Title Case or Code)
+		"":           "Branch00", // Empty -> Branch00
+		"BRANCH01":   "Branch01",
+		"BRANCH02":   "Branch02",
+		"BRANCH03":   "Branch03",
+		"BRANCH04":   "Branch04",
+		"BRANCH05":   "Branch05",
+		"BRANCH06":   "Branch06",
+		"BRANCH07":   "Branch07",
+		"BRANCH08":   "Branch08",
+		"BRANCH09":   "Branch09",
+		"BRANCH10":   "Branch10",
+		"BRANCH11":   "Branch11",
+		"BRANCH12":   "Branch12",
+		"BRANCH13":   "Branch13",
+		"BRANCH14":   "Branch14",
+		"BRANCH15":   "Branch15",
+		"HEADOFFICE": "HOF", // Mapping CLIK HEADOFFICE to HOF to align with others
+	}
+
+	normalize := func(s string) string {
+		return strings.TrimSpace(strings.ToUpper(s))
+	}
+
+	mapToCode := func(rawVal string, m map[string]string) string {
+		norm := normalize(rawVal)
+		if code, ok := m[norm]; ok {
+			return code
+		}
+		// Fallback: If no map found, return original properly trimmed
+		// Specific fix for CLIK: If it differs only by case (e.g. branch01), Map handles it if keys are UPPER.
+		// If rawVal is empty string and not in map (though we added ""), return ""
+		if rawVal == "" {
+			if v, ok := m[""]; ok {
+				return v
+			}
+		}
+		return strings.TrimSpace(rawVal)
+	}
+
+	processAgg := func(rows []models.ActualAggregatedDTO) {
+		for _, row := range rows {
+			// Apply Mapping
+			company := mapToCode(row.Company, entityNameMap)
+			branch := mapToCode(row.Branch, branchNameMap)
+
+			k := AggKey{
+				Entity: company, Branch: branch, Dept: row.Department,
+				GLCode: row.GLAccountNo, GLName: row.GLAccountName, Month: row.Month,
+			}
+			mergedMap[k] = mergedMap[k].Add(row.TotalAmount)
+		}
+	}
+
+	processAgg(hmwAgg)
+	processAgg(clikAgg)
+
+	// 4. Transform to Entities (Header + Details)
+	type HeaderKey struct {
+		Entity, Branch, Dept, GLCode, GLName string
+	}
+	headerMap := make(map[HeaderKey][]models.ActualAmountEntity)
+
+	for k, amt := range mergedMap {
+		hk := HeaderKey{k.Entity, k.Branch, k.Dept, k.GLCode, k.GLName}
+		headerMap[hk] = append(headerMap[hk], models.ActualAmountEntity{
+			ID:     uuid.New(),
+			Month:  k.Month,
+			Amount: amt,
+		})
+	}
+
+	var headers []models.ActualFactEntity
+	for k, amounts := range headerMap {
+		headerID := uuid.New()
+		for i := range amounts {
+			amounts[i].ActualFactID = headerID
+		}
+		total := decimal.Zero
+		for _, a := range amounts {
+			total = total.Add(a.Amount)
+		}
+
+		headers = append(headers, models.ActualFactEntity{
+			ID:            headerID,
+			Entity:        k.Entity,
+			Branch:        k.Branch,
+			Department:    k.Dept,
+			ConsoGL:       k.GLCode,
+			GLName:        k.GLName,
+			YearTotal:     total,
+			ActualAmounts: amounts,
+			Year:          year, // ✅ Populate Year
+		})
+	}
+
+	fmt.Printf("[DEBUG] SyncActuals: Merged into %d headers\n", len(headers))
+
+	// 5. Save (Transaction)
+	return s.repo.WithTrx(func(trxRepo models.BudgetRepository) error {
+		// ✅ Delete ALL Existing Actuals (Clean Slate - Simple Logic)
+		// This ensures what you see is what you just synced. No mixing years.
+		if err := trxRepo.DeleteAllActualFacts(); err != nil {
+			return err
+		}
+		// Batch Insert in Chunks
+		chunkSize := 100 // Safe for deep structures
+		if len(headers) > 0 {
+			for i := 0; i < len(headers); i += chunkSize {
+				end := i + chunkSize
+				if end > len(headers) {
+					end = len(headers)
+				}
+				if err := trxRepo.CreateActualFacts(headers[i:end]); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+}
+
+// ---------------------------------------------------------------------
 // Processing Logic (Calculates YearTotal)
 // ---------------------------------------------------------------------
 
@@ -611,18 +791,38 @@ func (s *budgetService) GetOrganizationStructure() ([]models.OrganizationDTO, er
 		return nil, err
 	}
 
+	// Return Raw Codes (HMW, BUR) as stored in DB.
+	// User requested "Abbreviations" in filter.
+
 	// Map Entity -> []Branches
 	structure := make(map[string][]string)
 	for _, f := range facts {
 		if f.Entity == "" {
 			continue
 		}
-		if structure[f.Entity] == nil {
-			structure[f.Entity] = []string{}
+
+		// Use Raw Entity Code
+		entityName := f.Entity
+		// Use Raw Branch Code
+		branchName := f.Branch
+
+		if structure[entityName] == nil {
+			structure[entityName] = []string{}
 		}
-		// Add Branch if not empty and unique (Repo distincts entity,branch so uniqueness is guaranteed per row, but let's be safe)
+
+		// Add Branch if not empty
 		if f.Branch != "" {
-			structure[f.Entity] = append(structure[f.Entity], f.Branch)
+			// Check duplicates
+			found := false
+			for _, b := range structure[entityName] {
+				if b == branchName {
+					found = true
+					break
+				}
+			}
+			if !found {
+				structure[entityName] = append(structure[entityName], branchName)
+			}
 		}
 	}
 
@@ -636,8 +836,92 @@ func (s *budgetService) GetOrganizationStructure() ([]models.OrganizationDTO, er
 	return result, nil
 }
 
-func (s *budgetService) GetBudgetDetails(groups []string, departments []string, entityGLs []string, consoGLs []string, entities []string, branches []string) ([]models.BudgetFactEntity, error) {
-	return s.repo.GetBudgetDetails(groups, departments, entityGLs, consoGLs, entities, branches)
+// Helper to extract Code from "Code - Name" format
+func extractCode(s string) string {
+	if strings.Contains(s, " - ") {
+		parts := strings.SplitN(s, " - ", 2)
+		return strings.TrimSpace(parts[0])
+	}
+	return s
+}
+
+// Helper to sanitize filter map (Single or Slice)
+func sanitizeFilter(filter map[string]interface{}) {
+
+	// Normalize keys: Ensure entities/branches exist provided entity/branch exist
+	if v, ok := filter["entity"]; ok {
+		if _, exists := filter["entities"]; !exists {
+			filter["entities"] = v
+		}
+	}
+	if v, ok := filter["branch"]; ok {
+		if _, exists := filter["branches"]; !exists {
+			filter["branches"] = v
+		}
+	}
+	// Normalize keys: Department
+	if v, ok := filter["department"]; ok {
+		if _, exists := filter["departments"]; !exists {
+			filter["departments"] = v
+		}
+	}
+
+	targetKeys := []string{"entities", "branches", "departments"}
+	for _, key := range targetKeys {
+		val, ok := filter[key]
+		if !ok {
+			continue
+		}
+
+		var finalSlice []string
+
+		// Case 1: Single String
+		if s, ok := val.(string); ok && s != "" {
+			finalSlice = append(finalSlice, extractCode(s))
+		} else if ss, ok := val.([]string); ok {
+			// Case 2: Slice of Strings
+			for _, v := range ss {
+				finalSlice = append(finalSlice, extractCode(v))
+			}
+		} else if ifaceSlice, ok := val.([]interface{}); ok {
+			// Case 3: Slice of Interface
+			for _, v := range ifaceSlice {
+				if s, ok := v.(string); ok {
+					finalSlice = append(finalSlice, extractCode(s))
+				}
+			}
+		}
+
+		// Update Filter with correct type []string
+		if len(finalSlice) > 0 {
+			filter[key] = finalSlice
+		} else {
+			// If empty, remove to avoid confusion or empty IN clause issues
+			delete(filter, key)
+		}
+	}
+}
+
+func (s *budgetService) GetBudgetDetails(filter map[string]interface{}) ([]models.BudgetFactEntity, error) {
+	sanitizeFilter(filter)
+	return s.repo.GetBudgetDetails(filter)
+}
+
+func (s *budgetService) GetActualDetails(filter map[string]interface{}) ([]models.ActualFactEntity, error) {
+	sanitizeFilter(filter)
+	return s.repo.GetActualDetails(filter)
+}
+
+func (s *budgetService) GetDashboardSummary(filter map[string]interface{}) (*models.DashboardSummaryDTO, error) {
+	fmt.Printf("[DEBUG] GetDashboardSummary Filter (Before): %+v\n", filter)
+	sanitizeFilter(filter)
+	fmt.Printf("[DEBUG] GetDashboardSummary Filter (After): %+v\n", filter)
+	return s.repo.GetDashboardAggregates(filter)
+}
+
+func (s *budgetService) GetActualTransactions(filter map[string]interface{}) ([]models.ActualTransactionDTO, error) {
+	sanitizeFilter(filter)
+	return s.repo.GetActualTransactions(filter)
 }
 
 // ---------------------------------------------------------------------
@@ -733,4 +1017,8 @@ func isCapexBudgetHeader(row []string) bool {
 
 func containsIgnoreCase(s, substr string) bool {
 	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
+}
+
+func (s *budgetService) GetRawDate() (string, error) {
+	return s.repo.GetRawDate()
 }

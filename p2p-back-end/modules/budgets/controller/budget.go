@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"p2p-back-end/modules/entities/models"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -37,15 +38,58 @@ func NewBudgetController(router fiber.Router, budgetSrv models.BudgetService) {
 	router.Post("/files-capex-budget/:id/sync", controller.syncCapexBudget)
 	router.Post("/files-capex-actual/:id/sync", controller.syncCapexActual)
 
+	// Actuals APIs
+	router.Post("/sync-actuals", controller.syncActuals)                   // No file ID needed
+	router.Post("/actuals-details", controller.getActualDetails)           // Aggregated View
+	router.Post("/actuals-transactions", controller.getActualTransactions) // Detail View
+
 	// Dashboard APIs
 	router.Get("/filter-options", controller.getFilterOptions)
 	router.Get("/organization-structure", controller.getOrganizationStructure)
 	router.Post("/details", controller.getBudgetDetails)
+	router.Post("/dashboard-summary", controller.getDashboardSummary) // New
+	router.Get("/debug-date", controller.getDebugDate)                // Debug
+}
+
+func (c *budgetController) getDebugDate(ctx *fiber.Ctx) error {
+	date, err := c.budgetSrv.GetRawDate()
+	if err != nil {
+		fmt.Println("DEBUG DATE ERROR:", err.Error())
+		return ctx.Status(500).SendString(err.Error())
+	}
+	fmt.Printf("\n[DEBUG] RAW HMW DATE FORMAT: '%s'\n\n", date)
+	return ctx.SendString(date)
 }
 
 // ---------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------
+
+func (c *budgetController) getActualTransactions(ctx *fiber.Ctx) error {
+	var req map[string]interface{}
+	if err := ctx.BodyParser(&req); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
+	}
+
+	details, err := c.budgetSrv.GetActualTransactions(req)
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	return ctx.JSON(details)
+}
+
+func (c *budgetController) getDashboardSummary(ctx *fiber.Ctx) error {
+	var req map[string]interface{}
+	if err := ctx.BodyParser(&req); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
+	}
+
+	summary, err := c.budgetSrv.GetDashboardSummary(req)
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	return ctx.JSON(summary)
+}
 
 func (c *budgetController) getFilterOptions(ctx *fiber.Ctx) error {
 	options, err := c.budgetSrv.GetFilterOptions()
@@ -65,20 +109,25 @@ func (c *budgetController) getOrganizationStructure(ctx *fiber.Ctx) error {
 }
 
 func (c *budgetController) getBudgetDetails(ctx *fiber.Ctx) error {
-	type FilterRequest struct {
-		Groups      []string `json:"groups"`
-		Departments []string `json:"departments"`
-		EntityGLs   []string `json:"entity_gls"`
-		ConsoGLs    []string `json:"conso_gls"`
-		Entities    []string `json:"entities"`
-		Branches    []string `json:"branches"`
-	}
-	var req FilterRequest
+	var req map[string]interface{}
 	if err := ctx.BodyParser(&req); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
 
-	details, err := c.budgetSrv.GetBudgetDetails(req.Groups, req.Departments, req.EntityGLs, req.ConsoGLs, req.Entities, req.Branches)
+	details, err := c.budgetSrv.GetBudgetDetails(req)
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	return ctx.JSON(details)
+}
+
+func (c *budgetController) getActualDetails(ctx *fiber.Ctx) error {
+	var req map[string]interface{}
+	if err := ctx.BodyParser(&req); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
+	}
+
+	details, err := c.budgetSrv.GetActualDetails(req)
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -105,6 +154,24 @@ func (c *budgetController) syncBudget(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return ctx.JSON(fiber.Map{"status": "synced", "message": "Data synced successfully"})
+}
+
+func (c *budgetController) syncActuals(ctx *fiber.Ctx) error {
+	type SyncReq struct {
+		Year string `json:"year"`
+	}
+	var req SyncReq
+	if err := ctx.BodyParser(&req); err != nil {
+		// Allow empty body -> Default to current year
+	}
+	if req.Year == "" {
+		req.Year = fmt.Sprintf("%d", time.Now().Year())
+	}
+
+	if err := c.budgetSrv.SyncActuals(req.Year); err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	return ctx.JSON(fiber.Map{"status": "synced", "message": fmt.Sprintf("Actuals for %s synced successfully from Database", req.Year)})
 }
 
 func (c *budgetController) importCapexBudget(ctx *fiber.Ctx) error {

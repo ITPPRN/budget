@@ -53,6 +53,10 @@ func NewPostgresConnection(cfg *configs.Config) (*gorm.DB, error) {
 
 		&models.CapexActualFactEntity{},
 		&models.CapexActualAmountEntity{}, // New Detail Table
+
+		// Actual (Operational / P2P)
+		&models.ActualFactEntity{},
+		&models.ActualAmountEntity{}, // New Detail Table
 	)
 
 	if err != nil {

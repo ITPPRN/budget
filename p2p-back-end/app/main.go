@@ -38,11 +38,11 @@ func main() {
 	configs.LoadConfigs(cfg)
 
 	middlewares.InitKeycloakValidator(
-        cfg.KeyCloak.Host,
-        cfg.KeyCloak.Port,
-        cfg.KeyCloak.RealmName,
-        cfg.KeyCloak.ClientID,
-    )
+		cfg.KeyCloak.Host,
+		cfg.KeyCloak.Port,
+		cfg.KeyCloak.RealmName,
+		cfg.KeyCloak.ClientID,
+	)
 
 	db, err := databases.NewPostgresConnection(cfg)
 	if err != nil {

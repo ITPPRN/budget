@@ -1,0 +1,133 @@
+import React from 'react';
+import { Paper, Typography, Box, CircularProgress, Stack } from '@mui/material';
+import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
+import LinkIcon from '@mui/icons-material/Link';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+
+// Colors
+const COLORS = {
+    // Soft Blue Gradient Base
+    cardBg: '#4facfe',
+    progressTrack: 'rgba(255,255,255,0.2)',
+    progressValue: '#00e5ff',
+    textMain: '#ffffff',
+    textLabel: 'rgba(255, 255, 255, 0.9)' // High contrast
+};
+
+const formatMB = (val) => {
+    const safeVal = Math.abs(val || 0);
+    const mb = safeVal / 1000000;
+    return `${mb.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MB`;
+};
+
+// Common Style for Paper
+const cardStyle = {
+    p: 2.5,
+    borderRadius: 5,
+    // Soft Royal Blue Gradient
+    background: 'linear-gradient(135deg, #5b7cfa 0%, #3e64f0 100%)',
+    color: 'white',
+    width: '100%',
+    height: 130,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    boxShadow: '0 6px 16px rgba(0,0,0,0.1)'
+};
+
+// 1. Total Organization Budget Card
+export const TotalBudgetCard = ({ totalBudget = 331.46, totalActual = 0 }) => {
+    // User Request: Budget as % of Actual
+    const percentage = totalActual > 0 ? (totalBudget / totalActual) * 100 : 0;
+
+    return (
+        <Paper elevation={0} sx={cardStyle}>
+            <Stack spacing={0} sx={{ flex: 1 }}>
+                <Stack direction="row" alignItems="center" spacing={1} sx={{ opacity: 0.9, mb: 0.5 }}>
+                    <Inventory2OutlinedIcon sx={{ fontSize: 18 }} />
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700, letterSpacing: 0.5, fontSize: '0.85rem' }}>
+                        Total Organization Budget
+                    </Typography>
+                </Stack>
+
+                <Typography variant="h4" sx={{ fontWeight: 800, color: COLORS.textMain, lineHeight: 1.2 }}>
+                    {formatMB(totalBudget)}
+                </Typography>
+
+                <Typography variant="body2" sx={{ fontWeight: 500, color: COLORS.textLabel, mt: 0.5 }}>
+                    Actual: {formatMB(totalActual)}
+                </Typography>
+            </Stack>
+
+            <Box sx={{ position: 'relative', display: 'flex', ml: 2 }}>
+                <CircularProgress
+                    variant="determinate"
+                    value={100}
+                    size={70} // Reduced size
+                    thickness={5}
+                    sx={{ color: COLORS.progressTrack }}
+                />
+                <CircularProgress
+                    variant="determinate"
+                    value={Math.min(percentage, 100)}
+                    size={70} // Reduced size
+                    thickness={5}
+                    sx={{
+                        color: COLORS.progressValue,
+                        position: 'absolute',
+                        left: 0,
+                        strokeLinecap: 'round',
+                        [`& .MuiCircularProgress-circle`]: { strokeLinecap: 'round' },
+                    }}
+                />
+                <Box sx={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Typography variant="subtitle1" sx={{ fontWeight: 800, color: COLORS.textMain }}>
+                        {`${Math.round(percentage)}%`}
+                    </Typography>
+                </Box>
+            </Box>
+        </Paper>
+    );
+};
+
+// 2. Remaining Budget Card
+export const RemainingBudgetCard = ({ totalBudget = 331.46, totalActual = 0 }) => {
+    const remaining = totalBudget - totalActual;
+
+    return (
+        <Paper elevation={0} sx={cardStyle}>
+            <Stack spacing={0} sx={{ flex: 1 }}>
+                <Stack direction="row" alignItems="center" spacing={1} sx={{ opacity: 0.9, mb: 0.5 }}>
+                    <LinkIcon sx={{ fontSize: 18, transform: 'rotate(-45deg)' }} />
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700, letterSpacing: 0.5, fontSize: '0.85rem' }}>
+                        Remaining Budget
+                    </Typography>
+                </Stack>
+
+                <Typography variant="h4" sx={{ fontWeight: 800, color: COLORS.textMain, lineHeight: 1.2 }}>
+                    {formatMB(remaining)}
+                </Typography>
+            </Stack>
+
+            <Box sx={{
+                position: 'relative',
+                width: 70, height: 70, // Reduced size
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                bgcolor: 'rgba(255,255,255,0.15)',
+                borderRadius: '50%',
+                ml: 2
+            }}>
+                <Box sx={{
+                    width: 45, height: 45, // Reduced size
+                    bgcolor: 'rgba(255,255,255,0.1)',
+                    borderRadius: '50%',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center'
+                }}>
+                    <CheckCircleIcon sx={{ fontSize: 32, color: COLORS.progressValue }} />
+                </Box>
+            </Box>
+        </Paper>
+    );
+};
+
+export default TotalBudgetCard;
