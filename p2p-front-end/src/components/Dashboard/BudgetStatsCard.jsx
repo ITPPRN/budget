@@ -130,4 +130,60 @@ export const RemainingBudgetCard = ({ totalBudget = 331.46, totalActual = 0 }) =
     );
 };
 
+// 3. Department Status Alert Card
+export const DepartmentAlertCard = ({ overBudgetCount = 0, nearLimitCount = 0 }) => {
+    return (
+        <Paper elevation={0} sx={{
+            ...cardStyle,
+            // background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)', // Lighter Blue/Cyan variant for distinction
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            alignItems: 'flex-start',
+            px: 3
+        }}>
+            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5 }}>
+                <Inventory2OutlinedIcon sx={{ fontSize: 20 }} /> {/* Reusing icon or import LocalFlorist if available */}
+                <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                    Department Status Alert
+                </Typography>
+            </Stack>
+
+            <Stack spacing={1} sx={{ width: '100%' }}>
+                {/* Over Budget Row */}
+                <Stack direction="row" alignItems="center" spacing={1.5}>
+                    <Box sx={{
+                        bgcolor: '#ff4d4d',
+                        borderRadius: '4px',
+                        width: 24, height: 24,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                    }}>
+                        <Typography sx={{ fontWeight: 'bold', fontSize: '14px', color: 'white' }}>!</Typography>
+                    </Box>
+                    <Typography variant="body1" sx={{ color: "white"}}>
+                        {overBudgetCount} Dep - Over BG
+                    </Typography>
+                </Stack>
+
+                {/* Near Limit Row */}
+                <Stack direction="row" alignItems="center" spacing={1.5}>
+                    <Box sx={{
+                        bgcolor: '#ffc107',
+                        borderRadius: '4px',
+                        width: 24, height: 24,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                    }}>
+                        <Typography sx={{ fontWeight: 'bold', fontSize: '14px', color: 'black' }}>!</Typography>
+                    </Box>
+                    <Typography variant="body1" sx={{ color: "white" }}>
+                        {nearLimitCount} Dep - Near Limit
+                    </Typography>
+                </Stack>
+            </Stack>
+        </Paper>
+    );
+};
+
 export default TotalBudgetCard;

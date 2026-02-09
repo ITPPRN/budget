@@ -39,7 +39,7 @@ const BudgetTable = ({ loading, data, selectedCount }) => {
 
     const renderTable = (isMaximized = false) => (
         <React.Fragment>
-            <TableContainer sx={{ flexGrow: 1, width: '100%', overflowX: 'auto', overflowY: 'auto', maxHeight: isMaximized ? 'calc(100vh - 150px)' : 'none' }}>
+            <TableContainer sx={{ flexGrow: 1, width: '100%', overflow: 'auto' }}>
                 <Table stickyHeader size={isMaximized ? "medium" : "small"} sx={{ minWidth: '100%' }}>
                     <TableHead>
                         <TableRow>
@@ -97,15 +97,17 @@ const BudgetTable = ({ loading, data, selectedCount }) => {
             </TableContainer>
             {/* Pagination Control */}
             {!loading && data.length > 0 && (
-                <TablePagination
-                    rowsPerPageOptions={[10, 25, 50, 100]}
-                    component="div"
-                    count={data.length}
-                    rowsPerPage={rowsPerPage}
-                    page={page}
-                    onPageChange={handleChangePage}
-                    onRowsPerPageChange={handleChangeRowsPerPage}
-                />
+                <Box sx={{ flexShrink: 0 }}>
+                    <TablePagination
+                        rowsPerPageOptions={[10, 25, 50, 100]}
+                        component="div"
+                        count={data.length}
+                        rowsPerPage={rowsPerPage}
+                        page={page}
+                        onPageChange={handleChangePage}
+                        onRowsPerPageChange={handleChangeRowsPerPage}
+                    />
+                </Box>
             )}
         </React.Fragment>
     );

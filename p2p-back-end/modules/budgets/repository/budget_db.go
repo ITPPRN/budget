@@ -618,6 +618,27 @@ func (r *budgetRepositoryDB) GetDashboardAggregates(filter map[string]interface{
 		}
 	}
 
+	// Calculate Global Status Counts (Before Pagination)
+	var overBudgetCount, nearLimitCount int
+	for _, d := range allDepts {
+		budget := d.Budget
+		actual := d.Actual
+		remaining := budget - actual
+
+		// Over Budget: (Budget=0 & Actual>0) OR (Remaining < 0)
+		if (budget == 0 && actual > 0) || remaining < 0 {
+			overBudgetCount++
+		} else if budget > 0 {
+			// Near Limit: Remaining < 20%
+			ratio := remaining / budget
+			if ratio < 0.2 {
+				nearLimitCount++
+			}
+		}
+	}
+	summary.OverBudgetCount = overBudgetCount
+	summary.NearLimitCount = nearLimitCount
+
 	sort.Slice(allDepts, func(i, j int) bool {
 		var valI, valJ float64
 		switch sortBy {

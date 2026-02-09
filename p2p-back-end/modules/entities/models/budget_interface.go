@@ -133,6 +133,10 @@ type DashboardSummaryDTO struct {
 	TotalCount int64 `json:"total_count"`
 	Page       int   `json:"page"`
 	Limit      int   `json:"limit"`
+
+	// Status Counts (Global)
+	OverBudgetCount int `json:"over_budget_count"`
+	NearLimitCount  int `json:"near_limit_count"`
 }
 
 type DepartmentStatDTO struct {

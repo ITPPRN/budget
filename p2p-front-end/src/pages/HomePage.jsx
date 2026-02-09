@@ -4,7 +4,7 @@ import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api/axiosInstance';
 import { STATIC_FILTER_OPTIONS } from '../constants/budgetData';
 import StatCard from '../components/Dashboard/StatCard';
-import { TotalBudgetCard, RemainingBudgetCard } from '../components/Dashboard/BudgetStatsCard';
+import { TotalBudgetCard, RemainingBudgetCard, DepartmentAlertCard } from '../components/Dashboard/BudgetStatsCard';
 import DepartmentTable from '../components/Dashboard/DepartmentTable';
 import BudgetChart from '../components/Dashboard/BudgetChart';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
@@ -34,6 +34,9 @@ const HomePage = () => {
   const [selectedBranch, setSelectedBranch] = useState('');
   const [selectedDepartment, setSelectedDepartment] = useState(''); // New State
   const [orgStructure, setOrgStructure] = useState([]);
+
+  // Alert Counts State
+  const [alertCounts, setAlertCounts] = useState({ over: 0, near: 0 });
 
   // Pagination State
   const [page, setPage] = useState(0);
@@ -113,6 +116,13 @@ const HomePage = () => {
         // Let's stick to API filtering for consistency of "Total Budget Card" etc.
 
         setTotalCount(data.total_count || 0);
+
+        // Update Alert Counts from API (Global)
+        setAlertCounts({
+          over: data.over_budget_count || 0,
+          near: data.near_limit_count || 0
+        });
+
         setOrgStructure(prev => prev.length ? prev : []); // Keep structure
 
         const mappedChart = (data.chart_data || []).map(item => ({
@@ -208,13 +218,18 @@ const HomePage = () => {
         {/* 1. Summary Cards */}
         <Grid container spacing={3} sx={{ mb: 4 }}>
           {/* Total Budget Card */}
-          <Grid item xs={12} md={6}>
+          <Grid item xs={12} md={4}>
             <TotalBudgetCard totalBudget={totalBudget} totalActual={totalActual} />
           </Grid>
 
           {/* Remaining Budget Card */}
-          <Grid item xs={12} md={6}>
+          <Grid item xs={12} md={4}>
             <RemainingBudgetCard totalBudget={totalBudget} totalActual={totalActual} />
+          </Grid>
+
+          {/* Department Alert Card */}
+          <Grid item xs={12} md={4}>
+            <DepartmentAlertCard overBudgetCount={alertCounts.over} nearLimitCount={alertCounts.near} />
           </Grid>
         </Grid>
 

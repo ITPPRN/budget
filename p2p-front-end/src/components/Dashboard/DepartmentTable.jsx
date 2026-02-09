@@ -11,11 +11,25 @@ const DepartmentTable = ({ data, count, page, rowsPerPage, onPageChange, onRowsP
 
     // Helper to determine status color based on usage
     const getStatusColor = (budget, used) => {
-        if (budget === 0) return 'text.secondary';
-        const ratio = used / budget;
-        if (ratio > 1) return '#e74a3b'; // Red (Over)
-        if (ratio > 0.8) return '#f6c23e'; // Yellow (Warning)
-        return '#1cc88a'; // Green (Good)
+        // 1. Invalid/No Budget
+        if (budget === 0) {
+            // If spending occurs without budget -> Red (Critical)
+            if (used > 0) return '#e74a3b';
+            // No budget, no spend -> Grey (Inactive)
+            return 'text.secondary';
+        }
+
+        const remaining = budget - used;
+        const remainingPercentage = (remaining / budget) * 100;
+
+        // 2. Red (Over Budget): Spend > Budget (Remaining < 0)
+        if (remaining < 0) return '#e74a3b';
+
+        // 3. Yellow (Warning): Remaining is Low (e.g. < 20% left)
+        if (remainingPercentage < 20) return '#f6c23e';
+
+        // 4. Green (Healthy): Safe zone
+        return '#1cc88a';
     };
 
     const createSortHandler = (property) => (event) => {
@@ -30,7 +44,7 @@ const DepartmentTable = ({ data, count, page, rowsPerPage, onPageChange, onRowsP
                 </Typography>
             </Box>
 
-            <TableContainer sx={{ flexGrow: 1 }}>
+            <TableContainer sx={{ flexGrow: 1, overflow: 'auto' }}>
                 <Table stickyHeader size="small">
                     <TableHead>
                         <TableRow>
@@ -69,18 +83,21 @@ const DepartmentTable = ({ data, count, page, rowsPerPage, onPageChange, onRowsP
                         </TableRow>
                     </TableHead>
                     <TableBody>
-                        {data.map((row) => {
+                        {(data || []).map((row) => {
+                            const budget = row.budget || 0;
                             const spending = row.spending || 0;
-                            const remaining = row.budget - spending;
-                            const statusColor = getStatusColor(row.budget, spending);
-                            const isSelected = selectedDept === row.deptRaw; // Check selection
+                            const remaining = budget - spending;
+                            const remainingPct = budget > 0 ? (remaining / budget) * 100 : 0;
+                            const statusColor = getStatusColor(budget, spending);
+
+                            const isSelected = selectedDept === row.deptRaw;
 
                             return (
                                 <TableRow
                                     key={row.name}
                                     hover
                                     onClick={() => onRowClick && onRowClick(row.deptRaw)}
-                                    selected={isSelected} // MUI Selected Style
+                                    // Remove 'selected' prop to avoid default gray background
                                     sx={{
                                         cursor: 'pointer',
                                         bgcolor: isSelected ? 'rgba(25, 118, 210, 0.08) !important' : 'inherit'
@@ -102,15 +119,17 @@ const DepartmentTable = ({ data, count, page, rowsPerPage, onPageChange, onRowsP
                 </Table>
             </TableContainer>
 
-            <TablePagination
-                component="div"
-                count={count || 0}
-                page={page || 0}
-                onPageChange={onPageChange}
-                rowsPerPage={rowsPerPage || 10}
-                onRowsPerPageChange={onRowsPerPageChange}
-                rowsPerPageOptions={[10, 20, 50, 100]}
-            />
+            <Box sx={{ flexShrink: 0 }}>
+                <TablePagination
+                    component="div"
+                    count={count || 0}
+                    page={page || 0}
+                    onPageChange={onPageChange}
+                    rowsPerPage={rowsPerPage || 10}
+                    onRowsPerPageChange={onRowsPerPageChange}
+                    rowsPerPageOptions={[10, 20, 50, 100]}
+                />
+            </Box>
         </Paper >
     );
 };
