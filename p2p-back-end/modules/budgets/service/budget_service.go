@@ -385,6 +385,13 @@ func (s *budgetService) SyncActuals(year string) error {
 	})
 }
 
+func (s *budgetService) DeleteActualFacts(year string) error {
+	if year == "" {
+		return fmt.Errorf("year is required")
+	}
+	return s.repo.DeleteActualFactsByYear(year)
+}
+
 // ---------------------------------------------------------------------
 // Processing Logic (Calculates YearTotal)
 // ---------------------------------------------------------------------

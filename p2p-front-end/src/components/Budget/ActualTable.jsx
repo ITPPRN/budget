@@ -109,11 +109,9 @@ const ActualTable = ({ loading, data = [], dateFilter, onDateFilterChange }) => 
                             ))
                         ) : (
                             <TableRow>
-                                <TableRow>
-                                    <TableCell colSpan={7} align="center" sx={{ py: 5, color: 'text.secondary' }}>
-                                        No actual data found for selected filters
-                                    </TableCell>
-                                </TableRow>
+                                <TableCell colSpan={7} align="center" sx={{ py: 5, color: 'text.secondary' }}>
+                                    No actual data found for selected filters
+                                </TableCell>
                             </TableRow>
                         )}
                     </TableBody>

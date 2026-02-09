@@ -102,6 +102,7 @@ type BudgetService interface {
 
 	// Actuals
 	SyncActuals(year string) error
+	DeleteActualFacts(year string) error // New
 
 	// Dashboard Optimized
 	GetDashboardSummary(filter map[string]interface{}) (*DashboardSummaryDTO, error)

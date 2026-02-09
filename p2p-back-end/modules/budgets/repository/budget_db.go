@@ -16,7 +16,7 @@ func NewBudgetRepositoryDB(db *gorm.DB) models.BudgetRepository {
 	return &budgetRepositoryDB{db: db}
 }
 
-// Transaction helper
+// ตัวช่วยสำหรับ Transaction
 func (r *budgetRepositoryDB) WithTrx(trxHandle func(repo models.BudgetRepository) error) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		repo := NewBudgetRepositoryDB(tx)
@@ -25,7 +25,7 @@ func (r *budgetRepositoryDB) WithTrx(trxHandle func(repo models.BudgetRepository
 }
 
 // ---------------------------------------------------------
-// File Create Methods
+// ฟังก์ชันสร้างไฟล์ (File Create Methods)
 // ---------------------------------------------------------
 
 func (r *budgetRepositoryDB) CreateFileBudget(file *models.FileBudgetEntity) error {
@@ -41,7 +41,7 @@ func (r *budgetRepositoryDB) CreateFileCapexActual(file *models.FileCapexActualE
 }
 
 // ---------------------------------------------------------
-// Fact Create Methods (Batch Insert + Association)
+// ฟังก์ชันสร้างข้อมูล (Fact Create Methods - บันทึกแบบกลุ่ม + ความสัมพันธ์)
 // ---------------------------------------------------------
 
 // 1. Budget (PL)
@@ -49,18 +49,18 @@ func (r *budgetRepositoryDB) CreateBudgetFacts(headers []models.BudgetFactEntity
 	// GORM CreateInBatches ไม่บันทึก Association (Amounts) โดยอัตโนมัติ
 	// เราต้องแยกบันทึก Header และ Amount เองเพื่อประสิทธิภาพ 100%
 
-	// 1.1 Insert Headers
+	// 1.1 บันทึกส่วนหัว (Headers)
 	if err := r.db.Omit("BudgetAmounts").CreateInBatches(&headers, 1000).Error; err != nil {
 		return err
 	}
 
-	// 1.2 Collect All Amounts
+	// 1.2 รวบรวมข้อมูลยอดเงินทั้งหมด (Amounts)
 	var allAmounts []models.BudgetAmountEntity
 	for _, h := range headers {
 		allAmounts = append(allAmounts, h.BudgetAmounts...)
 	}
 
-	// 1.3 Insert Amounts
+	// 1.3 บันทึกยอดเงิน (Insert Amounts)
 	if len(allAmounts) > 0 {
 		return r.db.CreateInBatches(&allAmounts, 1000).Error
 	}
@@ -73,11 +73,13 @@ func (r *budgetRepositoryDB) CreateCapexBudgetFacts(headers []models.CapexBudget
 		return err
 	}
 
+	// 1.2 รวบรวมข้อมูลยอดเงินทั้งหมด (Amounts)
 	var allAmounts []models.CapexBudgetAmountEntity
 	for _, h := range headers {
 		allAmounts = append(allAmounts, h.CapexBudgetAmounts...)
 	}
 
+	// 1.3 บันทึกยอดเงิน (Insert Amounts)
 	if len(allAmounts) > 0 {
 		return r.db.CreateInBatches(&allAmounts, 1000).Error
 	}
@@ -86,15 +88,18 @@ func (r *budgetRepositoryDB) CreateCapexBudgetFacts(headers []models.CapexBudget
 
 // 3. Capex Actual
 func (r *budgetRepositoryDB) CreateCapexActualFacts(headers []models.CapexActualFactEntity) error {
+	// 1.1 บันทึกส่วนหัว (Headers)
 	if err := r.db.Omit("CapexActualAmounts").CreateInBatches(&headers, 1000).Error; err != nil {
 		return err
 	}
 
+	// 1.2 รวบรวมข้อมูลยอดเงินทั้งหมด (Amounts)
 	var allAmounts []models.CapexActualAmountEntity
 	for _, h := range headers {
 		allAmounts = append(allAmounts, h.CapexActualAmounts...)
 	}
 
+	// 1.3 บันทึกยอดเงิน (Insert Amounts)
 	if len(allAmounts) > 0 {
 		return r.db.CreateInBatches(&allAmounts, 1000).Error
 	}
@@ -102,7 +107,7 @@ func (r *budgetRepositoryDB) CreateCapexActualFacts(headers []models.CapexActual
 }
 
 // ---------------------------------------------------------
-// File List Methods
+// ฟังก์ชันดึงรายการไฟล์ (File List Methods)
 // ---------------------------------------------------------
 
 func (r *budgetRepositoryDB) ListFileBudgets() ([]models.FileBudgetEntity, error) {
@@ -148,13 +153,13 @@ func (r *budgetRepositoryDB) GetFileCapexActual(id string) (*models.FileCapexAct
 }
 
 // ---------------------------------------------------------------------
-// Dashboard / Detail View
+// ส่วนแสดงผล Dashboard / รายละเอียด (Dashboard / Detail View)
 // ---------------------------------------------------------------------
 
 func (r *budgetRepositoryDB) GetBudgetFilterOptions() ([]models.BudgetFactEntity, error) {
 	fmt.Println("[DEBUG] Repo: GetBudgetFilterOptions START")
 	var results []models.BudgetFactEntity
-	// Select distinct combinations for hierarchy building
+	// เลือกข้อมูลที่ไม่ซ้ำกันเพื่อสร้างลำดับชั้น (Hierarchy)
 	err := r.db.Model(&models.BudgetFactEntity{}).
 		Distinct("\"group\"", "department", "entity_gl", "conso_gl", "gl_name").
 		Order("\"group\", department, entity_gl, conso_gl").
@@ -165,9 +170,9 @@ func (r *budgetRepositoryDB) GetBudgetFilterOptions() ([]models.BudgetFactEntity
 
 func (r *budgetRepositoryDB) GetOrganizationStructure() ([]models.BudgetFactEntity, error) {
 	var results []models.BudgetFactEntity
-	// Union Distinct Entities and Branches from both Budget and Actual tables
-	// GORM doesn't support UNION natively in a clean way for struct scanning without raw SQL usually,
-	// but we can use Raw SQL for performance and clarity here.
+	// รวม Entity และ Branch ที่ไม่ซ้ำกันจากทั้งตาราง Budget และ Actual
+	// GORM ไม่รองรับ UNION ในการ Scan struct โดยตรงได้ง่ายๆ
+	// เราจึงใช้ Raw SQL เพื่อความชัดเจนและประสิทธิภาพ
 
 	query := `
         SELECT DISTINCT entity, branch FROM budget_fact_entities WHERE entity != ''
@@ -233,20 +238,20 @@ func (r *budgetRepositoryDB) GetActualDetails(filter map[string]interface{}) ([]
 		}
 	}
 
-	// Dimensions for Actuals: Entity, Branch, Department, ConsoGL (Code), GLName
-	// Note: Actuals might not have "Group" or "EntityGL" if not mapped yet.
+	// มิติข้อมูลสำหรับ Actuals: Entity, Branch, Department, ConsoGL (Code), GLName
+	// หมายเหตุ: Actuals อาจจะยังไม่มี "Group" หรือ "EntityGL" ถ้ายังไม่ได้ Mapping
 	applyFilter("departments", "department")
 	applyFilter("conso_gls", "conso_gl")
 	applyFilter("entities", "entity")
 	applyFilter("branches", "branch")
 
-	// Order by logic
+	// เรียงลำดับข้อมูล
 	err := query.Order("department, conso_gl, gl_name").Find(&results).Error
 	return results, err
 }
 
 // ---------------------------------------------------------
-// File Delete Methods
+// ฟังก์ชันลบไฟล์ (File Delete Methods)
 // ---------------------------------------------------------
 
 func (r *budgetRepositoryDB) DeleteFileBudget(id string) error {
@@ -265,14 +270,15 @@ func (r *budgetRepositoryDB) DeleteFileCapexActual(id string) error {
 // 4. Delete All Facts (For Sync)
 // ---------------------------------------------------------------------
 // ---------------------------------------------------------------------
-// 4. Delete All Facts (For Sync)
+// ---------------------------------------------------------------------
+// 4. ลบข้อมูล Fact ทั้งหมด (สำหรับการ Sync)
 // ---------------------------------------------------------------------
 func (r *budgetRepositoryDB) DeleteAllBudgetFacts() error {
-	// 1. Delete Amounts (Children)
+	// 1. ลบยอดเงิน (ลูก)
 	if err := r.db.Unscoped().Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&models.BudgetAmountEntity{}).Error; err != nil {
 		return err
 	}
-	// 2. Delete Headers (Parents)
+	// 2. ลบส่วนหัว (แม่)
 	return r.db.Unscoped().Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&models.BudgetFactEntity{}).Error
 }
 
@@ -295,7 +301,8 @@ func (r *budgetRepositoryDB) DeleteAllCapexActualFacts() error {
 }
 
 // ---------------------------------------------------------------------
-// 5. Update Files (Rename) - Implementation
+// ---------------------------------------------------------------------
+// 5. อัปเดตไฟล์ (เปลี่ยนชื่อ) - Implementation
 // ---------------------------------------------------------------------
 
 func (r *budgetRepositoryDB) UpdateFileBudget(id string, filename string) error {
@@ -311,20 +318,21 @@ func (r *budgetRepositoryDB) UpdateFileCapexActual(id string, filename string) e
 }
 
 // ---------------------------------------------------------------------
-// 6. Actuals (Operational) - Sync Implementation
+// ---------------------------------------------------------------------
+// 6. ข้อมูลจริง (Actuals/Operational) - Sync Implementation
 // ---------------------------------------------------------------------
 
 func (r *budgetRepositoryDB) CreateActualFacts(headers []models.ActualFactEntity) error {
-	// 1. Insert Headers
+	// 1. บันทึกส่วนหัว (Insert Headers)
 	if err := r.db.Omit("ActualAmounts").CreateInBatches(&headers, 1000).Error; err != nil {
 		return err
 	}
-	// 2. Collect Amounts
+	// 2. รวบรวมยอดเงิน (Collect Amounts)
 	var allAmounts []models.ActualAmountEntity
 	for _, h := range headers {
 		allAmounts = append(allAmounts, h.ActualAmounts...)
 	}
-	// 3. Insert Amounts
+	// 3. บันทึกยอดเงิน (Insert Amounts)
 	if len(allAmounts) > 0 {
 		return r.db.CreateInBatches(&allAmounts, 1000).Error
 	}
@@ -332,19 +340,19 @@ func (r *budgetRepositoryDB) CreateActualFacts(headers []models.ActualFactEntity
 }
 
 func (r *budgetRepositoryDB) DeleteAllActualFacts() error {
-	// 1. Delete Amounts
+	// 1. ลบยอดเงิน (Delete Amounts)
 	if err := r.db.Unscoped().Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&models.ActualAmountEntity{}).Error; err != nil {
 		return err
 	}
-	// 2. Delete Headers
+	// 2. ลบส่วนหัว (Delete Headers)
 	return r.db.Unscoped().Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&models.ActualFactEntity{}).Error
 }
 
 func (r *budgetRepositoryDB) DeleteActualFactsByYear(year string) error {
-	// 1. Delete Amounts linked to Headers of that Year
-	// (Requires join or subquery? Usually GORM handles Cascade delete if configured, but let's be safe)
-	// Actually, Amounts don't have Year. We must find Headers first.
+	// 1. ลบยอดเงินที่เชื่อมโยงกับ Header ของปีนั้นๆ
+	// (ต้องใช้ subquery เพราะ Amount ไม่มี Year เก็บไว้โดยตรง)
 	// Subquery delete: DELETE FROM actual_amount_entities WHERE actual_fact_id IN (SELECT id FROM actual_fact_entities WHERE year = ?)
+	// Use Unscoped to force HARD DELETE
 	if err := r.db.Exec(`
 		DELETE FROM actual_amount_entities 
 		WHERE actual_fact_id IN (SELECT id FROM actual_fact_entities WHERE year = ?)
@@ -352,13 +360,14 @@ func (r *budgetRepositoryDB) DeleteActualFactsByYear(year string) error {
 		return err
 	}
 
-	// 2. Delete Headers
-	return r.db.Where("year = ?", year).Delete(&models.ActualFactEntity{}).Error
+	// 2. Delete Headers (Hard Delete)
+	return r.db.Unscoped().Where("year = ?", year).Delete(&models.ActualFactEntity{}).Error
 }
 
 func (r *budgetRepositoryDB) GetAggregatedHMW(year string) ([]models.ActualAggregatedDTO, error) {
 	var results []models.ActualAggregatedDTO
-	// Optimization: Group by Database
+	// การเพิ่มประสิทธิภาพ: Group โดย Database
+
 	// Postgres TO_CHAR(date, 'MON') returns 'JAN', 'FEB'... (uppercase)
 	// Posting_Date is likely VARCHAR in DB, so cast to DATE first
 	err := r.db.Table("achhmw_gle_api").
@@ -409,17 +418,121 @@ func (r *budgetRepositoryDB) GetAllClikGle() ([]models.ClikGleEntity, error) {
 }
 
 // ---------------------------------------------------------------------
-// 7. Dashboard Aggregation (Optimized)
+// ---------------------------------------------------------------------
+// 7. การรวมข้อมูลสำหรับ Dashboard (Dashboard Aggregation - Optimized)
 // ---------------------------------------------------------------------
 func (r *budgetRepositoryDB) GetActualTransactions(filter map[string]interface{}) ([]models.ActualTransactionDTO, error) {
 	var results []models.ActualTransactionDTO
 
-	// Filtering Logic
+	// ตรรกะการกรองข้อมูล (Filtering Logic)
 	whereClause := "1=1"
 	var args []interface{}
 
-	// Filter by GL Account No (Required for Drill Down)
-	// User Requirement: Map Conso GL (Filter) -> Entity GL (Source)
+	// ความต้องการผู้ใช้: Map ชื่อต้นทาง (Source Names) -> รหัส (Codes) สำหรับเก็บลงฐานข้อมูล
+	// เราต้อง Map ย้อนกลับ (Code -> Source Name) เพื่อกรองตารางต้นทางโดยตรง
+	// แผนผัง Entity (Code -> Source Name)
+	// อัปเดต: ผู้ใช้ยืนยันว่า Source ใช้ตัวพิมพ์ใหญ่ผสมเล็ก (Title Case) เช่น "Honda Maliwan"
+	entityCodeToNameMap := map[string][]string{
+		"HMW":  {"HONDA MALIWAN", "HMW", "Honda Maliwan"},
+		"ACG":  {"AUTOCORP HOLDING", "ACG", "Autocorp Holding"},
+		"CLIK": {"CLIK"},
+	}
+
+	fmt.Printf("[DEBUG] GetActualTransactions Check Filter: %+v\n", filter)
+
+	// แผนผัง Branch (Code -> Source Name(s)) - HMW/ACG/CLIK รวมกัน
+	// หมายเหตุ: รหัส Branch ใน UI (HOF, VEE, ฯลฯ) อาจ Map ไปยังชื่อต้นทางหลายชื่อ หรือชื่อเดียวกัน
+	// เราต้องใช้ตัวช่วยเพื่อหาชื่อต้นทางทั้งหมดจากรหัสที่ได้รับ
+	// เนื่องจาก Logic ตอน Sync คือ: Normalize(Source) -> Map[Source] -> Code
+	// เราต้องการ: Code -> [รายการชื่อต้นทางที่ Map มาหา Code นี้]
+	// การดูแลสองที่มันยุ่งยาก แต่อนาคตควรทำเป็นตารางกลาง
+	// ตอนนี้ยอมให้ใช้ทั้ง Code และชื่อทั่วไป
+	// หรือดีกว่านั้น: ใน `achhmw_gle_api`, branch น่าจะเป็นชื่อต้นทาง (เช่น "HEAD OFFICE")
+	// ใน `actual_fact_entities` มันคือ "HOF"
+	// ถ้า User กรอง "HOF" เราต้องไปค้นหา "HEAD OFFICE" ในต้นทาง
+
+	// Hardcoded Reverse Map อ้างอิงจาก budget_service.go
+	// อัปเดต: เพิ่มแบบ Title Case ตามที่ User ส่งรูปมาให้ดู
+	branchCodeToNameMap := map[string][]string{
+		"HOF":      {"HEAD OFFICE", "AUTOCORP HEAD OFFICE", "HEADOFFICE", "HOF", "Head Office", "Headoffice"},
+		"BUR":      {"BURIRUM", "BUR", "Burirum"},
+		"KBI":      {"KRABI", "KBI", "Krabi"},
+		"MSR":      {"MINI_SURIN", "MSR", "Mini_Surin"},
+		"MKB":      {"MUEANG KRABI", "MKB", "Mueang Krabi"},
+		"NAK":      {"NAKA", "NAK", "Naka"},
+		"AVN":      {"NANGRONG", "AVN", "Nangrong"},
+		"PHC":      {"PHACHA", "PHC", "Phacha"},
+		"PRA":      {"PHUKET", "PRA", "Phuket"},
+		"SUR":      {"SURIN", "SUR", "Surin"},
+		"VEE":      {"VEERAWAT", "VEE", "Veerawat"},
+		"HQ":       {"AUTOCORP HEAD OFFICE", "HQ", "Autocorp Head Office"},
+		"Branch00": {"", "Branch00"},
+		// Add Branch01..15 if needed
+	}
+	// Add Branch01-15 loop
+	for i := 1; i <= 15; i++ {
+		key := fmt.Sprintf("Branch%02d", i)
+		branchCodeToNameMap[key] = []string{fmt.Sprintf("BRANCH%02d", i), fmt.Sprintf("Branch%02d", i)}
+	}
+
+	// ตัวกรอง Entity
+	var hmwEntities []string
+	var clikEntities []string
+	var selectedEntities []string // เก็บ UI Code ที่เลือกไว้เพื่อไปกรอง actual_fact_entities
+	if val, ok := filter["entities"]; ok {
+		var entities []string
+		if s, ok := val.([]string); ok {
+			entities = s
+		} else if s, ok := val.([]interface{}); ok {
+			for _, item := range s {
+				entities = append(entities, fmt.Sprintf("%v", item))
+			}
+		}
+
+		if len(entities) > 0 {
+			selectedEntities = entities // เก็บ UI Code ที่เลือกไว้
+			// แปลง UI Codes (HMW, ACG) ไปเป็นชื่อต้นทาง (Source Names)
+			for _, e := range entities {
+				if names, ok := entityCodeToNameMap[e]; ok {
+					hmwEntities = append(hmwEntities, names...)
+					clikEntities = append(clikEntities, names...) // CLIK อาจจะใช้ Logic เดียวกัน หรือใช้ 'CLIK' เฉยๆ
+				} else {
+					// Fallback: Use the code itself
+					hmwEntities = append(hmwEntities, e)
+					clikEntities = append(clikEntities, e)
+				}
+			}
+		}
+	}
+
+	// ตัวกรอง Branch
+	var hmwBranches []string
+	var clikBranches []string
+	if val, ok := filter["branches"]; ok {
+		var branches []string
+		if s, ok := val.([]string); ok {
+			branches = s
+		} else if s, ok := val.([]interface{}); ok {
+			for _, item := range s {
+				branches = append(branches, fmt.Sprintf("%v", item))
+			}
+		}
+
+		if len(branches) > 0 {
+			for _, b := range branches {
+				if names, ok := branchCodeToNameMap[b]; ok {
+					hmwBranches = append(hmwBranches, names...)
+					clikBranches = append(clikBranches, names...)
+				} else {
+					hmwBranches = append(hmwBranches, b)
+					clikBranches = append(clikBranches, b)
+				}
+			}
+		}
+	}
+
+	// กรองโดย GL Account No (จำเป็นสำหรับการ Drill Down)
+	// ความต้องการผู้ใช้: Map Conso GL (Filter) -> Entity GL (Source)
 	if val, ok := filter["conso_gls"]; ok {
 		var consoGLs []string
 		if s, ok := val.([]string); ok {
@@ -431,22 +544,42 @@ func (r *budgetRepositoryDB) GetActualTransactions(filter map[string]interface{}
 		}
 
 		if len(consoGLs) > 0 {
-			// Step 1: Find corresponding Entity GLs from Mapping Table (budget_fact_entities)
-			var entityGLs []string
-			r.db.Model(&models.BudgetFactEntity{}).
+			// ขั้นตอนที่ 1: หา Entity GLs ที่ตรงกันจากตาราง Mapping
+			// ใช้ BUDGET FACTS เป็นแหล่งข้อมูลหลัก (Source of Truth) สำหรับการ Mapping
+			var mappedEntityGLs []string
+			mappingQuery := r.db.Model(&models.BudgetFactEntity{}).
 				Where("conso_gl IN ?", consoGLs).
-				Distinct("entity_gl").
-				Pluck("entity_gl", &entityGLs)
+				Distinct("entity_gl")
 
-			// Step 2: Filter Source Tables by Entity GLs
-			if len(entityGLs) > 0 {
+			if len(selectedEntities) > 0 {
+				mappingQuery = mappingQuery.Where("entity IN ?", selectedEntities)
+			}
+
+			mappingQuery.Pluck("entity_gl", &mappedEntityGLs)
+			fmt.Printf("[DEBUG] GL Mapping (Budget): Conso %v -> EntityGLs %v\n", consoGLs, mappedEntityGLs)
+
+			// Fallback: หากไม่เจอ Mapping ใน Budget เป็นไปได้ว่า ConsoGL คือ EntityGL (ตรงกันเลย)
+			// หรือ Actual มีอยู่จริงโดยไม่มี Budget
+			// ดังนั้นเราต้องรวม ConsoGLs เดิมเข้าไปในรายการค้นหาด้วย
+			// รวม mapped + original
+			finalGLs := append(mappedEntityGLs, consoGLs...)
+
+			// Remove duplicates
+			uniqueGLs := make(map[string]bool)
+			var list []string
+			for _, item := range finalGLs {
+				if _, value := uniqueGLs[item]; !value {
+					uniqueGLs[item] = true
+					list = append(list, item)
+				}
+			}
+
+			// ขั้นตอนที่ 2: ใช้รายการที่รวมแล้วไปกรองตารางต้นทาง
+			if len(list) > 0 {
 				whereClause += " AND \"G_L_Account_No\" IN ?"
-				args = append(args, entityGLs)
+				args = append(args, list)
 			} else {
-				// If no mapping found, maybe fallback to ConsoGLs themselves or return empty
-				// For safety, let's include ConsoGLs too in case some match directly (though user said no)
-				whereClause += " AND \"G_L_Account_No\" IN ?"
-				args = append(args, consoGLs)
+				whereClause += " AND 1=0"
 			}
 		}
 	}
@@ -465,28 +598,33 @@ func (r *budgetRepositoryDB) GetActualTransactions(filter map[string]interface{}
 		}
 	}
 
-	// Helper to apply limit/order to subqueries
+	// Helper เพื่อใส่ Limit/Order ใน Subquery
 	applyLimit := func(db *gorm.DB) *gorm.DB {
 		return db.Order("\"Posting_Date\" ASC").Limit(2000)
 	}
 
-	// ✅ FILTER LOGIC UPDATE:
-	// Only show transactions for years that are currently "Synced" (Active in actual_fact_entities)
-	// This matches the user expectation that "Syncing 2026" hides 2025 data.
+	// ✅ อัปเดต Logic การกรอง:
+	// แสดงเฉพาะ Transaction ของปีที่ "Sync" แล้วเท่านั้น (Active ใน actual_fact_entities)
+	// ตรงตามความต้องการผู้ใช้ที่ว่า "Sync 2026" แล้วจะไม่เห็นข้อมูล 2025
 	var activeYears []string
 	r.db.Model(&models.ActualFactEntity{}).Distinct("year").Pluck("year", &activeYears)
+	fmt.Printf("[DEBUG] Active Years in Facts: %v\n", activeYears)
 
-	// If no data is synced, return empty immediately
-	if len(activeYears) == 0 {
-		return []models.ActualTransactionDTO{}, nil
+	// ✅ Re-enable Filter: Only show data for years that are synced.
+	// This ensures that if a user "Unsyncs" a year, the data disappears from the view.
+	whereClause += " AND TO_CHAR(\"Posting_Date\"::DATE, 'YYYY') IN ?"
+	if len(activeYears) > 0 {
+		args = append(args, activeYears)
+	} else {
+		// If no years are synced, show nothing
+		whereClause += " AND 1=0"
 	}
 
-	// Add Year Filter to WhereClause
-	whereClause += " AND TO_CHAR(\"Posting_Date\"::DATE, 'YYYY') IN ?"
-	args = append(args, activeYears)
+	fmt.Printf("[DEBUG] WhereClause: %s\n", whereClause)
+	fmt.Printf("[DEBUG] Args: %v\n", args)
 
 	// Query HMW
-	queryHMW := r.db.Table("achhmw_gle_api").
+	hmwQuery := r.db.Table("achhmw_gle_api").
 		Select(`
 			'HMW' as source,
 			TO_CHAR("Posting_Date"::DATE, 'YYYY-MM-DD') as posting_date,
@@ -495,13 +633,24 @@ func (r *budgetRepositoryDB) GetActualTransactions(filter map[string]interface{}
 			"G_L_Account_No" as gl_account_no,
 			"G_L_Account_Name" as gl_account_name,
 			"Global_Dimension_1_Code" as department,
-			"Credit_Amount" as amount
+			"Credit_Amount" as amount,
+			company,
+			branch
 		`).
 		Where(whereClause, args...).
 		Scopes(applyLimit)
 
+	// นำ Entity Filter ไปใช้กับ HMW (ใช้ชื่อที่ Map แล้ว)
+	if len(hmwEntities) > 0 {
+		hmwQuery = hmwQuery.Where("company IN ?", hmwEntities)
+	}
+	// นำ Branch Filter ไปใช้กับ HMW (ใช้ชื่อที่ Map แล้ว)
+	if len(hmwBranches) > 0 {
+		hmwQuery = hmwQuery.Where("branch IN ?", hmwBranches)
+	}
+
 	// Query CLIK
-	queryCLIK := r.db.Table("general_ledger_entries_clik").
+	clikQuery := r.db.Table("general_ledger_entries_clik").
 		Select(`
 			'CLIK' as source,
 			TO_CHAR("Posting_Date"::DATE, 'YYYY-MM-DD') as posting_date,
@@ -510,27 +659,51 @@ func (r *budgetRepositoryDB) GetActualTransactions(filter map[string]interface{}
 			"G_L_Account_No" as gl_account_no,
 			"G_L_Account_Name" as gl_account_name,
 			"Global_Dimension_1_Code" as department,
-			"Credit_Amount" as amount
+			"Credit_Amount" as amount,
+			'CLIK' as company,
+			"Global_Dimension_2_Code" as branch
 		`).
 		Where(whereClause, args...).
 		Scopes(applyLimit)
 
-	// Union
+	// นำ Entity Filter ไปใช้กับ CLIK
+	// สำหรับ CLIK company คือ 'CLIK' เสมอ
+	// ดังนั้นเราจะคืนค่าก็ต่อเมื่อ 'CLIK' (code) ถูกเลือกมา
+	// รายการ hmwEntities ของเราควรจะมี 'CLIK' ถ้า User เลือก 'CLIK' มา
+	if len(hmwEntities) > 0 {
+		// ตรวจสอบว่า "CLIK" ถูกเลือกหรือไม่
+		hasClik := false
+		for _, e := range hmwEntities {
+			if e == "CLIK" {
+				hasClik = true
+				break
+			}
+		}
+		if !hasClik {
+			clikQuery = clikQuery.Where("1=0")
+		}
+	}
+
+	// นำ Branch Filter ไปใช้กับ CLIK (ใช้ชื่อที่ Map แล้ว)
+	if len(clikBranches) > 0 {
+		clikQuery = clikQuery.Where("\"Global_Dimension_2_Code\" IN ?", clikBranches)
+	}
+
+	// รวมข้อมูล (Union)
 	var hmwRows []models.ActualTransactionDTO
-	if err := queryHMW.Scan(&hmwRows).Error; err != nil {
+	if err := hmwQuery.Scan(&hmwRows).Error; err != nil {
 		return nil, err
 	}
 	var clikRows []models.ActualTransactionDTO
-	if err := queryCLIK.Scan(&clikRows).Error; err != nil {
+	if err := clikQuery.Scan(&clikRows).Error; err != nil {
 		return nil, err
 	}
 
 	results = append(results, hmwRows...)
 	results = append(results, clikRows...)
 
-	// Sort by Date Desc (Since we appended two sorted lists, we strictly need to sort again or just accept pseudo-sort)
-	// For 4000 rows, returning as-is is fine, frontend can sort or we sort here if critical.
-	// Let's rely on map order being "good enough" for drill-down or let frontend DataGrid sort.
+	// เรียงลำดับตามวันที่จากมากไปน้อย (เนื่องจากเราต่อ 2 ลิสต์เข้าด้วยกัน เราควรเรียงใหม่ถ้าจำเป็น)
+	// สำหรับ 4000 แถว ส่งไปแบบนี้ก็ได้ Frontend จัดการต่อเองได้
 	return results, nil
 }
 
@@ -540,7 +713,7 @@ func (r *budgetRepositoryDB) GetDashboardAggregates(filter map[string]interface{
 		ChartData:      []models.MonthlyStatDTO{},
 	}
 
-	// Dynamic Filter Helper (Returns GORM Scope)
+	// ตัวช่วยกรองข้อมูลแบบไดนามิก (คืนค่า GORM Scope)
 	applyFilter := func(tx *gorm.DB, tableName string) *gorm.DB {
 		if val, ok := filter["entities"]; ok {
 			if strs, ok := val.([]string); ok && len(strs) > 0 {
@@ -561,7 +734,7 @@ func (r *budgetRepositoryDB) GetDashboardAggregates(filter map[string]interface{
 		return tx
 	}
 
-	// 1. Department Aggregation
+	// 1. รวมยอดตาม Department (Department Aggregation)
 	// Budget
 	type DeptResult struct {
 		Department string
@@ -579,12 +752,17 @@ func (r *budgetRepositoryDB) GetDashboardAggregates(filter map[string]interface{
 	tx2 := r.db.Table("actual_fact_entities").Select("department, SUM(year_total) as total")
 	tx2 = applyFilter(tx2, "actual_fact_entities")
 
+	// Debug: Count Actual Records before aggregation
+	var count int64
+	r.db.Model(&models.ActualFactEntity{}).Count(&count)
+	fmt.Printf("[DEBUG] GetDashboardAggregates: ActualFactEntity Count = %d\n", count)
+
 	if err := tx2.Group("department").Scan(&actualDept).Error; err != nil {
 		// Log error but maybe continue? No, return error
 		return nil, err
 	}
 
-	// Merge Department Data
+	// รวมข้อมูล (Merge Department Data)
 	deptMap := make(map[string]*models.DepartmentStatDTO)
 	for _, b := range budgetDept {
 		deptMap[b.Department] = &models.DepartmentStatDTO{Department: b.Department, Budget: b.Total}
@@ -598,13 +776,13 @@ func (r *budgetRepositoryDB) GetDashboardAggregates(filter map[string]interface{
 		summary.TotalActual += a.Total
 	}
 
-	// Flatten Map
+	// แปลง Map เป็น Slice (Flatten Map)
 	var allDepts []models.DepartmentStatDTO
 	for _, v := range deptMap {
 		allDepts = append(allDepts, *v)
 	}
 
-	// Sort Logic
+	// ตรรกะการเรียงลำดับ (Sort Logic)
 	sortBy := "actual" // Default
 	sortOrder := "desc"
 	if val, ok := filter["sort_by"]; ok {
@@ -618,18 +796,18 @@ func (r *budgetRepositoryDB) GetDashboardAggregates(filter map[string]interface{
 		}
 	}
 
-	// Calculate Global Status Counts (Before Pagination)
+	// คำนวณสถานะภาพรวม (ก่อนแบ่งหน้า)
 	var overBudgetCount, nearLimitCount int
 	for _, d := range allDepts {
 		budget := d.Budget
 		actual := d.Actual
 		remaining := budget - actual
 
-		// Over Budget: (Budget=0 & Actual>0) OR (Remaining < 0)
+		// เกินงบ: (Budget=0 & Actual>0) หรือ (คงเหลือ < 0)
 		if (budget == 0 && actual > 0) || remaining < 0 {
 			overBudgetCount++
 		} else if budget > 0 {
-			// Near Limit: Remaining < 20%
+			// ใกล้เต็ม: คงเหลือ < 20%
 			ratio := remaining / budget
 			if ratio < 0.2 {
 				nearLimitCount++

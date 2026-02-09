@@ -182,7 +182,7 @@ const DataManagePage = () => {
 
   // Actual Sync Handlers
   const [openActualSyncModal, setOpenActualSyncModal] = useState(false);
-  const [syncYear, setSyncYear] = useState(new Date().getFullYear());
+  const [syncYear, setSyncYear] = useState('');
   const [syncingActuals, setSyncingActuals] = useState(false);
 
   // Initialize from localStorage to persist across navigation
@@ -191,6 +191,10 @@ const DataManagePage = () => {
   });
 
   const handleSyncActuals = async () => {
+    if (!syncYear) {
+      toast.warning("Please select a year to sync.");
+      return;
+    }
     setSyncingActuals(true);
     try {
       await api.post('/budgets/sync-actuals', { year: String(syncYear) });
@@ -204,6 +208,29 @@ const DataManagePage = () => {
     } catch (err) {
       console.error(err);
       toast.error("Sync Failed: " + (err.response?.data?.error || err.message));
+    } finally {
+      setSyncingActuals(false);
+    }
+  };
+
+  const handleDeleteActuals = async () => {
+    if (!syncYear) {
+      toast.warning("Please select a year to delete/unsync.");
+      return;
+    }
+    if (!window.confirm(`Are you sure you want to DELETE/UNSYNC actual data for year ${syncYear}? This action cannot be undone.`)) {
+      return;
+    }
+
+    setSyncingActuals(true);
+    try {
+      await api.delete(`/budgets/actuals-facts/${syncYear}`);
+      toast.success(`Successfully deleted actual data for year ${syncYear}`);
+      setOpenActualSyncModal(false);
+      // Optional: Refresh any list if needed
+    } catch (err) {
+      console.error("Delete Actuals Error", err);
+      toast.error("Failed to delete actuals: " + (err.response?.data?.error || err.message));
     } finally {
       setSyncingActuals(false);
     }
@@ -337,22 +364,39 @@ const DataManagePage = () => {
             onChange={(e) => setSyncYear(e.target.value)}
             variant="outlined"
           >
-            {/* Generate past 5 years + next 1 year */}
-            {Array.from({ length: 7 }, (_, i) => new Date().getFullYear() - 5 + i).reverse().map(year => (
-              <MenuItem key={year} value={year}>{year}</MenuItem>
-            ))}
+            {/* ใหม่: เริ่มต้นที่ (ปีปัจจุบัน - 1) จนถึง (ปีปัจจุบัน + 3) */}
+            {Array.from(
+              { length: 5 }, // -1, 0, +1, +2, +3 = 5 ปี
+              (_, i) => (new Date().getFullYear() - 1) + i
+            )
+              .reverse() // เพื่อให้ปีล่าสุด (อนาคต) อยู่ด้านบน
+              .map(year => (
+                <MenuItem key={year} value={year}>{year}</MenuItem>
+              ))}
           </TextField>
 
-          <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 2, mt: 3 }}>
-            <Button onClick={() => setOpenActualSyncModal(false)} color="inherit">Cancel</Button>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 3 }}>
+            {/* Delete Button (Left Aligned) */}
             <Button
-              variant="contained"
-              onClick={handleSyncActuals}
+              onClick={handleDeleteActuals}
+              color="error"
               disabled={syncingActuals}
-              startIcon={syncingActuals ? <CircularProgress size={20} color="inherit" /> : <SyncIcon />}
             >
-              {syncingActuals ? 'Syncing...' : 'Confirm Sync'}
+              Delete / Unsync
             </Button>
+
+            {/* Action Buttons (Right Aligned) */}
+            <Box sx={{ display: 'flex', gap: 2 }}>
+              <Button onClick={() => setOpenActualSyncModal(false)} color="inherit">Cancel</Button>
+              <Button
+                variant="contained"
+                onClick={handleSyncActuals}
+                disabled={syncingActuals}
+                startIcon={syncingActuals ? <CircularProgress size={20} color="inherit" /> : <SyncIcon />}
+              >
+                {syncingActuals ? 'Syncing...' : 'Confirm Sync'}
+              </Button>
+            </Box>
           </Box>
         </DialogContent>
       </Dialog>

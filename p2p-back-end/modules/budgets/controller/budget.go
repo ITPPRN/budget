@@ -40,6 +40,7 @@ func NewBudgetController(router fiber.Router, budgetSrv models.BudgetService) {
 
 	// Actuals APIs
 	router.Post("/sync-actuals", controller.syncActuals)                   // No file ID needed
+	router.Delete("/actuals-facts/:year", controller.deleteActuals)        // New: Delete by Year
 	router.Post("/actuals-details", controller.getActualDetails)           // Aggregated View
 	router.Post("/actuals-transactions", controller.getActualTransactions) // Detail View
 
@@ -315,4 +316,16 @@ func (c *budgetController) listCapexActualFiles(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return ctx.JSON(files)
+}
+
+func (c *budgetController) deleteActuals(ctx *fiber.Ctx) error {
+	year := ctx.Params("year")
+	if year == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Year is required"})
+	}
+
+	if err := c.budgetSrv.DeleteActualFacts(year); err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	return ctx.JSON(fiber.Map{"message": "Actuals deleted successfully", "year": year})
 }

@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Box } from '@mui/material';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Box, FormControl, InputLabel, Select, MenuItem, Stack } from '@mui/material';
 import api from '../utils/api/axiosInstance';
 import { BudgetProvider, useBudget } from '../contexts/BudgetContext';
 import FilterPane from '../components/Budget/FilterPane';
@@ -18,6 +18,31 @@ const DetailContent = () => {
 
   // Date Filter State for Actuals
   const [actualDateFilter, setActualDateFilter] = useState({ startDate: '', endDate: '' });
+
+  // Filters State
+  const [selectedEntity, setSelectedEntity] = useState('');
+  const [selectedBranch, setSelectedBranch] = useState('');
+  const [orgStructure, setOrgStructure] = useState([]);
+
+  // Fetch Filter Options
+  useEffect(() => {
+    const fetchFilters = async () => {
+      try {
+        const res = await api.get('/budgets/organization-structure');
+        setOrgStructure(res.data || []);
+      } catch (err) {
+        console.error("Filter Fetch Error", err);
+      }
+    };
+    fetchFilters();
+  }, []);
+
+  // Derived state for branches
+  const availableBranches = useMemo(() => {
+    if (!selectedEntity) return [];
+    const entityObj = orgStructure.find(o => o.entity === selectedEntity);
+    return entityObj ? entityObj.branches : [];
+  }, [selectedEntity, orgStructure]);
 
   // Auto Fetch Details when Selection Changes or Date Filter Changes
   useEffect(() => {
@@ -47,7 +72,9 @@ const DetailContent = () => {
         const payload = {
           conso_gls: idsToFetch,
           start_date: actualDateFilter.startDate,
-          end_date: actualDateFilter.endDate
+          end_date: actualDateFilter.endDate,
+          entities: selectedEntity ? [selectedEntity] : [],     // Add Entity Filter
+          branches: selectedBranch ? [selectedBranch] : []      // Add Branch Filter
         };
 
         // Parallel Fetch
@@ -79,7 +106,8 @@ const DetailContent = () => {
           });
           setBudgetDetails(Array.from(budgetMap.values()));
         } else {
-          console.error("Budget fetch failed:", results[0].reason);
+          console.error("Budget Details Fetch Failed", results[0].reason);
+          setBudgetDetails([]);
         }
 
         // --- Process Actual (Transactions) ---
@@ -87,12 +115,12 @@ const DetailContent = () => {
           const rawActual = results[1].value.data || [];
           setActualDetails(rawActual);
         } else {
-          console.error("Actual fetch failed:", results[1].reason);
+          console.error("Actual Transactions Fetch Failed", results[1].reason);
           setActualDetails([]);
         }
 
-      } catch (error) {
-        console.error("Fetch details error:", error);
+      } catch (err) {
+        console.error("Fetch Details Error", err);
       } finally {
         if (isMounted) {
           setLoadingDetails(false);
@@ -101,21 +129,60 @@ const DetailContent = () => {
       }
     };
 
-    fetchDetails();
+    // Debounce slightly to avoid rapid re-fetches if selection changes fast
+    const timeoutId = setTimeout(() => {
+      fetchDetails();
+    }, 300);
 
     return () => {
       isMounted = false;
+      clearTimeout(timeoutId);
     };
-  }, [selectedLeaves, getAllLeafIds, actualDateFilter]);
+  }, [selectedLeaves, getAllLeafIds, actualDateFilter, selectedEntity, selectedBranch]); // Add dependencies
 
   return (
     <Box sx={{ p: 2, height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
-      {/* Header */}
-      <Box sx={{ mb: 1, flexShrink: 0 }}>
+      {/* Header & Filters */}
+      <Box sx={{ mb: 2, flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Box sx={{ color: 'primary.main', fontWeight: 'bold', fontSize: '1.5rem' }}>
           รายงานรายละเอียด
         </Box>
+
+        {/* Filter UI */}
+        <Stack direction="row" spacing={2} sx={{ minWidth: 300 }}>
+          <FormControl size="small" sx={{ minWidth: 200, bgcolor: 'white', borderRadius: 1 }}>
+            <InputLabel>Entity (บริษัท)</InputLabel>
+            <Select
+              value={selectedEntity}
+              label="Entity (บริษัท)"
+              onChange={(e) => {
+                setSelectedEntity(e.target.value);
+                setSelectedBranch(''); // Reset branch when entity changes
+              }}
+            >
+              <MenuItem value=""><em>All Entities</em></MenuItem>
+              {orgStructure.map((org) => (
+                <MenuItem key={org.entity} value={org.entity}>{org.entity}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          <FormControl size="small" sx={{ minWidth: 200, bgcolor: 'white', borderRadius: 1 }}>
+            <InputLabel>Branch (สาขา)</InputLabel>
+            <Select
+              value={selectedBranch}
+              label="Branch (สาขา)"
+              onChange={(e) => setSelectedBranch(e.target.value)}
+              disabled={!selectedEntity}
+            >
+              <MenuItem value=""><em>All Branches</em></MenuItem>
+              {availableBranches.map((branch) => (
+                <MenuItem key={branch} value={branch}>{branch}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Stack>
       </Box>
 
       {/* Main Grid */}
@@ -138,10 +205,10 @@ const DetailContent = () => {
           display: 'flex',
           flexDirection: 'column',
           overflowX: 'hidden',
-          overflowY: { xs: 'auto', md: 'hidden' }, // Scroll on mobile, hidden on desktop
+          overflowY: { xs: 'auto', md: 'hidden' },
           height: '100%',
           minWidth: 0,
-          gap: 2 // Explicit gap between tables
+          gap: 2
         }}>
           {/* Top: Budget Table */}
           <BudgetTable
