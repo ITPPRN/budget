@@ -22,6 +22,7 @@ const DetailContent = () => {
   // Filters State
   const [selectedEntity, setSelectedEntity] = useState('');
   const [selectedBranch, setSelectedBranch] = useState('');
+  const [selectedDepartment, setSelectedDepartment] = useState(''); // New State
   const [orgStructure, setOrgStructure] = useState([]);
 
   // Fetch Filter Options
@@ -37,12 +38,19 @@ const DetailContent = () => {
     fetchFilters();
   }, []);
 
-  // Derived state for branches
+  // Derived state for branches (Now returns objects: {name, departments})
   const availableBranches = useMemo(() => {
     if (!selectedEntity) return [];
     const entityObj = orgStructure.find(o => o.entity === selectedEntity);
     return entityObj ? entityObj.branches : [];
   }, [selectedEntity, orgStructure]);
+
+  // Derived state for departments
+  const availableDepartments = useMemo(() => {
+    if (!selectedBranch) return [];
+    const branchObj = availableBranches.find(b => b.name === selectedBranch);
+    return branchObj ? branchObj.departments : [];
+  }, [selectedBranch, availableBranches]);
 
   // Auto Fetch Details when Selection Changes or Date Filter Changes
   useEffect(() => {
@@ -74,7 +82,8 @@ const DetailContent = () => {
           start_date: actualDateFilter.startDate,
           end_date: actualDateFilter.endDate,
           entities: selectedEntity ? [selectedEntity] : [],     // Add Entity Filter
-          branches: selectedBranch ? [selectedBranch] : []      // Add Branch Filter
+          branches: selectedBranch ? [selectedBranch] : [],      // Add Branch Filter
+          departments: selectedDepartment ? [selectedDepartment] : [] // Add Department Filter
         };
 
         // Parallel Fetch
@@ -138,7 +147,7 @@ const DetailContent = () => {
       isMounted = false;
       clearTimeout(timeoutId);
     };
-  }, [selectedLeaves, getAllLeafIds, actualDateFilter, selectedEntity, selectedBranch]); // Add dependencies
+  }, [selectedLeaves, getAllLeafIds, actualDateFilter, selectedEntity, selectedBranch, selectedDepartment]); // Add dependencies
 
   return (
     <Box sx={{ p: 2, height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -159,6 +168,7 @@ const DetailContent = () => {
               onChange={(e) => {
                 setSelectedEntity(e.target.value);
                 setSelectedBranch(''); // Reset branch when entity changes
+                setSelectedDepartment(''); // Reset department
               }}
             >
               <MenuItem value=""><em>All Entities</em></MenuItem>
@@ -173,12 +183,31 @@ const DetailContent = () => {
             <Select
               value={selectedBranch}
               label="Branch (สาขา)"
-              onChange={(e) => setSelectedBranch(e.target.value)}
+              onChange={(e) => {
+                setSelectedBranch(e.target.value);
+                setSelectedDepartment(''); // Reset Department
+              }}
               disabled={!selectedEntity}
             >
               <MenuItem value=""><em>All Branches</em></MenuItem>
               {availableBranches.map((branch) => (
-                <MenuItem key={branch} value={branch}>{branch}</MenuItem>
+                <MenuItem key={branch.name} value={branch.name}>{branch.name}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          {/* Department Filter (New) */}
+          <FormControl size="small" sx={{ minWidth: 200, bgcolor: 'white', borderRadius: 1 }}>
+            <InputLabel>Department (แผนก)</InputLabel>
+            <Select
+              value={selectedDepartment}
+              label="Department (แผนก)"
+              onChange={(e) => setSelectedDepartment(e.target.value)}
+              disabled={!selectedBranch}
+            >
+              <MenuItem value=""><em>All Departments</em></MenuItem>
+              {availableDepartments.map((dept) => (
+                <MenuItem key={dept} value={dept}>{dept}</MenuItem>
               ))}
             </Select>
           </FormControl>

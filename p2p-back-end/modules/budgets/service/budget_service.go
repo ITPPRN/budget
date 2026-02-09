@@ -801,8 +801,8 @@ func (s *budgetService) GetOrganizationStructure() ([]models.OrganizationDTO, er
 	// Return Raw Codes (HMW, BUR) as stored in DB.
 	// User requested "Abbreviations" in filter.
 
-	// Map Entity -> []Branches
-	structure := make(map[string][]string)
+	// Map Entity -> Map Branch -> []Departments
+	structure := make(map[string]map[string][]string)
 	for _, f := range facts {
 		if f.Entity == "" {
 			continue
@@ -810,34 +810,51 @@ func (s *budgetService) GetOrganizationStructure() ([]models.OrganizationDTO, er
 
 		// Use Raw Entity Code
 		entityName := f.Entity
-		// Use Raw Branch Code
-		branchName := f.Branch
-
 		if structure[entityName] == nil {
-			structure[entityName] = []string{}
+			structure[entityName] = make(map[string][]string)
 		}
 
-		// Add Branch if not empty
+		// Use Raw Branch Code
 		if f.Branch != "" {
-			// Check duplicates
-			found := false
-			for _, b := range structure[entityName] {
-				if b == branchName {
-					found = true
-					break
-				}
+			branchName := f.Branch
+			if _, exists := structure[entityName][branchName]; !exists {
+				structure[entityName][branchName] = []string{}
 			}
-			if !found {
-				structure[entityName] = append(structure[entityName], branchName)
+
+			// Add Department if not exists
+			if f.Department != "" {
+				deptName := f.Department
+				found := false
+				for _, d := range structure[entityName][branchName] {
+					if d == deptName {
+						found = true
+						break
+					}
+				}
+				if !found {
+					structure[entityName][branchName] = append(structure[entityName][branchName], deptName)
+				}
 			}
 		}
 	}
 
 	var result []models.OrganizationDTO
-	for entity, branches := range structure {
+	for entity, branchesMap := range structure {
+		var branchDTOs []models.BranchDTO
+		for branch, depts := range branchesMap {
+			// Sort Departments
+			// sort.Strings(depts) // Optional
+			branchDTOs = append(branchDTOs, models.BranchDTO{
+				Name:        branch,
+				Departments: depts,
+			})
+		}
+		// Sort Branches (Optional but good for UI)
+		// ...
+
 		result = append(result, models.OrganizationDTO{
 			Entity:   entity,
-			Branches: branches,
+			Branches: branchDTOs,
 		})
 	}
 	return result, nil

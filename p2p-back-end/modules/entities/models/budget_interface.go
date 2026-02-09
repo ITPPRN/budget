@@ -119,8 +119,13 @@ type FilterOptionDTO struct {
 }
 
 type OrganizationDTO struct {
-	Entity   string   `json:"entity"`
-	Branches []string `json:"branches"`
+	Entity   string      `json:"entity"`
+	Branches []BranchDTO `json:"branches"`
+}
+
+type BranchDTO struct {
+	Name        string   `json:"name"`
+	Departments []string `json:"departments"`
 }
 
 // Dashboard Aggregation DTOs

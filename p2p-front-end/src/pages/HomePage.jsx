@@ -32,7 +32,7 @@ const HomePage = () => {
   // Filters State
   const [selectedEntity, setSelectedEntity] = useState('');
   const [selectedBranch, setSelectedBranch] = useState('');
-  const [selectedDepartment, setSelectedDepartment] = useState(''); // New State
+  const [selectedDepartment, setSelectedDepartment] = useState(''); // Restored for Table Click
   const [orgStructure, setOrgStructure] = useState([]);
 
   // Alert Counts State
@@ -53,6 +53,8 @@ const HomePage = () => {
     const entityObj = orgStructure.find(o => o.entity === selectedEntity);
     return entityObj ? entityObj.branches : [];
   }, [selectedEntity, orgStructure]);
+
+  // Derived state for departments - REMOVED
 
   // Fetch Filter Options
   useEffect(() => {
@@ -91,6 +93,9 @@ const HomePage = () => {
       setLoading(true);
       try {
         const payload = {
+          entities: selectedEntity ? [selectedEntity] : [],
+          branches: selectedBranch ? [selectedBranch] : [],
+          // departments: [], // Removed
           entities: selectedEntity ? [selectedEntity] : [],
           branches: selectedBranch ? [selectedBranch] : [],
           departments: selectedDepartment ? [selectedDepartment] : [], // Pass Department Filter
@@ -148,13 +153,15 @@ const HomePage = () => {
     };
 
     fetchDashboardData();
-  }, [selectedEntity, selectedBranch, selectedDepartment, page, rowsPerPage, orderBy, order]);
+    fetchDashboardData();
+  }, [selectedEntity, selectedBranch, selectedDepartment, page, rowsPerPage, orderBy, order]); // Added selectedDepartment
 
   // Handle Row Click
   const handleDepartmentClick = (deptName) => {
     // Toggle selection: If clicking same dept, unselect.
+    console.log("Toggling Department:", deptName);
     setSelectedDepartment(prev => prev === deptName ? '' : deptName);
-    setPage(0); // Reset pagination on filter change
+    setPage(0); // Reset pagination
   };
 
   // Format Helpers
@@ -190,6 +197,7 @@ const HomePage = () => {
                 onChange={(e) => {
                   setSelectedEntity(e.target.value);
                   setSelectedBranch('');
+                  setSelectedDepartment(''); // Reset
                 }}
               >
                 <MenuItem value=""><em>All Entities</em></MenuItem>
@@ -204,11 +212,14 @@ const HomePage = () => {
               <Select
                 value={selectedBranch}
                 label="Branch (สาขา)"
-                onChange={(e) => setSelectedBranch(e.target.value)}
+                onChange={(e) => {
+                  setSelectedBranch(e.target.value);
+                  setSelectedDepartment(''); // Reset
+                }}
               >
                 <MenuItem value=""><em>All Branches</em></MenuItem>
                 {availableBranches.map((branch) => (
-                  <MenuItem key={branch} value={branch}>{branch}</MenuItem>
+                  <MenuItem key={branch.name} value={branch.name}>{branch.name}</MenuItem>
                 ))}
               </Select>
             </FormControl>

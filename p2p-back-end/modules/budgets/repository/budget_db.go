@@ -175,10 +175,10 @@ func (r *budgetRepositoryDB) GetOrganizationStructure() ([]models.BudgetFactEnti
 	// เราจึงใช้ Raw SQL เพื่อความชัดเจนและประสิทธิภาพ
 
 	query := `
-        SELECT DISTINCT entity, branch FROM budget_fact_entities WHERE entity != ''
+        SELECT DISTINCT entity, branch, department FROM budget_fact_entities WHERE entity != ''
         UNION
-        SELECT DISTINCT entity, branch FROM actual_fact_entities WHERE entity != ''
-        ORDER BY entity, branch
+        SELECT DISTINCT entity, branch, department FROM actual_fact_entities WHERE entity != ''
+        ORDER BY entity, branch, department
     `
 
 	err := r.db.Raw(query).Scan(&results).Error
@@ -595,6 +595,23 @@ func (r *budgetRepositoryDB) GetActualTransactions(filter map[string]interface{}
 		if endDate, ok := val.(string); ok && endDate != "" {
 			whereClause += " AND \"Posting_Date\"::DATE <= ?"
 			args = append(args, endDate)
+		}
+	}
+
+	// Department Filtering (New)
+	if val, ok := filter["departments"]; ok {
+		var depts []string
+		if s, ok := val.([]string); ok {
+			depts = s
+		} else if s, ok := val.([]interface{}); ok {
+			for _, item := range s {
+				depts = append(depts, fmt.Sprintf("%v", item))
+			}
+		}
+		if len(depts) > 0 {
+			// Both HMW and CLIK use "Global_Dimension_1_Code" for Department
+			whereClause += " AND \"Global_Dimension_1_Code\" IN ?"
+			args = append(args, depts)
 		}
 	}
 
