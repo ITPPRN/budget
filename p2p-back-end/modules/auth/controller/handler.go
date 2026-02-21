@@ -43,6 +43,16 @@ func badReqErrResponse(c *fiber.Ctx, message string) error {
 	)
 }
 
+func forbiddenErrResponse(c *fiber.Ctx, message string) error {
+	return c.Status(fiber.StatusForbidden).JSON(
+		models.ResponseError{
+			Message:    message,
+			Status:     fiber.ErrForbidden.Message,
+			StatusCode: fiber.ErrForbidden.Code,
+		},
+	)
+}
+
 func responseSuccess(c *fiber.Ctx, data interface{}) error {
 	return c.Status(fiber.StatusOK).JSON(
 		models.ResponseData{

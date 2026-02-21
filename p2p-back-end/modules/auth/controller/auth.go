@@ -417,6 +417,34 @@ func (c *authController) getUserPermissions(ctx *fiber.Ctx, user *models.UserInf
 
 func (c *authController) setUserPermissions(ctx *fiber.Ctx, user *models.UserInfo) error {
 	userID := ctx.Params("id")
+
+	// 1. Hierarchical Security Check
+	isCurrentUserOwner := false
+	for _, r := range user.Roles {
+		if strings.EqualFold(r, models.RoleOwner) {
+			isCurrentUserOwner = true
+			break
+		}
+	}
+
+	if isCurrentUserOwner {
+		// Fetch target user's profile to identify their role
+		targetProfile, err := c.authSrv.GetUserProfile(userID)
+		if err == nil && targetProfile != nil {
+			isTargetOwnerOrAdmin := false
+			for _, r := range targetProfile.Roles {
+				if strings.EqualFold(r, models.RoleOwner) || strings.EqualFold(r, models.RoleAdmin) {
+					isTargetOwnerOrAdmin = true
+					break
+				}
+			}
+
+			if isTargetOwnerOrAdmin {
+				return forbiddenErrResponse(ctx, "Owners are not allowed to modify permissions for other Owners or Admins.")
+			}
+		}
+	}
+
 	var req []models.UserPermissionInfo
 	if err := ctx.BodyParser(&req); err != nil {
 		return badReqErrResponse(ctx, "Invalid permissions format")

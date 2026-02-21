@@ -215,20 +215,30 @@ const OwnerUserManagePage = () => {
                                     )}
                                 </TableCell>
                                 <TableCell>
-                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                        <Typography variant="caption" sx={{ color: (isDelegate || user.userId === currentUser?.userId) ? '#cbd5e1' : '#94a3b8' }}>จัดการ</Typography>
-                                        <Switch
-                                            checked={user.permissions?.some(p => p.is_active) || false}
-                                            color="primary"
-                                            onClick={() => !(isDelegate || user.userId === currentUser?.userId) && handleOpenModal(user)}
-                                            disabled={isDelegate || user.userId === currentUser?.userId}
-                                            sx={{
-                                                opacity: (isDelegate || user.userId === currentUser?.userId) ? 0.5 : 1,
-                                                '& .MuiSwitch-switchBase.Mui-checked': { color: '#0288d1' },
-                                                '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: '#0288d1' }
-                                            }}
-                                        />
-                                    </Box>
+                                    {(() => {
+                                        const isTargetOwner = user.roles?.some(r => r.toUpperCase() === 'OWNER');
+                                        const isTargetAdmin = user.roles?.some(r => r.toUpperCase() === 'ADMIN');
+                                        const isSelf = user.userId === currentUser?.userId;
+                                        // Disable if: 1. Self, 2. Current User is Delegate, 3. Current User is Owner and Target is Owner or Admin
+                                        const shouldDisable = isSelf || isDelegate || (currentUserRole === 'OWNER' && (isTargetOwner || isTargetAdmin));
+
+                                        return (
+                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                <Typography variant="caption" sx={{ color: shouldDisable ? '#cbd5e1' : '#94a3b8' }}>จัดการ</Typography>
+                                                <Switch
+                                                    checked={user.permissions?.some(p => p.is_active) || false}
+                                                    color="primary"
+                                                    onClick={() => !shouldDisable && handleOpenModal(user)}
+                                                    disabled={shouldDisable}
+                                                    sx={{
+                                                        opacity: shouldDisable ? 0.5 : 1,
+                                                        '& .MuiSwitch-switchBase.Mui-checked': { color: '#0288d1' },
+                                                        '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: '#0288d1' }
+                                                    }}
+                                                />
+                                            </Box>
+                                        );
+                                    })()}
                                 </TableCell>
                                 <TableCell>{getStatusChip(user)}</TableCell>
                                 <TableCell sx={{ color: '#64748b' }}>
