@@ -16,11 +16,12 @@ import (
 )
 
 type budgetService struct {
-	repo models.BudgetRepository
+	repo   models.BudgetRepository
+	depSrv models.DepartmentService
 }
 
-func NewBudgetService(repo models.BudgetRepository) models.BudgetService {
-	return &budgetService{repo: repo}
+func NewBudgetService(repo models.BudgetRepository, depSrv models.DepartmentService) models.BudgetService {
+	return &budgetService{repo: repo, depSrv: depSrv}
 }
 
 // ---------------------------------------------------------------------
@@ -63,8 +64,15 @@ func (s *budgetService) ImportCapexBudget(fileHeader *multipart.FileHeader, user
 	if versionName != "" {
 		fileNameToSave = versionName
 	}
+	// Parse Year
+	year := extractYear(fileNameToSave)
+	if year == "" {
+		year = fmt.Sprintf("%d", time.Now().Year())
+	}
+
 	fileEntity := &models.FileCapexBudgetEntity{
 		ID: uuid.New(), FileName: fileNameToSave, UploadAt: time.Now(), UserID: userID,
+		Year: year, // Save Year
 		Data: datatypes.JSON(jsonData),
 	}
 
@@ -85,8 +93,15 @@ func (s *budgetService) ImportCapexActual(fileHeader *multipart.FileHeader, user
 	if versionName != "" {
 		fileNameToSave = versionName
 	}
+	// Parse Year
+	year := extractYear(fileNameToSave)
+	if year == "" {
+		year = fmt.Sprintf("%d", time.Now().Year()) // Default to Current Year if not found
+	}
+
 	fileEntity := &models.FileCapexActualEntity{
 		ID: uuid.New(), FileName: fileNameToSave, UploadAt: time.Now(), UserID: userID,
+		Year: year, // Save Year
 		Data: datatypes.JSON(jsonData),
 	}
 
@@ -164,8 +179,9 @@ func (s *budgetService) SyncCapexBudget(fileID string) error {
 			return err
 		}
 
+		// 3. Process Data Rows
 		parsedUUID, _ := uuid.Parse(fileID)
-		headers, err := s.processCapexBudgetFact(rows, parsedUUID)
+		headers, err := s.processCapexBudgetFact(rows, parsedUUID, fileEntity.Year)
 		if err != nil {
 			return err
 		}
@@ -194,7 +210,7 @@ func (s *budgetService) SyncCapexActual(fileID string) error {
 		}
 
 		parsedUUID, _ := uuid.Parse(fileID)
-		headers, err := s.processCapexActualFact(rows, parsedUUID)
+		headers, err := s.processCapexActualFact(rows, parsedUUID, fileEntity.Year)
 		if err != nil {
 			return err
 		}
@@ -206,32 +222,54 @@ func (s *budgetService) SyncCapexActual(fileID string) error {
 }
 
 // ---------------------------------------------------------------------
+// Clear Data Methods (For "Sync Empty")
+// ---------------------------------------------------------------------
+
+func (s *budgetService) ClearBudget() error {
+	return s.repo.WithTrx(func(trxRepo models.BudgetRepository) error {
+		return trxRepo.DeleteAllBudgetFacts()
+	})
+}
+
+func (s *budgetService) ClearCapexBudget() error {
+	return s.repo.WithTrx(func(trxRepo models.BudgetRepository) error {
+		return trxRepo.DeleteAllCapexBudgetFacts()
+	})
+}
+
+func (s *budgetService) ClearCapexActual() error {
+	return s.repo.WithTrx(func(trxRepo models.BudgetRepository) error {
+		return trxRepo.DeleteAllCapexActualFacts()
+	})
+}
+
+// ---------------------------------------------------------------------
 // 4. Sync Actuals (P2P / Operational)
 // ---------------------------------------------------------------------
 
-func (s *budgetService) SyncActuals(year string) error {
-	fmt.Printf("[DEBUG] SyncActuals: Start DB Sync (Optimized) for Year %s...\n", year)
+func (s *budgetService) SyncActuals(year string, months []string) error {
+	fmt.Printf("[DEBUG] SyncActuals: Start DB Sync (Optimized) for Year %s, Months %v...\n", year, months)
 
 	// 2. Fetch Aggregated Data (Source)
 	// We optimize by aggregating in DB (GROUP BY ...)
-	hmwAgg, err := s.repo.GetAggregatedHMW(year)
+	hmwAgg, err := s.repo.GetAggregatedHMW(year, months)
 	if err != nil {
 		return fmt.Errorf("failed to fetch HMW aggregated data: %v", err)
 	}
-	fmt.Printf("[DEBUG] SyncActuals: HMW Rows Fetched for %s: %d\n", year, len(hmwAgg))
+	fmt.Printf("[DEBUG] SyncActuals: HMW Rows Fetched: %d\n", len(hmwAgg))
 
-	clikAgg, err := s.repo.GetAggregatedCLIK(year)
+	clikAgg, err := s.repo.GetAggregatedCLIK(year, months)
 	if err != nil {
 		return fmt.Errorf("failed to fetch CLIK aggregated data: %v", err)
 	}
-	fmt.Printf("[DEBUG] SyncActuals: CLIK Rows Fetched for %s: %d\n", year, len(clikAgg))
+	fmt.Printf("[DEBUG] SyncActuals: CLIK Rows Fetched: %d\n", len(clikAgg))
 	fmt.Printf("[DEBUG] SyncActuals: Fetched %d HMW rows, %d CLIK rows (Aggregated)\n", len(hmwAgg), len(clikAgg))
 
 	// 3. Merge HMW + CLIK
 	// Use Map to merge duplicates across sources (if any, though unlikely given distinct tables)
 	// Key: Entity|Branch|Dept|GLCode|Month
 	type AggKey struct {
-		Entity, Branch, Dept, GLCode, GLName, Month string
+		Entity, Branch, Dept, NavCode, GLCode, GLName, Month string
 	}
 	mergedMap := make(map[AggKey]decimal.Decimal)
 
@@ -263,8 +301,8 @@ func (s *budgetService) SyncActuals(year string) error {
 		// ACG Branches
 		"AUTOCORP HEAD OFFICE": "HQ",
 
-		// CLIK Branches (Normalize to Title Case or Code)
-		"":           "Branch00", // Empty -> Branch00
+		// CLIK Branches
+		"":           "Branch00",
 		"BRANCH01":   "Branch01",
 		"BRANCH02":   "Branch02",
 		"BRANCH03":   "Branch03",
@@ -280,7 +318,7 @@ func (s *budgetService) SyncActuals(year string) error {
 		"BRANCH13":   "Branch13",
 		"BRANCH14":   "Branch14",
 		"BRANCH15":   "Branch15",
-		"HEADOFFICE": "HOF", // Mapping CLIK HEADOFFICE to HOF to align with others
+		"HEADOFFICE": "HOF", // Mapped to HOF as per user implication (or general convention)
 	}
 
 	normalize := func(s string) string {
@@ -309,8 +347,22 @@ func (s *budgetService) SyncActuals(year string) error {
 			company := mapToCode(row.Company, entityNameMap)
 			branch := mapToCode(row.Branch, branchNameMap)
 
+			// Map Department to Master
+			originalDept := row.Department // Store original code
+			deptCode := row.Department
+
+			// Normalize for Lookup (Upper Case + Trim)
+			lookupDept := normalize(row.Department)
+			if masterDept, err := s.depSrv.GetMasterDepartment(lookupDept, company); err == nil && masterDept != nil {
+				deptCode = masterDept.Code
+			} else {
+				// If mapping fails, keep as original (Actual is Main)
+				// Previously we might have fallen back to None if Service forced it.
+				// Now we ensure we respect the original code if no master found.
+			}
+
 			k := AggKey{
-				Entity: company, Branch: branch, Dept: row.Department,
+				Entity: company, Branch: branch, Dept: deptCode, NavCode: originalDept,
 				GLCode: row.GLAccountNo, GLName: row.GLAccountName, Month: row.Month,
 			}
 			mergedMap[k] = mergedMap[k].Add(row.TotalAmount)
@@ -322,17 +374,52 @@ func (s *budgetService) SyncActuals(year string) error {
 
 	// 4. Transform to Entities (Header + Details)
 	type HeaderKey struct {
-		Entity, Branch, Dept, GLCode, GLName string
+		Entity, Branch, Dept, NavCode, GLCode, GLName string
 	}
 	headerMap := make(map[HeaderKey][]models.ActualAmountEntity)
 
 	for k, amt := range mergedMap {
-		hk := HeaderKey{k.Entity, k.Branch, k.Dept, k.GLCode, k.GLName}
+		hk := HeaderKey{k.Entity, k.Branch, k.Dept, k.NavCode, k.GLCode, k.GLName}
 		headerMap[hk] = append(headerMap[hk], models.ActualAmountEntity{
 			ID:     uuid.New(),
 			Month:  k.Month,
 			Amount: amt,
 		})
+	}
+
+	// --- GL + Group MAPPING LOGIC START ---
+	// Fetch distinct mappings from Budget Facts (Source of Truth for GL Structure)
+	// We need: (Department, ConsoGL) -> (Group, EntityGL)
+	// If Department matches, use that specific mapping.
+	// If not, maybe fallback to just ConsoGL -> (Group, EntityGL)? Usually GL structure is consistent across depts?
+	// Let's assume consistent by ConsoGL first, but support Dept override if data exists.
+
+	type GLMapValue struct {
+		Group    string
+		EntityGL string
+	}
+	// Map: ConsoGL -> Value
+	glProfileMap := make(map[string]GLMapValue)
+
+	// Let's add the repo method call. I will add `GetGLMapping` to repo interface later/now.
+	// For now, let's define the interface method requirement or use existing.
+	// We don't have a direct method. Let's create `GetGLMapping` in repo first.
+	// Wait, I can't easily add to interface without changing many files.
+	// I'll use `GetBudgetFilterOptions` which already returns unique Group/Dept/EntityGL/ConsoGL/GLName.
+	// It returns `[]models.BudgetFactEntity`.
+
+	mappingFacts, err := s.repo.GetBudgetFilterOptions()
+	if err == nil {
+		for _, m := range mappingFacts {
+			if m.ConsoGL != "" {
+				// We prioritize mapping. If multiple groups for same GL?
+				// Usually 1 GL = 1 Category.
+				glProfileMap[m.ConsoGL] = GLMapValue{Group: m.Group, EntityGL: m.EntityGL}
+			}
+		}
+		fmt.Printf("[DEBUG] SyncActuals: Built GL Mapping for %d GL Codes\n", len(glProfileMap))
+	} else {
+		fmt.Printf("[WARN] SyncActuals: Failed to load GL Mapping: %v\n", err)
 	}
 
 	var headers []models.ActualFactEntity
@@ -346,13 +433,24 @@ func (s *budgetService) SyncActuals(year string) error {
 			total = total.Add(a.Amount)
 		}
 
+		// Apply Mapping
+		var grp, entGL string
+		if val, ok := glProfileMap[k.GLCode]; ok {
+			grp = val.Group
+			entGL = val.EntityGL
+		}
+		// Fallback: If no map, maybe use empty or "Unmapped"
+
 		headers = append(headers, models.ActualFactEntity{
 			ID:            headerID,
 			Entity:        k.Entity,
 			Branch:        k.Branch,
 			Department:    k.Dept,
+			NavCode:       k.NavCode, // Save Original
 			ConsoGL:       k.GLCode,
 			GLName:        k.GLName,
+			Group:         grp,   // Mapped
+			EntityGL:      entGL, // Mapped
 			YearTotal:     total,
 			ActualAmounts: amounts,
 			Year:          year, // ✅ Populate Year
@@ -472,6 +570,27 @@ func (s *budgetService) processBudgetFact(rows [][]string, fileID uuid.UUID) ([]
 	var headers []models.BudgetFactEntity
 	months := []string{"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"}
 
+	// --- Normalization Helpers (Copied from SyncActuals to ensure consistency) ---
+	entityNameMap := map[string]string{
+		"HONDA MALIWAN":    "HMW",
+		"AUTOCORP HOLDING": "ACG",
+		"CLIK":             "CLIK",
+		// Add commonly used variations in Budget Files if known, or rely on normalize
+	}
+	normalize := func(s string) string {
+		return strings.TrimSpace(strings.ToUpper(s))
+	}
+	mapToCode := func(rawVal string, m map[string]string) string {
+		norm := normalize(rawVal)
+		if code, ok := m[norm]; ok {
+			return code
+		}
+		// Fallback: Check if rawVal itself is a valid code (e.g. user put "HMW")
+		// The map is Name->Code. If user put "HMW", normalize("HMW")="HMW".
+		// If "HMW" is not a key, we return "HMW" (filtered raw).
+		return norm
+	}
+
 	for i, row := range rows {
 		if i == 0 {
 			continue
@@ -482,13 +601,29 @@ func (s *budgetService) processBudgetFact(rows [][]string, fileID uuid.UUID) ([]
 			continue // Skip malformed rows
 		}
 
-		entity := getColSafe(row, idxEntity)
+		rawEntity := getColSafe(row, idxEntity)
 		branch := getColSafe(row, idxBranch)
 		entityGL := getColSafe(row, idxEntityGL)
 		consoGL := getColSafe(row, idxConsoGL)
 		group := getColSafe(row, idxGroup)
 		glName := getColSafe(row, idxGLName)
-		dept := getColSafe(row, idxDept)
+		rawDept := getColSafe(row, idxDept)
+
+		// Normalize Entity & Department for Lookup
+		entity := mapToCode(rawEntity, entityNameMap)
+		deptLookup := normalize(rawDept)
+
+		// Apply Department Mapping
+		dept := rawDept // Default to original
+		originalDept := rawDept
+
+		if master, err := s.depSrv.GetMasterDepartment(deptLookup, entity); err == nil && master != nil {
+			dept = master.Code
+		} else {
+			// If Unmapped, keep original but normalized? Or just trimmed original?
+			// Let's keep original rawDept to be safe, but maybe Trim it.
+			dept = strings.TrimSpace(rawDept)
+		}
 
 		// Validate crucial data (optional)
 		if group == "" && dept == "" && entityGL == "" {
@@ -499,7 +634,8 @@ func (s *budgetService) processBudgetFact(rows [][]string, fileID uuid.UUID) ([]
 		header := models.BudgetFactEntity{
 			ID:           headerID,
 			FileBudgetID: fileID,
-			Entity:       entity, Branch: branch, Group: group, EntityGL: entityGL, ConsoGL: consoGL, GLName: glName, Department: dept,
+			Entity:       entity, Branch: branch, Group: group, EntityGL: entityGL, ConsoGL: consoGL, GLName: glName,
+			Department: dept, NavCode: originalDept, // Save both
 			YearTotal:     decimal.Zero,
 			BudgetAmounts: []models.BudgetAmountEntity{},
 		}
@@ -529,7 +665,7 @@ func (s *budgetService) processBudgetFact(rows [][]string, fileID uuid.UUID) ([]
 	return headers, nil
 }
 
-func (s *budgetService) processCapexBudgetFact(rows [][]string, fileID uuid.UUID) ([]models.CapexBudgetFactEntity, error) {
+func (s *budgetService) processCapexBudgetFact(rows [][]string, fileID uuid.UUID, year string) ([]models.CapexBudgetFactEntity, error) {
 	var headers []models.CapexBudgetFactEntity
 	months := []string{"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"}
 
@@ -549,8 +685,37 @@ func (s *budgetService) processCapexBudgetFact(rows [][]string, fileID uuid.UUID
 			continue
 		}
 
-		entity := getColSafe(row, 0)
-		dept := getColSafe(row, 1)
+		// Helpers (Local Scope) - Ensure consistent mapping
+		entityNameMap := map[string]string{
+			"HONDA MALIWAN":    "HMW",
+			"AUTOCORP HOLDING": "ACG",
+			"CLIK":             "CLIK",
+		}
+		normalize := func(s string) string {
+			return strings.TrimSpace(strings.ToUpper(s))
+		}
+		mapToCode := func(rawVal string, m map[string]string) string {
+			norm := normalize(rawVal)
+			if code, ok := m[norm]; ok {
+				return code
+			}
+			return norm
+		}
+
+		rawEntity := getColSafe(row, 0)
+		rawDept := getColSafe(row, 1)
+
+		// Normalize Entity & Department for Lookup
+		entity := mapToCode(rawEntity, entityNameMap)
+		deptLookup := normalize(rawDept)
+
+		// Apply Department Mapping
+		dept := rawDept
+		if master, err := s.depSrv.GetMasterDepartment(deptLookup, entity); err == nil && master != nil {
+			dept = master.Code
+		} else {
+			dept = strings.TrimSpace(rawDept)
+		}
 		cNo := getColSafe(row, 2)
 		cName := getColSafe(row, 3)
 		cCat := getColSafe(row, 4)
@@ -560,6 +725,7 @@ func (s *budgetService) processCapexBudgetFact(rows [][]string, fileID uuid.UUID
 			ID:                headerID,
 			FileCapexBudgetID: fileID,
 			Entity:            entity, Department: dept, CapexNo: cNo, CapexName: cName, CapexCategory: cCat,
+			Year:               year, // Set Year
 			YearTotal:          decimal.Zero,
 			CapexBudgetAmounts: []models.CapexBudgetAmountEntity{},
 		}
@@ -581,7 +747,7 @@ func (s *budgetService) processCapexBudgetFact(rows [][]string, fileID uuid.UUID
 	return headers, nil
 }
 
-func (s *budgetService) processCapexActualFact(rows [][]string, fileID uuid.UUID) ([]models.CapexActualFactEntity, error) {
+func (s *budgetService) processCapexActualFact(rows [][]string, fileID uuid.UUID, year string) ([]models.CapexActualFactEntity, error) {
 	var headers []models.CapexActualFactEntity
 	months := []string{"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"}
 
@@ -600,8 +766,37 @@ func (s *budgetService) processCapexActualFact(rows [][]string, fileID uuid.UUID
 			continue
 		}
 
-		entity := getColSafe(row, 0)
-		dept := getColSafe(row, 1)
+		// Helpers (Local Scope) - Ensure consistent mapping
+		entityNameMap := map[string]string{
+			"HONDA MALIWAN":    "HMW",
+			"AUTOCORP HOLDING": "ACG",
+			"CLIK":             "CLIK",
+		}
+		normalize := func(s string) string {
+			return strings.TrimSpace(strings.ToUpper(s))
+		}
+		mapToCode := func(rawVal string, m map[string]string) string {
+			norm := normalize(rawVal)
+			if code, ok := m[norm]; ok {
+				return code
+			}
+			return norm
+		}
+
+		rawEntity := getColSafe(row, 0)
+		rawDept := getColSafe(row, 1)
+
+		// Normalize Entity & Department for Lookup
+		entity := mapToCode(rawEntity, entityNameMap)
+		deptLookup := normalize(rawDept)
+
+		// Apply Department Mapping
+		dept := rawDept
+		if master, err := s.depSrv.GetMasterDepartment(deptLookup, entity); err == nil && master != nil {
+			dept = master.Code
+		} else {
+			dept = strings.TrimSpace(rawDept)
+		}
 		cNo := getColSafe(row, 2)
 		cName := getColSafe(row, 3)
 		cCat := getColSafe(row, 4)
@@ -611,6 +806,7 @@ func (s *budgetService) processCapexActualFact(rows [][]string, fileID uuid.UUID
 			ID:                headerID,
 			FileCapexActualID: fileID,
 			Entity:            entity, Department: dept, CapexNo: cNo, CapexName: cName, CapexCategory: cCat,
+			Year:               year, // Set Year
 			YearTotal:          decimal.Zero,
 			CapexActualAmounts: []models.CapexActualAmountEntity{},
 		}
@@ -1045,4 +1241,28 @@ func containsIgnoreCase(s, substr string) bool {
 
 func (s *budgetService) GetRawDate() (string, error) {
 	return s.repo.GetRawDate()
+}
+
+func extractYear(s string) string {
+	// Simple scan for 4 digits starting with 20
+	// e.g. "Budget 2025" or "FY2025"
+	for i := 0; i <= len(s)-4; i++ {
+		sub := s[i : i+4]
+		// Check if it's a number and starts with "20"
+		if sub >= "2010" && sub <= "2099" {
+			if isNumeric(sub) {
+				return sub
+			}
+		}
+	}
+	return ""
+}
+
+func isNumeric(s string) bool {
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }

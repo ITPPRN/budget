@@ -7,6 +7,7 @@ import StatCard from '../components/Dashboard/StatCard';
 import { TotalBudgetCard, RemainingBudgetCard, DepartmentAlertCard } from '../components/Dashboard/BudgetStatsCard';
 import DepartmentTable from '../components/Dashboard/DepartmentTable';
 import BudgetChart from '../components/Dashboard/BudgetChart';
+import CapexSection from '../components/Dashboard/CapexSection';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
 import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
@@ -32,7 +33,8 @@ const HomePage = () => {
   // Filters State
   const [selectedEntity, setSelectedEntity] = useState('');
   const [selectedBranch, setSelectedBranch] = useState('');
-  const [selectedDepartment, setSelectedDepartment] = useState(''); // Restored for Table Click
+  const [selectedDepartment, setSelectedDepartment] = useState(''); // Level 1: Master Dept (Controls Table Context)
+  const [selectedSubDept, setSelectedSubDept] = useState(''); // Level 2: Sub Dept (Controls Chart & Highlight)
   const [orgStructure, setOrgStructure] = useState([]);
 
   // Alert Counts State
@@ -86,49 +88,49 @@ const HomePage = () => {
     setPage(0); // Reset to first page on sort change
   };
 
-  // 4. Fetch Dashboard Data when Filters or Pagination Change
-  useEffect(() => {
-    const fetchDashboardData = async () => {
-      // Prevent loading flash if just selecting department? Maybe keep it for feedback.
-      setLoading(true);
-      try {
-        const payload = {
-          entities: selectedEntity ? [selectedEntity] : [],
-          branches: selectedBranch ? [selectedBranch] : [],
-          // departments: [], // Removed
-          entities: selectedEntity ? [selectedEntity] : [],
-          branches: selectedBranch ? [selectedBranch] : [],
-          departments: selectedDepartment ? [selectedDepartment] : [], // Pass Department Filter
-          page: page + 1, // Backend is 1-based
-          limit: rowsPerPage,
-          sort_by: orderBy,
-          sort_order: order
-        };
+  // 4. Fetch Dashboard Data
+  // Strategy:
+  // - Context Fetch: Depends on selectedEntity, selectedBranch, selectedDepartment (Master)
+  //   Updates: departmentData (Table), totalBudget, alertCounts.
+  //   Also updates: chartData (Default aggregate) IF no sub-dept selected.
+  // - Focus Fetch: Depends on selectedSubDept.
+  //   Updates: chartData (Specific).
 
-        console.log("Dashboard: Fetching Summary...", payload);
-        const { data } = await api.post('/budgets/dashboard-summary', payload);
-        console.log("Dashboard: Summary Received", data);
+  const fetchDashboardData = async (overrideParams = {}) => {
+    // Determine effective filters
+    // If fetching for Table Context: use selectedDepartment
+    // If fetching for Chart Focus: use selectedSubDept (if exists) OR selectedDepartment
 
+    const isChartFocus = overrideParams.isChartFocus;
+    // Context Dept (Level 1) - Always the Master Department
+    const contextDept = selectedDepartment;
+    // Focus Dept (Level 2) - Specific Sub-Department (NavCode)
+    const focusNavCode = overrideParams.targetDept;
+
+    setLoading(true);
+    try {
+      const payload = {
+        entities: selectedEntity ? [selectedEntity] : [],
+        branches: selectedBranch ? [selectedBranch] : [],
+        departments: contextDept ? [contextDept] : [], // Level 1: Master
+        nav_codes: isChartFocus && focusNavCode ? [focusNavCode] : [], // Level 2: Sub-Dept (NavCode)
+        page: page + 1,
+        limit: rowsPerPage,
+        sort_by: orderBy,
+        sort_order: order
+      };
+
+      console.log(`Dashboard Fetch (${isChartFocus ? 'Focus' : 'Context'}):`, payload);
+      const { data } = await api.post('/budgets/dashboard-summary', payload);
+
+      if (isChartFocus) {
+        // Update Chart & Totals (but NOT Table or TotalCount)
         setTotalBudget(data.total_budget || 0);
         setTotalActual(data.total_actual || 0);
-        // Only update Table Data if NOT filtering by department (to keep the list visible)
-        // OR better: Always update data, but if filtering by dept, the chart updates. 
-        // User wants: "Select 1 Dept -> Graph shows only that Dept".
-        // BUT: Does user want table to filter to 1 row too? Usually yes ("Drill down"). 
-        // If user wants table to stay giving context but CHART to filter, we need separate API calls or client side filtering.
-        // User said: "แสดงเฉพาะกราฟของที่เราเลือก" (Show graph of what we selected).
-        // If we filter API, the table will also shrink to 1 row. This is usually acceptable drill-down behavior.
-        // Let's stick to API filtering for consistency of "Total Budget Card" etc.
-
-        setTotalCount(data.total_count || 0);
-
-        // Update Alert Counts from API (Global)
         setAlertCounts({
           over: data.over_budget_count || 0,
           near: data.near_limit_count || 0
         });
-
-        setOrgStructure(prev => prev.length ? prev : []); // Keep structure
 
         const mappedChart = (data.chart_data || []).map(item => ({
           name: item.month,
@@ -136,7 +138,27 @@ const HomePage = () => {
           actual: item.actual
         }));
         setChartData(mappedChart);
+      } else {
+        // Update Context (Table, Totals, Default Chart)
+        setTotalBudget(data.total_budget || 0);
+        setTotalActual(data.total_actual || 0);
+        setTotalCount(data.total_count || 0);
+        setAlertCounts({
+          over: data.over_budget_count || 0,
+          near: data.near_limit_count || 0
+        });
 
+        // Chart (Default)
+        if (!selectedSubDept) {
+          const mappedChart = (data.chart_data || []).map(item => ({
+            name: item.month,
+            budget: item.budget,
+            actual: item.actual
+          }));
+          setChartData(mappedChart);
+        }
+
+        // Table
         const transformedTable = (data.department_data || []).map(d => ({
           name: d.department,
           budget: d.budget,
@@ -144,24 +166,51 @@ const HomePage = () => {
           deptRaw: d.department
         }));
         setDepartmentData(transformedTable);
-
-      } catch (err) {
-        console.error("Dashboard Fetch Error", err);
-      } finally {
-        setLoading(false);
       }
-    };
 
-    fetchDashboardData();
-    fetchDashboardData();
-  }, [selectedEntity, selectedBranch, selectedDepartment, page, rowsPerPage, orderBy, order]); // Added selectedDepartment
+    } catch (err) {
+      console.error("Dashboard Fetch Error", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Effect: Context Change (Global Filters, Pagination, Master Drill-Down)
+  useEffect(() => {
+    fetchDashboardData({ isChartFocus: false });
+  }, [selectedEntity, selectedBranch, selectedDepartment, page, rowsPerPage, orderBy, order]);
+
+  // Effect: Sub-Dept Change (Chart Focus)
+  useEffect(() => {
+    if (selectedSubDept) {
+      fetchDashboardData({ isChartFocus: true, targetDept: selectedSubDept });
+    } else {
+      // If cleared, revert to context chart (handled by context effect if dependencies change, or we trigger manual?)
+      // If selectedSubDept becomes empty, we need to revert chart.
+      // Re-running context fetch is safest/easiest.
+      if (selectedDepartment) {
+        fetchDashboardData({ isChartFocus: false });
+      }
+    }
+  }, [selectedSubDept]);
+
 
   // Handle Row Click
   const handleDepartmentClick = (deptName) => {
-    // Toggle selection: If clicking same dept, unselect.
-    console.log("Toggling Department:", deptName);
-    setSelectedDepartment(prev => prev === deptName ? '' : deptName);
-    setPage(0); // Reset pagination
+    console.log("Clicked:", deptName);
+
+    if (!selectedDepartment) {
+      // Level 1: Drill Down to Master -> Sub List
+      setSelectedDepartment(deptName);
+      setPage(0);
+    } else {
+      // Level 2: Select Sub-Item for Graph
+      if (selectedSubDept === deptName) {
+        setSelectedSubDept(''); // Deselect (Revert to Master Aggregation)
+      } else {
+        setSelectedSubDept(deptName);
+      }
+    }
   };
 
   // Format Helpers
@@ -245,32 +294,44 @@ const HomePage = () => {
         </Grid>
 
         {/* Charts & Tables */}
-        <Grid container spacing={3}>
-          <Grid item xs={12} md={4} sx={{ ...gridItemStyle, width: '100%' }}>
-            {/* Department Status Table */}
-            <Box sx={{ height: 500, width: '100%' }}>
-              <DepartmentTable
-                data={departmentData}
-                count={totalCount}
-                page={page}
-                rowsPerPage={rowsPerPage}
-                onPageChange={handleChangePage}
-                onRowsPerPageChange={handleChangeRowsPerPage}
-                orderBy={orderBy}
-                order={order}
-                onRequestSort={handleRequestSort}
-                selectedDept={selectedDepartment} // Prop
-                onRowClick={handleDepartmentClick} // Prop
-              />
-            </Box>
-          </Grid>
-          <Grid item xs={12} md={8} sx={{ ...gridItemStyle, width: '100%' }}>
-            {/* Main Chart */}
-            <Box sx={{ height: 450, width: '100%' }}>
-              <BudgetChart data={chartData} />
-            </Box>
-          </Grid>
-        </Grid>
+        <Stack direction={{ xs: 'column', md: 'row' }} spacing={3} sx={{ width: '100%', mb: 4 }}>
+          {/* Department Status Table Container */}
+          <Box sx={{ flex: 1, minWidth: 0, height: 500 }}>
+            <DepartmentTable
+              data={departmentData}
+              count={totalCount}
+              page={page}
+              rowsPerPage={rowsPerPage}
+              onPageChange={handleChangePage}
+              onRowsPerPageChange={handleChangeRowsPerPage}
+              orderBy={orderBy}
+              order={order}
+              onRequestSort={handleRequestSort}
+              selectedDept={selectedSubDept || selectedDepartment}
+              onRowClick={handleDepartmentClick}
+              onBack={() => {
+                setSelectedDepartment('');
+                setSelectedSubDept('');
+                setPage(0);
+              }}
+            />
+          </Box>
+
+          {/* Budget Chart Container */}
+          <Box sx={{ flex: 1, minWidth: 0, height: 500 }}>
+            <BudgetChart
+              data={chartData}
+              title="Budget vs Actual"
+              selectedDept={selectedSubDept || selectedDepartment || "ALL"}
+            />
+          </Box>
+        </Stack>
+
+        {/* CAPEX Section */}
+        <CapexSection
+          globalEntity={selectedEntity}
+          orgStructure={orgStructure}
+        />
       </Box>
     </ErrorBoundary>
   );

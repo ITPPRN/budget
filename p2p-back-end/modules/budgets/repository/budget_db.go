@@ -275,29 +275,66 @@ func (r *budgetRepositoryDB) DeleteFileCapexActual(id string) error {
 // ---------------------------------------------------------------------
 func (r *budgetRepositoryDB) DeleteAllBudgetFacts() error {
 	// 1. ลบยอดเงิน (ลูก)
-	if err := r.db.Unscoped().Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&models.BudgetAmountEntity{}).Error; err != nil {
+	// Use Raw SQL to guarantee execution and avoid Soft Delete confusion
+	if err := r.db.Exec("DELETE FROM budget_amount_entities").Error; err != nil {
 		return err
 	}
 	// 2. ลบส่วนหัว (แม่)
-	return r.db.Unscoped().Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&models.BudgetFactEntity{}).Error
+	return r.db.Exec("DELETE FROM budget_fact_entities").Error
+}
+
+func (r *budgetRepositoryDB) DeleteBudgetFactsByFileID(fileID string) error {
+	// 1. Delete Amounts (Subquery or Join)
+	if err := r.db.Exec(`
+		DELETE FROM budget_amount_entities 
+		WHERE budget_fact_id IN (SELECT id FROM budget_fact_entities WHERE file_budget_id = ?)
+	`, fileID).Error; err != nil {
+		return err
+	}
+	// 2. Delete Headers
+	return r.db.Unscoped().Where("file_budget_id = ?", fileID).Delete(&models.BudgetFactEntity{}).Error
 }
 
 func (r *budgetRepositoryDB) DeleteAllCapexBudgetFacts() error {
 	// 1. Delete Amounts
-	if err := r.db.Unscoped().Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&models.CapexBudgetAmountEntity{}).Error; err != nil {
+	if err := r.db.Exec("DELETE FROM capex_budget_amount_entities").Error; err != nil {
 		return err
 	}
 	// 2. Delete Headers
-	return r.db.Unscoped().Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&models.CapexBudgetFactEntity{}).Error
+	return r.db.Exec("DELETE FROM capex_budget_fact_entities").Error
+}
+
+func (r *budgetRepositoryDB) DeleteCapexBudgetFactsByFileID(fileID string) error {
+	// 1. Delete Amounts
+	if err := r.db.Exec(`
+		DELETE FROM capex_budget_amount_entities 
+		WHERE capex_budget_fact_id IN (SELECT id FROM capex_budget_fact_entities WHERE file_capex_budget_id = ?)
+	`, fileID).Error; err != nil {
+		return err
+	}
+	// 2. Delete Headers
+	return r.db.Unscoped().Where("file_capex_budget_id = ?", fileID).Delete(&models.CapexBudgetFactEntity{}).Error
 }
 
 func (r *budgetRepositoryDB) DeleteAllCapexActualFacts() error {
 	// 1. Delete Amounts
-	if err := r.db.Unscoped().Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&models.CapexActualAmountEntity{}).Error; err != nil {
+	if err := r.db.Exec("DELETE FROM capex_actual_amount_entities").Error; err != nil {
 		return err
 	}
 	// 2. Delete Headers
-	return r.db.Unscoped().Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&models.CapexActualFactEntity{}).Error
+	return r.db.Exec("DELETE FROM capex_actual_fact_entities").Error
+}
+
+func (r *budgetRepositoryDB) DeleteCapexActualFactsByFileID(fileID string) error {
+	// 1. Delete Amounts
+	if err := r.db.Exec(`
+		DELETE FROM capex_actual_amount_entities 
+		WHERE capex_actual_fact_id IN (SELECT id FROM capex_actual_fact_entities WHERE file_capex_actual_id = ?)
+	`, fileID).Error; err != nil {
+		return err
+	}
+	// 2. Delete Headers
+	return r.db.Unscoped().Where("file_capex_actual_id = ?", fileID).Delete(&models.CapexActualFactEntity{}).Error
 }
 
 // ---------------------------------------------------------------------
@@ -341,11 +378,11 @@ func (r *budgetRepositoryDB) CreateActualFacts(headers []models.ActualFactEntity
 
 func (r *budgetRepositoryDB) DeleteAllActualFacts() error {
 	// 1. ลบยอดเงิน (Delete Amounts)
-	if err := r.db.Unscoped().Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&models.ActualAmountEntity{}).Error; err != nil {
+	if err := r.db.Exec("DELETE FROM actual_amount_entities").Error; err != nil {
 		return err
 	}
 	// 2. ลบส่วนหัว (Delete Headers)
-	return r.db.Unscoped().Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&models.ActualFactEntity{}).Error
+	return r.db.Exec("DELETE FROM actual_fact_entities").Error
 }
 
 func (r *budgetRepositoryDB) DeleteActualFactsByYear(year string) error {
@@ -364,13 +401,11 @@ func (r *budgetRepositoryDB) DeleteActualFactsByYear(year string) error {
 	return r.db.Unscoped().Where("year = ?", year).Delete(&models.ActualFactEntity{}).Error
 }
 
-func (r *budgetRepositoryDB) GetAggregatedHMW(year string) ([]models.ActualAggregatedDTO, error) {
+func (r *budgetRepositoryDB) GetAggregatedHMW(year string, months []string) ([]models.ActualAggregatedDTO, error) {
 	var results []models.ActualAggregatedDTO
 	// การเพิ่มประสิทธิภาพ: Group โดย Database
 
-	// Postgres TO_CHAR(date, 'MON') returns 'JAN', 'FEB'... (uppercase)
-	// Posting_Date is likely VARCHAR in DB, so cast to DATE first
-	err := r.db.Table("achhmw_gle_api").
+	query := r.db.Table("achhmw_gle_api").
 		Select(`
 			company, 
 			branch, 
@@ -380,8 +415,13 @@ func (r *budgetRepositoryDB) GetAggregatedHMW(year string) ([]models.ActualAggre
 			UPPER(TO_CHAR("Posting_Date"::DATE, 'MON')) as month, 
 			SUM("Credit_Amount") as total_amount
 		`).
-		Where("LEFT(\"Posting_Date\", 4) = ?", year). // Fix: Use String manipulation to avoid Date Cast crashes
-		Group(`company, branch, "Global_Dimension_1_Code", "G_L_Account_No", "G_L_Account_Name", UPPER(TO_CHAR("Posting_Date"::DATE, 'MON'))`).
+		Where("LEFT(\"Posting_Date\", 4) = ?", year)
+
+	if len(months) > 0 {
+		query = query.Where("UPPER(TO_CHAR(\"Posting_Date\"::DATE, 'MON')) IN ?", months)
+	}
+
+	err := query.Group(`company, branch, "Global_Dimension_1_Code", "G_L_Account_No", "G_L_Account_Name", UPPER(TO_CHAR("Posting_Date"::DATE, 'MON'))`).
 		Scan(&results).Error
 	return results, err
 }
@@ -392,10 +432,10 @@ func (r *budgetRepositoryDB) GetAllAchHmwGle() ([]models.AchHmwGleEntity, error)
 	return results, err
 }
 
-func (r *budgetRepositoryDB) GetAggregatedCLIK(year string) ([]models.ActualAggregatedDTO, error) {
+func (r *budgetRepositoryDB) GetAggregatedCLIK(year string, months []string) ([]models.ActualAggregatedDTO, error) {
 	var results []models.ActualAggregatedDTO
 	// CLIK uses Global_Dimension_2_Code for Branch
-	err := r.db.Table("general_ledger_entries_clik").
+	query := r.db.Table("general_ledger_entries_clik").
 		Select(`
 			'CLIK' as company,
 			"Global_Dimension_2_Code" as branch, 
@@ -405,8 +445,13 @@ func (r *budgetRepositoryDB) GetAggregatedCLIK(year string) ([]models.ActualAggr
 			UPPER(TO_CHAR("Posting_Date"::DATE, 'MON')) as month, 
 			SUM("Credit_Amount") as total_amount
 		`).
-		Where("LEFT(\"Posting_Date\", 4) = ?", year). // Fix: Use String manipulation
-		Group(`"Global_Dimension_2_Code", "Global_Dimension_1_Code", "G_L_Account_No", "G_L_Account_Name", UPPER(TO_CHAR("Posting_Date"::DATE, 'MON'))`).
+		Where("LEFT(\"Posting_Date\", 4) = ?", year)
+
+	if len(months) > 0 {
+		query = query.Where("UPPER(TO_CHAR(\"Posting_Date\"::DATE, 'MON')) IN ?", months)
+	}
+
+	err := query.Group(`"Global_Dimension_2_Code", "Global_Dimension_1_Code", "G_L_Account_No", "G_L_Account_Name", UPPER(TO_CHAR("Posting_Date"::DATE, 'MON'))`).
 		Scan(&results).Error
 	return results, err
 }
@@ -732,23 +777,75 @@ func (r *budgetRepositoryDB) GetDashboardAggregates(filter map[string]interface{
 
 	// ตัวช่วยกรองข้อมูลแบบไดนามิก (คืนค่า GORM Scope)
 	applyFilter := func(tx *gorm.DB, tableName string) *gorm.DB {
+		// Helper to safely convert interface{} to []string
+		toStringSlice := func(val interface{}) []string {
+			if strs, ok := val.([]string); ok {
+				return strs
+			}
+			if interfaces, ok := val.([]interface{}); ok {
+				var strs []string
+				for _, i := range interfaces {
+					if s, ok := i.(string); ok {
+						strs = append(strs, s)
+					}
+				}
+				return strs
+			}
+			return nil
+		}
+
 		if val, ok := filter["entities"]; ok {
-			if strs, ok := val.([]string); ok && len(strs) > 0 {
+			if strs := toStringSlice(val); len(strs) > 0 {
 				tx = tx.Where(tableName+".entity IN ?", strs)
 			}
 		}
 		if val, ok := filter["branches"]; ok {
-			if strs, ok := val.([]string); ok && len(strs) > 0 {
+			if strs := toStringSlice(val); len(strs) > 0 {
 				tx = tx.Where(tableName+".branch IN ?", strs)
 			}
 		}
 		// Added: Departments Filter
 		if val, ok := filter["departments"]; ok {
-			if strs, ok := val.([]string); ok && len(strs) > 0 {
+			if strs := toStringSlice(val); len(strs) > 0 {
 				tx = tx.Where(tableName+".department IN ?", strs)
 			}
 		}
+		// Added: NavCodes Filter (For Sub-Department Drill-down)
+		if val, ok := filter["nav_codes"]; ok {
+			if strs := toStringSlice(val); len(strs) > 0 {
+				tx = tx.Where(tableName+".nav_code IN ?", strs)
+			}
+		}
 		return tx
+	}
+
+	// Determine Grouping Strategy (Drill-down vs Summary)
+	groupBy := "department"
+	selectCol := "department"
+
+	// Helper to safely convert interface{} to []string
+	toStringSlice := func(val interface{}) []string {
+		if strs, ok := val.([]string); ok {
+			return strs
+		}
+		if interfaces, ok := val.([]interface{}); ok {
+			var strs []string
+			for _, i := range interfaces {
+				if s, ok := i.(string); ok {
+					strs = append(strs, s)
+				}
+			}
+			return strs
+		}
+		return nil
+	}
+
+	if val, ok := filter["departments"]; ok {
+		if strs := toStringSlice(val); len(strs) > 0 {
+			// If filtered by Department, we likely want to drill down to NavCode
+			groupBy = "nav_code"
+			selectCol = "nav_code as department"
+		}
 	}
 
 	// 1. รวมยอดตาม Department (Department Aggregation)
@@ -758,15 +855,16 @@ func (r *budgetRepositoryDB) GetDashboardAggregates(filter map[string]interface{
 		Total      float64
 	}
 	var budgetDept []DeptResult
-	tx1 := r.db.Table("budget_fact_entities").Select("department, SUM(year_total) as total")
+	tx1 := r.db.Table("budget_fact_entities").Select(selectCol + ", SUM(year_total) as total")
 	tx1 = applyFilter(tx1, "budget_fact_entities")
-	if err := tx1.Group("department").Scan(&budgetDept).Error; err != nil {
+	if err := tx1.Group(groupBy).Scan(&budgetDept).Error; err != nil {
 		return nil, err
 	}
 
 	// Actual
+	// Actual
 	var actualDept []DeptResult
-	tx2 := r.db.Table("actual_fact_entities").Select("department, SUM(year_total) as total")
+	tx2 := r.db.Table("actual_fact_entities").Select(selectCol + ", SUM(year_total) as total")
 	tx2 = applyFilter(tx2, "actual_fact_entities")
 
 	// Debug: Count Actual Records before aggregation
@@ -774,7 +872,7 @@ func (r *budgetRepositoryDB) GetDashboardAggregates(filter map[string]interface{
 	r.db.Model(&models.ActualFactEntity{}).Count(&count)
 	fmt.Printf("[DEBUG] GetDashboardAggregates: ActualFactEntity Count = %d\n", count)
 
-	if err := tx2.Group("department").Scan(&actualDept).Error; err != nil {
+	if err := tx2.Group(groupBy).Scan(&actualDept).Error; err != nil {
 		// Log error but maybe continue? No, return error
 		return nil, err
 	}
@@ -826,7 +924,7 @@ func (r *budgetRepositoryDB) GetDashboardAggregates(filter map[string]interface{
 		} else if budget > 0 {
 			// ใกล้เต็ม: คงเหลือ < 20%
 			ratio := remaining / budget
-			if ratio < 0.2 {
+			if ratio <= 0.2 {
 				nearLimitCount++
 			}
 		}
@@ -844,6 +942,17 @@ func (r *budgetRepositoryDB) GetDashboardAggregates(filter map[string]interface{
 		case "remaining":
 			valI = allDepts[i].Budget - allDepts[i].Actual
 			valJ = allDepts[j].Budget - allDepts[j].Actual
+		case "remaining_pct":
+			if allDepts[i].Budget != 0 {
+				valI = (allDepts[i].Budget - allDepts[i].Actual) / allDepts[i].Budget
+			} else {
+				valI = -999999 // Treat no budget as lowest priority or handled specifically
+			}
+			if allDepts[j].Budget != 0 {
+				valJ = (allDepts[j].Budget - allDepts[j].Actual) / allDepts[j].Budget
+			} else {
+				valJ = -999999
+			}
 		default:
 			valI, valJ = allDepts[i].Actual, allDepts[j].Actual
 		}

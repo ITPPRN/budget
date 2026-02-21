@@ -39,6 +39,8 @@ func NewPostgresConnection(cfg *configs.Config) (*gorm.DB, error) {
 		// Auth & Base
 		&models.UserEntity{},
 		&models.DepartmentEntity{},
+		&models.DepartmentMappingEntity{},
+		&models.UserPermissionEntity{},
 
 		// Budget & Capex (Flattened Type 2: Header + Detail)
 		&models.FileBudgetEntity{},
@@ -57,6 +59,10 @@ func NewPostgresConnection(cfg *configs.Config) (*gorm.DB, error) {
 		// Actual (Operational / P2P)
 		&models.ActualFactEntity{},
 		&models.ActualAmountEntity{}, // New Detail Table
+
+		// Owner (Denormalized)
+		&models.OwnerActualFactEntity{},
+		&models.OwnerActualAmountEntity{}, // New Detail Table
 	)
 
 	if err != nil {

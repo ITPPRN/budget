@@ -1,8 +1,9 @@
 import React from 'react';
-import { Paper, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Box, TablePagination, TableSortLabel } from '@mui/material';
+import { Paper, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Box, TablePagination, TableSortLabel, IconButton, Button } from '@mui/material';
 import FlagIcon from '@mui/icons-material/Flag';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 
-const DepartmentTable = ({ data, count, page, rowsPerPage, onPageChange, onRowsPerPageChange, orderBy, order, onRequestSort, selectedDept, onRowClick }) => {
+const DepartmentTable = ({ data, count, page, rowsPerPage, onPageChange, onRowsPerPageChange, orderBy, order, onRequestSort, selectedDept, onRowClick, onBack }) => {
     // Helper to format numbers (Always in MB)
     const formatMoney = (amount) => {
         const mb = amount / 1000000;
@@ -26,7 +27,7 @@ const DepartmentTable = ({ data, count, page, rowsPerPage, onPageChange, onRowsP
         if (remaining < 0) return '#e74a3b';
 
         // 3. Yellow (Warning): Remaining is Low (e.g. < 20% left)
-        if (remainingPercentage < 20) return '#f6c23e';
+        if (remainingPercentage <= 20) return '#f6c23e';
 
         // 4. Green (Healthy): Safe zone
         return '#1cc88a';
@@ -39,19 +40,26 @@ const DepartmentTable = ({ data, count, page, rowsPerPage, onPageChange, onRowsP
     return (
         <Paper sx={{ p: 2, height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                <Typography variant="h6" sx={{ fontWeight: 'bold', color: 'primary.main', bgcolor: '#e3f2fd', px: 2, py: 0.5, borderRadius: 2 }}>
-                    Department Budget Status (Top Spenders)
-                </Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    {selectedDept && (
+                        <IconButton size="small" onClick={onBack} sx={{ bgcolor: '#f5f5f5' }}>
+                            <ArrowBackIcon fontSize="small" />
+                        </IconButton>
+                    )}
+                    <Typography variant="h6" sx={{ fontWeight: 'bold', color: 'primary.main', bgcolor: '#e3f2fd', px: 2, py: 0.5, borderRadius: 2 }}>
+                        {selectedDept ? `Department: ${selectedDept}` : 'Department Budget Status (Top Spenders)'}
+                    </Typography>
+                </Box>
             </Box>
 
             <TableContainer sx={{ flexGrow: 1, overflow: 'auto' }}>
                 <Table stickyHeader size="small">
                     <TableHead>
                         <TableRow>
-                            <TableCell sx={{ fontWeight: 'bold', bgcolor: '#eaecf4' }}>Status</TableCell>
+                            <TableCell sx={{ fontWeight: 'bold', bgcolor: '#eaecf4', width: '30px', padding: '6px 4px' }}>Status</TableCell>
                             <TableCell sx={{ fontWeight: 'bold', bgcolor: '#eaecf4' }}>Department</TableCell>
 
-                            <TableCell align="right" sortDirection={orderBy === 'budget' ? order : false} sx={{ fontWeight: 'bold', bgcolor: '#eaecf4' }}>
+                            <TableCell align="right" sortDirection={orderBy === 'budget' ? order : false} sx={{ fontWeight: 'bold', bgcolor: '#eaecf4', width: '15%' }}>
                                 <TableSortLabel
                                     active={orderBy === 'budget'}
                                     direction={orderBy === 'budget' ? order : 'asc'}
@@ -61,7 +69,7 @@ const DepartmentTable = ({ data, count, page, rowsPerPage, onPageChange, onRowsP
                                 </TableSortLabel>
                             </TableCell>
 
-                            <TableCell align="right" sortDirection={orderBy === 'actual' ? order : false} sx={{ fontWeight: 'bold', bgcolor: '#eaecf4' }}>
+                            <TableCell align="right" sortDirection={orderBy === 'actual' ? order : false} sx={{ fontWeight: 'bold', bgcolor: '#eaecf4', width: '15%' }}>
                                 <TableSortLabel
                                     active={orderBy === 'actual'}
                                     direction={orderBy === 'actual' ? order : 'asc'}
@@ -71,13 +79,22 @@ const DepartmentTable = ({ data, count, page, rowsPerPage, onPageChange, onRowsP
                                 </TableSortLabel>
                             </TableCell>
 
-                            <TableCell align="right" sortDirection={orderBy === 'remaining' ? order : false} sx={{ fontWeight: 'bold', bgcolor: '#eaecf4' }}>
+                            <TableCell align="right" sortDirection={orderBy === 'remaining' ? order : false} sx={{ fontWeight: 'bold', bgcolor: '#eaecf4', width: '15%' }}>
                                 <TableSortLabel
                                     active={orderBy === 'remaining'}
                                     direction={orderBy === 'remaining' ? order : 'asc'}
                                     onClick={createSortHandler('remaining')}
                                 >
                                     Remaining
+                                </TableSortLabel>
+                            </TableCell>
+                            <TableCell align="right" sortDirection={orderBy === 'remaining_pct' ? order : false} sx={{ fontWeight: 'bold', bgcolor: '#eaecf4', width: '10%', minWidth: '60px', padding: '6px 4px' }}>
+                                <TableSortLabel
+                                    active={orderBy === 'remaining_pct'}
+                                    direction={orderBy === 'remaining_pct' ? order : 'asc'}
+                                    onClick={createSortHandler('remaining_pct')}
+                                >
+                                    ( % )
                                 </TableSortLabel>
                             </TableCell>
                         </TableRow>
@@ -111,6 +128,9 @@ const DepartmentTable = ({ data, count, page, rowsPerPage, onPageChange, onRowsP
                                     <TableCell align="right" sx={{ fontSize: '0.75rem' }}>{formatMoney(spending)}</TableCell>
                                     <TableCell align="right" sx={{ color: remaining < 0 ? 'error.main' : 'success.main', fontWeight: 'bold', fontSize: '0.75rem' }}>
                                         {formatMoney(remaining)}
+                                    </TableCell>
+                                    <TableCell align="right" sx={{ color: remaining < 0 ? 'error.main' : 'success.main', fontWeight: 'bold', fontSize: '0.75rem' }}>
+                                        ({remainingPct.toFixed(2)}%)
                                     </TableCell>
                                 </TableRow>
                             );

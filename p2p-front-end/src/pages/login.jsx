@@ -18,7 +18,7 @@ import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import { toast } from "react-toastify";
 
 // ✅ เรียกใช้ Hook ที่ทำไว้
-import { useAuth } from "../hooks/useAuth"; 
+import { useAuth } from "../hooks/useAuth";
 import { useConfig } from "../contexts/ConfigContext";
 
 function Login() {
@@ -55,26 +55,73 @@ function Login() {
     try {
       // 1. เรียกฟังก์ชัน login จาก useAuth
       // (ข้างในมันจะยิง API -> ได้ HttpOnly Cookie -> update user state)
-      await login(credentials.username, credentials.password);
-      
-      // 2. ถ้าผ่าน มันจะไปต่อที่ routes/index.jsx ซึ่งจะดีดไปหน้า Home ให้เอง
-      // แต่ใส่ navigate กันเหนียวไว้ก็ได้
-      navigate("/home"); 
+      const user = await login(credentials.username, credentials.password);
+
+      console.log("Login Success. User Data:", user); // 🔍 Debug Log
+      console.log("Roles:", user?.role);
+      console.log("Dept Code:", user?.department_code);
+      console.log("Dept Name:", user?.department);
+
+      // 2. เช็ค Role เพื่อ Redirect
+      const roles = user?.roles || [];
+
+      const isAdmin = roles.some(r => r.toUpperCase() === 'ADMIN' || r.toUpperCase() === 'SUPER_ADMIN');
+      const isOwner = roles.some(r => r.toUpperCase() === 'OWNER');
+      const isDelegate = roles.some(r => r.toUpperCase() === 'DELEGATE');
+
+      if (isAdmin) {
+        console.log("Role Admin detected. Redirecting to Home...");
+        navigate("/home");
+      } else if (isOwner) {
+        console.log("Role Owner detected. Redirecting to Owner Dashboard...");
+        navigate("/owner/dashboard");
+      } else if (isDelegate) {
+        // Delegate usually goes to Dashboard too, or specific page? Assuming Home/Owner Dashboard for now.
+        // User didn't specify Delegate Dashboard, assumig same as Owner or Admin view but limited.
+        // Let's send Delegate to /home or /owner/dashboard depending on system design.
+        // For now, let's assume Delegate goes to /home (Admin Dashboard view) but limited, OR owner dashboard.
+        // Actually, usually Delegate works for Owner.
+        // But "Delegate looks at User List".
+        // Let's send to /owner/dashboard for now if they are delegate of owner.
+        // OR if system is single dashboard -> /home.
+        // Let's default to /home for now to be safe, as they need to access User Management.
+        navigate("/home");
+      } else {
+        // Rule 1: Default User = No Access
+        console.warn("Unauthorized User:", user?.id || "Unknown");
+        toast.error("คุณไม่มีสิทธิ์เข้าใช้งานระบบ (No Access)");
+
+        try {
+          // Logout immediately to clear state, but keep them on login page
+          await logout(false);
+        } catch (logoutErr) {
+          console.error("Logout error in Login:", logoutErr);
+        }
+        return; // Stop navigation
+      }
       toast.success("เข้าสู่ระบบสำเร็จ!");
 
     } catch (error) {
       // 3. ถ้า Error (เช่น รหัสผิด)
       console.error("Login Failed:", error);
-      toast.error("ชื่อผู้ใช้ หรือ รหัสผ่าน ไม่ถูกต้อง!");
+
+      // Check Keycloak/Backend 401 for Invalid Credentials
+      if (error.response && error.response.status === 401) {
+        toast.error("ชื่อผู้ใช้ หรือ รหัสผ่าน ไม่ถูกต้อง!");
+      } else {
+        // Other errors (Network, 500, or Client Logic)
+        // Only show if it's NOT a "No Access" flow (which shouldn't end up here anyway)
+        toast.error("เข้าสู่ระบบไม่สำเร็จ: " + (error.message || "Unknown Error"));
+      }
     } finally {
-      setIsSubmitting(false); 
+      setIsSubmitting(false);
     }
   };
 
-  
+
   const styles = {
     paperContainer: {
-        background: "linear-gradient(135deg, #043478 0%, #10254a 100%)", 
+      background: "linear-gradient(135deg, #043478 0%, #10254a 100%)",
       backgroundImage: `url(${"/image/home-ir.jpeg"})`, // ⚠️ เช็คว่ามีไฟล์รูปนี้จริงไหม
       backgroundPosition: "center",
       backgroundRepeat: "no-repeat",
@@ -106,7 +153,7 @@ function Login() {
         >
           <form onSubmit={onSubmitLogin}>
             <Stack spacing={3} alignItems="center">
-              
+
               {/* Logo Section */}
               <Box sx={{ mb: 1, textAlign: 'center' }}>
                 {/* ⚠️ เช็คว่ามีไฟล์ Logo นี้จริงไหม */}

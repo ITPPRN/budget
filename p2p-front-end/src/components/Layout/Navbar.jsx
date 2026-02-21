@@ -33,8 +33,9 @@ const Navbar = ({ user, onLogout, onToggle }) => {
                 {/* JSON from Backend: { userName, name, ... } */}
                 {(user.name || user.userName || 'U').charAt(0).toUpperCase()}
               </Avatar>
-              <Typography variant="subtitle2" sx={{ display: { xs: 'none', sm: 'block', color: 'white' } }}>
+              <Typography variant="subtitle2" sx={{ display: { xs: 'none', sm: 'block' }, color: 'white' }}>
                 {user.name || user.userName || 'ผู้ใช้งาน'}
+                {user.department_code && ` (${user.department_code})`}
               </Typography>
             </Box>
           )}

@@ -51,14 +51,17 @@ type BudgetRepository interface {
 	DeleteAllBudgetFacts() error
 	DeleteAllCapexBudgetFacts() error
 	DeleteAllCapexActualFacts() error
-	DeleteAllActualFacts() error               // Keep for full reset
+	DeleteAllActualFacts() error                   // Keep for full reset
+	DeleteBudgetFactsByFileID(fileID string) error // New: Scoped Delete
+	DeleteCapexBudgetFactsByFileID(fileID string) error
+	DeleteCapexActualFactsByFileID(fileID string) error
 	DeleteActualFactsByYear(year string) error // New
 
 	// Sync From DB (External Tables)
 	GetAllAchHmwGle() ([]AchHmwGleEntity, error)
-	GetAggregatedHMW(year string) ([]ActualAggregatedDTO, error)
+	GetAggregatedHMW(year string, months []string) ([]ActualAggregatedDTO, error)
 	GetAllClikGle() ([]ClikGleEntity, error)
-	GetAggregatedCLIK(year string) ([]ActualAggregatedDTO, error)
+	GetAggregatedCLIK(year string, months []string) ([]ActualAggregatedDTO, error)
 	GetRawDate() (string, error) // Debugging
 
 	// Update Files (Rename)
@@ -78,6 +81,11 @@ type BudgetService interface {
 	SyncBudget(id string) error
 	SyncCapexBudget(id string) error
 	SyncCapexActual(id string) error
+
+	// Clear Data
+	ClearBudget() error
+	ClearCapexBudget() error
+	ClearCapexActual() error
 
 	// Dashboard Service
 	GetFilterOptions() ([]FilterOptionDTO, error)
@@ -101,13 +109,14 @@ type BudgetService interface {
 	RenameCapexActualFile(id string, newName string) error
 
 	// Actuals
-	SyncActuals(year string) error
+	SyncActuals(year string, months []string) error
 	DeleteActualFacts(year string) error // New
 
 	// Dashboard Optimized
 	GetDashboardSummary(filter map[string]interface{}) (*DashboardSummaryDTO, error)
 	GetActualTransactions(filter map[string]interface{}) ([]ActualTransactionDTO, error) // New
 	GetRawDate() (string, error)                                                         // Debugging
+
 }
 
 // DTOs
@@ -177,4 +186,6 @@ type ActualTransactionDTO struct {
 	GLAccountName string          `json:"gl_account_name" gorm:"column:gl_account_name"`
 	Amount        decimal.Decimal `json:"amount" gorm:"column:amount"`
 	Department    string          `json:"department" gorm:"column:department"`
+	Company       string          `json:"company" gorm:"column:company"`
+	Branch        string          `json:"branch" gorm:"column:branch"`
 }

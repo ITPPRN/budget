@@ -8,8 +8,13 @@ import WorkIcon from '@mui/icons-material/Work'
 // กำหนดรายการเมนูที่นี่ที่เดียว
 export const MENU_ITEMS = [
   {
-    title: 'Dashboard',
+    title: 'Dashboard (ADMIN)',
     path: '/home',
+    icon: <HomeIcon />,
+  },
+  {
+    title: 'Dashboard (OWNER)',
+    path: '/owner/dashboard',
     icon: <HomeIcon />,
   },
   {
@@ -26,5 +31,23 @@ export const MENU_ITEMS = [
     title: 'Data Management',
     path: '/data',
     icon: <SettingsIcon />
+  }
+];
+
+export const OWNER_MENU_ITEMS = [
+  {
+    title: 'Dashboard',
+    path: '/owner/dashboard',
+    icon: <HomeIcon />,
+  },
+  {
+    title: 'Detail Report',
+    path: '/owner/detail',
+    icon: <BusinessCenterIcon />,
+  },
+  {
+    title: 'User Management',
+    path: '/owner/user',
+    icon: <PersonIcon />
   }
 ];

@@ -19,6 +19,7 @@ import InsertDriveFileIcon from '@mui/icons-material/InsertDriveFile';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api/axiosInstance';
 import { toast } from 'react-toastify';
+import StorageIcon from '@mui/icons-material/Storage';
 
 const DataManagePage = () => {
   const { user } = useAuth();
@@ -28,12 +29,28 @@ const DataManagePage = () => {
   const [capexBgVersions, setCapexBgVersions] = useState([]);
   const [capexActualVersions, setCapexActualVersions] = useState([]);
 
-  // --- Selected Versions (External) ---
-  const [selectedBudget, setSelectedBudget] = useState('');
-  const [selectedCapexBg, setSelectedCapexBg] = useState('');
-  const [selectedCapexActual, setSelectedCapexActual] = useState('');
+  // --- Selected Versions (External) with Persistence (Last Synced) ---
+  // Load initial state from the LAST SUCCESSFUL SYNC config, not the draft.
+  const loadSavedState = (key, defaultVal) => {
+    const saved = localStorage.getItem('dm_lastSyncedConfig');
+    if (saved) {
+      const config = JSON.parse(saved);
+      return config[key] || defaultVal;
+    }
+    return defaultVal;
+  };
 
-  // --- Modal State ---
+  const [selectedBudget, setSelectedBudget] = useState(() => loadSavedState('selectedBudget', ''));
+  const [selectedCapexBg, setSelectedCapexBg] = useState(() => loadSavedState('selectedCapexBg', ''));
+  const [selectedCapexActual, setSelectedCapexActual] = useState(() => loadSavedState('selectedCapexActual', ''));
+
+  // --- New State for Operational Actuals ---
+  const [actualYear, setActualYear] = useState(() => loadSavedState('actualYear', new Date().getFullYear()));
+  const [selectedMonths, setSelectedMonths] = useState(() => loadSavedState('selectedMonths', []));
+
+  // Note: We NO LONGER save to localStorage on every change (useEffect). 
+  // We only save when the user successfully SYNCS.
+
   const [open, setOpen] = useState(false);
   const [modalType, setModalType] = useState(''); // 'BUDGET', 'CAPEX_BG', 'CAPEX_ACTUAL'
   const [modalTitle, setModalTitle] = useState('');
@@ -159,6 +176,22 @@ const DataManagePage = () => {
     setNewName(currentName);
   };
 
+  const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+
+  const toggleMonth = (month) => {
+    const monthIdx = MONTHS.indexOf(month);
+
+    // Check if the clicked month is already the end of the selection range
+    if (selectedMonths.length > 0 && selectedMonths[selectedMonths.length - 1] === month) {
+      // Toggle off
+      setSelectedMonths([]);
+    } else {
+      // If selecting a new month, select all months from JAN to that month (Cumulative)
+      const newSelected = MONTHS.slice(0, monthIdx + 1);
+      setSelectedMonths(newSelected);
+    }
+  };
+
   const saveRename = async (id) => {
     let endpoint = '';
     if (modalType === 'BUDGET') endpoint = `/budgets/files-budget/${id}`;
@@ -176,97 +209,92 @@ const DataManagePage = () => {
     }
   };
 
-  // --- Sync Handler ---
+  // --- Sync State with Persistence for Last Update ---
   const [syncing, setSyncing] = useState(false);
-  const [lastUpdate, setLastUpdate] = useState(new Date());
-
-  // Actual Sync Handlers
-  const [openActualSyncModal, setOpenActualSyncModal] = useState(false);
-  const [syncYear, setSyncYear] = useState('');
-  const [syncingActuals, setSyncingActuals] = useState(false);
-
-  // Initialize from localStorage to persist across navigation
-  const [lastSyncedYear, setLastSyncedYear] = useState(() => {
-    return localStorage.getItem('lastSyncedActualYear') || null;
+  const [lastUpdate, setLastUpdate] = useState(() => {
+    const saved = localStorage.getItem('dm_lastUpdate');
+    return saved ? new Date(saved) : new Date();
   });
 
-  const handleSyncActuals = async () => {
-    if (!syncYear) {
-      toast.warning("Please select a year to sync.");
-      return;
-    }
-    setSyncingActuals(true);
-    try {
-      await api.post('/budgets/sync-actuals', { year: String(syncYear) });
-      toast.success(`Synced Actuals for Year ${syncYear} Successfully!`);
-
-      // Update State and Storage
-      setLastSyncedYear(syncYear);
-      localStorage.setItem('lastSyncedActualYear', syncYear);
-
-      setOpenActualSyncModal(false);
-    } catch (err) {
-      console.error(err);
-      toast.error("Sync Failed: " + (err.response?.data?.error || err.message));
-    } finally {
-      setSyncingActuals(false);
-    }
-  };
-
-  const handleDeleteActuals = async () => {
-    if (!syncYear) {
-      toast.warning("Please select a year to delete/unsync.");
-      return;
-    }
-    if (!window.confirm(`Are you sure you want to DELETE/UNSYNC actual data for year ${syncYear}? This action cannot be undone.`)) {
-      return;
-    }
-
-    setSyncingActuals(true);
-    try {
-      await api.delete(`/budgets/actuals-facts/${syncYear}`);
-      toast.success(`Successfully deleted actual data for year ${syncYear}`);
-      setOpenActualSyncModal(false);
-      // Optional: Refresh any list if needed
-    } catch (err) {
-      console.error("Delete Actuals Error", err);
-      toast.error("Failed to delete actuals: " + (err.response?.data?.error || err.message));
-    } finally {
-      setSyncingActuals(false);
-    }
-  };
-
+  useEffect(() => {
+    localStorage.setItem('dm_lastUpdate', lastUpdate.toISOString());
+  }, [lastUpdate]);
 
   const handleGlobalSync = async () => {
     const tasks = [];
-    if (selectedBudget) tasks.push({ endpoint: `/budgets/files-budget/${selectedBudget}/sync`, label: 'Budget' });
-    if (selectedCapexBg) tasks.push({ endpoint: `/budgets/files-capex-budget/${selectedCapexBg}/sync`, label: 'CAPEX Plan' });
-    if (selectedCapexActual) tasks.push({ endpoint: `/budgets/files-capex-actual/${selectedCapexActual}/sync`, label: 'CAPEX Actual' });
+
+    // Budget: If selected -> Sync, If empty -> Clear
+    if (selectedBudget) {
+      tasks.push({ endpoint: `/budgets/files-budget/${selectedBudget}/sync`, label: 'Budget (Update)' });
+    } else {
+      tasks.push({ endpoint: `/budgets/clear-budget`, label: 'Budget (Clear)' });
+    }
+
+    // Capex Plan: If selected -> Sync, If empty -> Clear
+    if (selectedCapexBg) {
+      tasks.push({ endpoint: `/budgets/files-capex-budget/${selectedCapexBg}/sync`, label: 'CAPEX Plan (Update)' });
+    } else {
+      tasks.push({ endpoint: `/budgets/clear-capex-budget`, label: 'CAPEX Plan (Clear)' });
+    }
+
+    // Capex Actual: If selected -> Sync, If empty -> Clear
+    if (selectedCapexActual) {
+      tasks.push({ endpoint: `/budgets/files-capex-actual/${selectedCapexActual}/sync`, label: 'CAPEX Actual (Update)' });
+    } else {
+      tasks.push({ endpoint: `/budgets/clear-capex-actual`, label: 'CAPEX Actual (Clear)' });
+    }
+
+    // Add Operational Actuals task if year and months are selected
+    if (actualYear && selectedMonths.length > 0) {
+      tasks.push({
+        endpoint: `/budgets/sync-actuals`,
+        data: { year: String(actualYear), months: selectedMonths },
+        label: `Actuals (${actualYear} ${selectedMonths[0]}-${selectedMonths[selectedMonths.length - 1]})`
+      });
+    }
 
     if (tasks.length === 0) {
-      toast.warning("กรุณาเลือก Version ที่ต้องการ Sync อย่างน้อย 1 รายการ");
+      toast.warning("กรุณาเลือกรายการที่ต้องการ Sync อย่างน้อย 1 รายการ");
       return;
     }
 
-    if (!window.confirm(`ระบบจะทำการลบข้อมูลเก่าและแทนที่ด้วยข้อมูลจากไฟล์ที่เลือก (${tasks.length} รายการ) คุณแน่ใจหรือไม่?`)) return;
+    if (!window.confirm(`ระบบจะทำการลบข้อมูลเก่าและแทนที่ด้วยข้อมูลใหม่ (${tasks.length} รายการ) คุณแน่ใจหรือไม่?`)) return;
 
     setSyncing(true);
     let successCount = 0;
 
     for (const task of tasks) {
       try {
-        await api.post(task.endpoint);
+        if (task.data) {
+          await api.post(task.endpoint, task.data);
+        } else {
+          await api.post(task.endpoint);
+        }
         successCount++;
+        toast.info(`Synced ${task.label} แล้ว`);
       } catch (error) {
         console.error(`Sync ${task.label} failed:`, error);
-        toast.error(`Sync ${task.label} ล้มเหลว: ${error.message}`);
+        toast.error(`Sync ${task.label} ล้มเหลว: ${error.response?.data?.error || error.message}`);
       }
     }
 
-    if (successCount > 0) {
-      toast.success(`Sync สำเร็จ ${successCount} รายการ`);
-      setLastUpdate(new Date());
+    if (successCount === tasks.length) {
+      toast.success(`Sync สำเร็จครบทั้ง ${successCount} รายการ! 🎉`);
+    } else if (successCount > 0) {
+      toast.warning(`Sync สำเร็จ ${successCount} จาก ${tasks.length} รายการ`);
     }
+
+    // Save success state to localStorage to persist "Last Synced Config"
+    const successConfig = {
+      selectedBudget,
+      selectedCapexBg,
+      selectedCapexActual,
+      actualYear,
+      selectedMonths
+    };
+    localStorage.setItem('dm_lastSyncedConfig', JSON.stringify(successConfig));
+
+    setLastUpdate(new Date());
     setSyncing(false);
   };
 
@@ -276,226 +304,315 @@ const DataManagePage = () => {
       {/* 1. Header */}
       <Box sx={{
         display: 'flex',
-        flexDirection: { xs: 'column', md: 'row' },
         justifyContent: 'space-between',
-        alignItems: { xs: 'flex-start', md: 'flex-start' },
-        mb: 3,
-        gap: 2
+        alignItems: 'center',
+        mb: 4,
+        p: 3,
+        bgcolor: 'white',
+        borderRadius: '15px',
+        boxShadow: '0 4px 20px rgba(0,0,0,0.05)'
       }}>
-        <Typography variant="h4" sx={{ fontWeight: 'bold', color: 'primary.main', mt: 1 }}>
-          จัดการข้อมูล
-        </Typography>
+        <Box>
+          <Typography variant="h4" sx={{ fontWeight: 'bold', color: '#1a237e' }}>
+            จัดการข้อมูล
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <SyncIcon fontSize="small" color="action" /> Last Global Sync: {lastUpdate.toLocaleString('en-GB')}
+          </Typography>
+        </Box>
 
-        {/* Sync Widget */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, alignSelf: { xs: 'flex-end', md: 'auto' } }}>
-
-          {/* Sync Actuals Widget */}
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <Box sx={{ textAlign: 'right' }}>
-              <Typography variant="h6" sx={{ fontWeight: 'bold', lineHeight: 1.2 }}>Sync Actuals</Typography>
-              <Typography variant="caption" display="block" color={syncingActuals ? "primary" : "text.secondary"} sx={{ fontWeight: syncingActuals ? 'bold' : 'normal' }}>
-                {syncingActuals
-                  ? `Syncing ${syncYear}...`
-                  : lastSyncedYear
-                    ? `Last Sync: ${lastSyncedYear}`
-                    : "Sync specific year"
-                }
-              </Typography>
-            </Box>
-            <IconButton
-              onClick={() => setOpenActualSyncModal(true)}
-              disabled={syncingActuals}
-              sx={{
-                width: 50, height: 50,
-                border: '3px solid',
-                borderColor: syncingActuals ? 'grey.400' : '#1976d2', // Blue for Actuals
-                color: syncingActuals ? 'grey.400' : '#1976d2',
-                '&:hover': { bgcolor: 'rgba(25, 118, 210, 0.05)' }
-              }}
-            >
-              {syncingActuals ? <CircularProgress size={24} color="inherit" /> : <SyncIcon sx={{ fontSize: 30 }} />}
-            </IconButton>
-          </Box>
-
-          <Divider orientation="vertical" flexItem sx={{ mx: 2, display: { xs: 'none', md: 'block' } }} />
-
-          {/* Sync Data Widget (Existing) */}
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <Box sx={{ textAlign: 'right' }}>
-              <Typography variant="h6" sx={{ fontWeight: 'bold', lineHeight: 1.2 }}>Sync data</Typography>
-              <Typography variant="caption" display="block" color="text.secondary">
-                Last update
-              </Typography>
-              <Typography variant="caption" display="block" color="text.secondary" sx={{ fontWeight: 'bold' }}>
-                {lastUpdate.toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
-              </Typography>
-            </Box>
-            <IconButton
-              onClick={handleGlobalSync}
-              disabled={syncing}
-              sx={{
-                width: 50, height: 50,
-                border: '3px solid',
-                borderColor: syncing ? 'grey.400' : 'black',
-                color: syncing ? 'grey.400' : 'black',
-                '&:hover': { bgcolor: 'rgba(0,0,0,0.05)' }
-              }}
-            >
-              {syncing ? <CircularProgress size={24} color="inherit" /> : <SyncIcon sx={{ fontSize: 30 }} />}
-            </IconButton>
-          </Box>
+        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+          <Button
+            variant="contained"
+            onClick={handleGlobalSync}
+            disabled={syncing}
+            startIcon={syncing ? <CircularProgress size={20} color="inherit" /> : <SyncIcon />}
+            sx={{
+              height: '60px',
+              px: 4,
+              borderRadius: '12px',
+              fontSize: '1.1rem',
+              fontWeight: 'bold',
+              background: 'linear-gradient(45deg, #1a237e 30%, #283593 90%)',
+              boxShadow: '0 8px 25px rgba(26, 35, 126, 0.2)',
+              transition: 'all 0.3s ease',
+              '&:hover': {
+                background: 'linear-gradient(45deg, #283593 30%, #1a237e 90%)',
+                transform: 'translateY(-2px)',
+                boxShadow: '0 12px 30px rgba(26, 35, 126, 0.3)',
+              },
+              '&:active': {
+                transform: 'translateY(0)',
+              }
+            }}
+          >
+            {syncing ? 'กำลัง SYNC...' : 'Sync Data'}
+          </Button>
         </Box>
       </Box>
 
-      {/* Actual Sync Modal */}
-      <Dialog open={openActualSyncModal} onClose={() => setOpenActualSyncModal(false)} maxWidth="xs" fullWidth>
-        <DialogTitle sx={{ bgcolor: '#1976d2', color: 'white' }}>Sync Actuals Data</DialogTitle>
-        <DialogContent sx={{ p: 3, pt: 4 }}>
-          <Typography variant="body1" sx={{ mb: 2 }}>
-            Please select the year you want to sync. <br />
-            <span style={{ color: 'red', fontSize: '0.85rem' }}>*This will replace ALL existing actual data with data for the selected year.</span>
-          </Typography>
-
-          <TextField
-            select
-            label="Select Year"
-            fullWidth
-            value={syncYear}
-            onChange={(e) => setSyncYear(e.target.value)}
-            variant="outlined"
-          >
-            {/* ใหม่: เริ่มต้นที่ (ปีปัจจุบัน - 1) จนถึง (ปีปัจจุบัน + 3) */}
-            {Array.from(
-              { length: 5 }, // -1, 0, +1, +2, +3 = 5 ปี
-              (_, i) => (new Date().getFullYear() - 1) + i
-            )
-              .reverse() // เพื่อให้ปีล่าสุด (อนาคต) อยู่ด้านบน
-              .map(year => (
-                <MenuItem key={year} value={year}>{year}</MenuItem>
-              ))}
-          </TextField>
-
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 3 }}>
-            {/* Delete Button (Left Aligned) */}
-            <Button
-              onClick={handleDeleteActuals}
-              color="error"
-              disabled={syncingActuals}
-            >
-              Delete / Unsync
-            </Button>
-
-            {/* Action Buttons (Right Aligned) */}
-            <Box sx={{ display: 'flex', gap: 2 }}>
-              <Button onClick={() => setOpenActualSyncModal(false)} color="inherit">Cancel</Button>
-              <Button
-                variant="contained"
-                onClick={handleSyncActuals}
-                disabled={syncingActuals}
-                startIcon={syncingActuals ? <CircularProgress size={20} color="inherit" /> : <SyncIcon />}
-              >
-                {syncingActuals ? 'Syncing...' : 'Confirm Sync'}
-              </Button>
-            </Box>
-          </Box>
-        </DialogContent>
-      </Dialog>
-
       {/* 2. Main Logic Area */}
-      <Paper elevation={0} sx={{ p: { xs: 2, md: 4 }, borderRadius: '15px', border: '1px solid #e3e6f0' }}>
+      <Grid container spacing={3} sx={{ width: '100%', flexWrap: 'nowrap' }}>
+        {/* Left Column: Version Selections */}
+        <Grid item xs={6} sx={{ minWidth: 0, maxWidth: '50%', flexBasis: '50%' }}>
+          <Paper
+            elevation={0}
+            sx={{
+              p: 4,
+              borderRadius: '20px',
+              border: '1px solid #e3e6f0',
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              bgcolor: 'white',
+              boxShadow: '0 10px 30px rgba(0,0,0,0.03)',
+              position: 'relative',
+              overflow: 'hidden'
+            }}
+          >
+            {/* Background Decorative Element */}
+            <Box sx={{
+              position: 'absolute',
+              bottom: -30,
+              left: -30,
+              width: 120,
+              height: 120,
+              borderRadius: '50%',
+              background: 'rgba(26, 35, 126, 0.02)',
+              zIndex: 0
+            }} />
 
-        {/* Budget Version */}
-        <Grid container alignItems="center" spacing={2} sx={{ mb: 4 }}>
-          <Grid item xs={12} md={3} lg={2}>
-            <Typography sx={{ fontWeight: 'bold' }}>Budget version</Typography>
-          </Grid>
-          <Grid item xs={12} md={6} lg={4}>
-            <Select
-              size="small"
-              value={selectedBudget}
-              onChange={(e) => setSelectedBudget(e.target.value)}
-              displayEmpty
-              fullWidth
-              sx={{ borderRadius: '10px' }}
-            >
-              <MenuItem value=""><em>-- Select Version --</em></MenuItem>
-              {budgetVersions.map((v) => (
-                <MenuItem key={v.id} value={v.id}>
-                  {v.file_name} ({new Date(v.upload_at).toLocaleDateString()})
-                </MenuItem>
-              ))}
-            </Select>
-          </Grid>
-          <Grid item xs={12} md={3} lg={3}>
-            <Link component="button" onClick={() => handleOpenModal('BUDGET', 'MANAGE BUDGET VERSION')} sx={{ fontSize: '0.85rem', textDecoration: 'none' }}>
-              Manage Budget Version
-            </Link>
-          </Grid>
+            <Box sx={{ position: 'relative', zIndex: 1 }}>
+              <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 4, display: 'flex', alignItems: 'center', gap: 1.5, color: '#1a237e' }}>
+                <Avatar sx={{ bgcolor: '#e8eaf6', width: 32, height: 32 }}>
+                  <DescriptionIcon sx={{ color: '#1a237e', fontSize: 20 }} />
+                </Avatar>
+                Budget
+              </Typography>
+
+              {/* Budget Version */}
+              <Box sx={{ mb: 5 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 'bold', color: 'text.secondary', fontSize: '0.75rem', letterSpacing: '0.05rem' }}>
+                    BUDGET VERSION
+                  </Typography>
+                  <Button
+                    variant="text"
+                    size="small"
+                    onClick={() => handleOpenModal('BUDGET', 'MANAGE BUDGET')}
+                    sx={{ textTransform: 'none', fontSize: '0.75rem', fontWeight: 'bold' }}
+                    startIcon={<EditIcon sx={{ fontSize: 14 }} />}
+                  >
+                    จัดการ Version
+                  </Button>
+                </Box>
+                <Select
+                  size="small"
+                  value={selectedBudget}
+                  onChange={(e) => setSelectedBudget(e.target.value)}
+                  displayEmpty
+                  fullWidth
+                  sx={{
+                    borderRadius: '12px',
+                    bgcolor: '#fcfcfc',
+                    '& .MuiOutlinedInput-notchedOutline': { borderColor: '#e0e0e0' },
+                    '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#1a237e' }
+                  }}
+                >
+                  <MenuItem value=""><em>-- เลือกไฟล์งบประมาณ --</em></MenuItem>
+                  {budgetVersions.map((v) => (
+                    <MenuItem key={v.id} value={v.id}>{v.file_name}</MenuItem>
+                  ))}
+                </Select>
+              </Box>
+
+              <Divider sx={{ my: 4, borderStyle: 'dashed' }} />
+
+              <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 3, display: 'flex', alignItems: 'center', gap: 1.5, color: '#1a237e' }}>
+                <Avatar sx={{ bgcolor: '#e8eaf6', width: 32, height: 32 }}>
+                  <DescriptionIcon sx={{ color: '#1a237e', fontSize: 20 }} />
+                </Avatar>
+                CAPEX
+              </Typography>
+
+              <Box sx={{ mb: 3, pl: 0 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                  <Typography variant="caption" sx={{ fontWeight: 'bold', color: 'text.secondary' }}>CAPEX PLAN (แผนงบประมาณ)</Typography>
+                  <Button
+                    variant="text"
+                    size="small"
+                    onClick={() => handleOpenModal('CAPEX_BG', 'MANAGE CAPEX PLAN')}
+                    sx={{ textTransform: 'none', fontSize: '0.75rem', fontWeight: 'bold' }}
+                    startIcon={<EditIcon sx={{ fontSize: 14 }} />}
+                  >
+                    จัดการ Version
+                  </Button>
+                </Box>
+                <Select
+                  size="small"
+                  value={selectedCapexBg}
+                  onChange={(e) => setSelectedCapexBg(e.target.value)}
+                  displayEmpty
+                  fullWidth
+                  sx={{
+                    borderRadius: '12px',
+                    bgcolor: '#fcfcfc',
+                    '& .MuiOutlinedInput-notchedOutline': { borderColor: '#e0e0e0' }
+                  }}
+                >
+                  <MenuItem value=""><em>-- เลือก Capex Plan --</em></MenuItem>
+                  {capexBgVersions.map((v) => (
+                    <MenuItem key={v.id} value={v.id}>{v.file_name}</MenuItem>
+                  ))}
+                </Select>
+              </Box>
+
+              <Box sx={{ pl: 0 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                  <Typography variant="caption" sx={{ fontWeight: 'bold', color: 'text.secondary' }}>CAPEX ACTUAL (ข้อมูลจริง)</Typography>
+                  <Button
+                    variant="text"
+                    size="small"
+                    onClick={() => handleOpenModal('CAPEX_ACTUAL', 'MANAGE CAPEX ACTUAL')}
+                    sx={{ textTransform: 'none', fontSize: '0.75rem', fontWeight: 'bold' }}
+                    startIcon={<EditIcon sx={{ fontSize: 14 }} />}
+                  >
+                    จัดการ Version
+                  </Button>
+                </Box>
+                <Select
+                  size="small"
+                  value={selectedCapexActual}
+                  onChange={(e) => setSelectedCapexActual(e.target.value)}
+                  displayEmpty
+                  fullWidth
+                  sx={{
+                    borderRadius: '12px',
+                    bgcolor: '#fcfcfc',
+                    '& .MuiOutlinedInput-notchedOutline': { borderColor: '#e0e0e0' }
+                  }}
+                >
+                  <MenuItem value=""><em>-- เลือก Capex Actual --</em></MenuItem>
+                  {capexActualVersions.map((v) => (
+                    <MenuItem key={v.id} value={v.id}>{v.file_name}</MenuItem>
+                  ))}
+                </Select>
+              </Box>
+            </Box>
+          </Paper>
         </Grid>
 
-        {/* Manage Actual CAPEX Section */}
-        <Box>
-          <Typography sx={{ fontWeight: 'bold', mb: 2 }}>Manage Actual CAPEX</Typography>
+        {/* Right Column: Operational Actuals */}
+        <Grid item xs={6} sx={{ minWidth: 0, maxWidth: '50%', flexBasis: '50%' }}>
+          <Paper elevation={0}
+            sx={{
+              p: 4,
+              borderRadius: '20px',
+              border: '1px solid #e3e6f0',
+              width: '100%',
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              position: 'relative',
+              overflow: 'hidden'
+            }}>
 
-          {/* Capex Budget (Plan) */}
-          <Grid container alignItems="center" spacing={2} sx={{ mb: 2, pl: { md: 4 } }}>
-            <Grid item xs={12} md={3} lg={2}>
-              <Typography>Budget Version</Typography>
-            </Grid>
-            <Grid item xs={12} md={6} lg={4}>
+            {/* Background Decorative Circle */}
+            <Box sx={{
+              position: 'absolute',
+              top: -50,
+              right: -50,
+              width: 150,
+              height: 150,
+              borderRadius: '50%',
+              background: 'rgba(26, 35, 126, 0.03)',
+              zIndex: 0
+            }} />
+
+            <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 4, display: 'flex', alignItems: 'center', gap: 1.5, color: '#1a237e', position: 'relative', zIndex: 1 }}>
+              <Avatar sx={{ bgcolor: '#e8eaf6', width: 32, height: 32 }}>
+                <StorageIcon sx={{ color: '#1a237e', fontSize: 20 }} />
+              </Avatar>
+              Database Actuals
+            </Typography>
+
+            <Box sx={{ position: 'relative', zIndex: 1 }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 'bold', color: 'text.secondary', mb: 1.5, fontSize: '0.75rem', letterSpacing: '0.05rem' }}>
+                SELECT FISCAL YEAR
+              </Typography>
               <Select
                 size="small"
-                value={selectedCapexBg}
-                onChange={(e) => setSelectedCapexBg(e.target.value)}
-                displayEmpty
+                value={actualYear}
+                onChange={(e) => setActualYear(e.target.value)}
                 fullWidth
-                sx={{ borderRadius: '10px' }}
+                sx={{
+                  borderRadius: '12px',
+                  mb: 4,
+                  bgcolor: 'white',
+                  '& .MuiOutlinedInput-notchedOutline': { borderColor: '#e0e0e0' },
+                  '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#1a237e' }
+                }}
               >
-                <MenuItem value=""><em>-- Select Capex Plan --</em></MenuItem>
-                {capexBgVersions.map((v) => (
-                  <MenuItem key={v.id} value={v.id}>
-                    {v.file_name}
-                  </MenuItem>
+                {/* ใช้ dynamicYears แทนการระบุปีตรงๆ */}
+                {Array.from({ length: 5 }, (_, i) => (new Date().getFullYear() + 2) - i).map(year => (
+                  <MenuItem key={year} value={year}>{year}</MenuItem>
                 ))}
               </Select>
-            </Grid>
-            <Grid item xs={12} md={3} lg={3}>
-              <Link component="button" onClick={() => handleOpenModal('CAPEX_BG', 'MANAGE CAPEX-BG VERSION')} sx={{ fontSize: '0.85rem', textDecoration: 'none' }}>
-                Manage CAPEX-BG Version
-              </Link>
-            </Grid>
-          </Grid>
 
-          {/* Capex Actual */}
-          <Grid container alignItems="center" spacing={2} sx={{ pl: { md: 4 } }}>
-            <Grid item xs={12} md={3} lg={2}>
-              <Typography>Actual Version</Typography>
-            </Grid>
-            <Grid item xs={12} md={6} lg={4}>
-              <Select
-                size="small"
-                value={selectedCapexActual}
-                onChange={(e) => setSelectedCapexActual(e.target.value)}
-                displayEmpty
-                fullWidth
-                sx={{ borderRadius: '10px' }}
-              >
-                <MenuItem value=""><em>-- Select Capex Actual --</em></MenuItem>
-                {capexActualVersions.map((v) => (
-                  <MenuItem key={v.id} value={v.id}>
-                    {v.file_name}
-                  </MenuItem>
-                ))}
-              </Select>
-            </Grid>
-            <Grid item xs={12} md={3} lg={3}>
-              <Link component="button" onClick={() => handleOpenModal('CAPEX_ACTUAL', 'MANAGE CAPEX-ACTUAL VERSION')} sx={{ fontSize: '0.85rem', textDecoration: 'none' }}>
-                Manage CAPEX-Actual Version
-              </Link>
-            </Grid>
-          </Grid>
-        </Box>
-      </Paper>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'end', mb: 2 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 'bold', color: 'text.secondary', fontSize: '0.75rem', letterSpacing: '0.05rem' }}>
+                  SELECT FISCAL MONTH
+                </Typography>
+                {selectedMonths.length > 0 && (
+                  <Button
+                    size="small"
+                    onClick={() => setSelectedMonths([])}
+                    color="error"
+                    sx={{ textTransform: 'none', fontSize: '0.75rem', p: 0, minWidth: 'auto' }}
+                  >
+                    Clear Selection
+                  </Button>
+                )}
+              </Box>
+
+              <Grid container spacing={1.5}>
+                {MONTHS.map((month) => {
+                  const isSelected = selectedMonths.includes(month);
+                  return (
+                    <Grid item xs={12} sm={6} md={4} key={month}>
+                      <Button
+                        fullWidth
+                        variant={isSelected ? "contained" : "outlined"}
+                        onClick={() => toggleMonth(month)}
+                        sx={{
+                          height: '45px',
+                          borderRadius: '10px',
+                          textTransform: 'none',
+                          fontSize: '0.85rem',
+                          fontWeight: isSelected ? 'bold' : 500,
+                          bgcolor: isSelected ? '#1a237e' : 'white',
+                          color: isSelected ? 'white' : '#1a237e',
+                          borderColor: isSelected ? 'transparent' : '#eceff1',
+                          boxShadow: isSelected ? '0 4px 12px rgba(26, 35, 126, 0.2)' : 'none',
+                          '&:hover': {
+                            bgcolor: isSelected ? '#283593' : '#f5f5f5',
+                            borderColor: '#1a237e',
+                            transform: 'translateY(-1px)',
+                            boxShadow: isSelected ? '0 6px 15px rgba(26, 35, 126, 0.3)' : '0 2px 5px rgba(0,0,0,0.05)',
+                          },
+                          transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
+                        }}
+                      >
+                        {month}
+                      </Button>
+                    </Grid>
+                  );
+                })}
+              </Grid>
+            </Box>
+          </Paper>
+        </Grid>
+      </Grid>
 
       {/* --- Modal (Dialog) --- */}
       <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>

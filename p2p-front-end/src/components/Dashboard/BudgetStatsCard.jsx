@@ -1,8 +1,10 @@
 import React from 'react';
-import { Paper, Typography, Box, CircularProgress, Stack } from '@mui/material';
+import { Paper, Typography, Box, CircularProgress, Stack, LinearProgress } from '@mui/material';
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
 import LinkIcon from '@mui/icons-material/Link';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
+import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 
 // Colors
 const COLORS = {
@@ -161,7 +163,7 @@ export const DepartmentAlertCard = ({ overBudgetCount = 0, nearLimitCount = 0 })
                     }}>
                         <Typography sx={{ fontWeight: 'bold', fontSize: '14px', color: 'white' }}>!</Typography>
                     </Box>
-                    <Typography variant="body1" sx={{ color: "white"}}>
+                    <Typography variant="body1" sx={{ color: "white" }}>
                         {overBudgetCount} Dep - Over BG
                     </Typography>
                 </Stack>
@@ -184,6 +186,11 @@ export const DepartmentAlertCard = ({ overBudgetCount = 0, nearLimitCount = 0 })
             </Stack>
         </Paper>
     );
+};
+
+// 4. CAPEX Card (Optional - Keeping for safety)
+export const CapexCard = ({ budget = 0, actual = 0 }) => {
+    return (<Box>Capex Card</Box>);
 };
 
 export default TotalBudgetCard;

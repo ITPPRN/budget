@@ -1,13 +1,22 @@
+
 import React from 'react';
-import { Paper, Typography, Box } from '@mui/material';
+import { Paper, Typography, Box, Chip } from '@mui/material'; // Added Chip
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
-const BudgetChart = ({ data }) => {
+const BudgetChart = ({ data, title, selectedDept }) => {
     return (
         <Paper sx={{ p: 2, height: '100%', width: '100%', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-            <Typography variant="h6" sx={{ mb: 2, fontWeight: 'bold' }}>
-                Budget vs Actual
-            </Typography>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                <Typography variant="h6">
+                    {title || "Budget vs Actual"}
+                </Typography>
+                <Chip
+                    label={`DEP: ${selectedDept || 'ALL'}`}
+                    color="primary"
+                    variant={selectedDept && selectedDept !== 'ALL' ? "filled" : "outlined"}
+                    size="small" // Optional: makes it look neater
+                />
+            </Box>
             <Box sx={{ flexGrow: 1, minHeight: 300, width: '100%', minWidth: 0 }}>
                 <ResponsiveContainer width="100%" height="100%">
                     <LineChart
@@ -21,7 +30,7 @@ const BudgetChart = ({ data }) => {
                     >
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="name" />
-                        <YAxis tickFormatter={(value) => `${(value / 1000000).toFixed(1)}`} />
+                        <YAxis tickFormatter={(value) => `${(value / 1000000).toFixed(1)} `} />
                         <Tooltip />
                         <Legend />
                         <Line type="monotone" dataKey="budget" stroke="#1976d2" activeDot={{ r: 8 }} name="Budget" strokeWidth={2} />

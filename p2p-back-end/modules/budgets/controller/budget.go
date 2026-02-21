@@ -38,6 +38,11 @@ func NewBudgetController(router fiber.Router, budgetSrv models.BudgetService) {
 	router.Post("/files-capex-budget/:id/sync", controller.syncCapexBudget)
 	router.Post("/files-capex-actual/:id/sync", controller.syncCapexActual)
 
+	// Clear APIs (Post)
+	router.Post("/clear-budget", controller.clearBudget)
+	router.Post("/clear-capex-budget", controller.clearCapexBudget)
+	router.Post("/clear-capex-actual", controller.clearCapexActual)
+
 	// Actuals APIs
 	router.Post("/sync-actuals", controller.syncActuals)                   // No file ID needed
 	router.Delete("/actuals-facts/:year", controller.deleteActuals)        // New: Delete by Year
@@ -159,7 +164,8 @@ func (c *budgetController) syncBudget(ctx *fiber.Ctx) error {
 
 func (c *budgetController) syncActuals(ctx *fiber.Ctx) error {
 	type SyncReq struct {
-		Year string `json:"year"`
+		Year   string   `json:"year"`
+		Months []string `json:"months"` // New: Optional month list
 	}
 	var req SyncReq
 	if err := ctx.BodyParser(&req); err != nil {
@@ -169,7 +175,7 @@ func (c *budgetController) syncActuals(ctx *fiber.Ctx) error {
 		req.Year = fmt.Sprintf("%d", time.Now().Year())
 	}
 
-	if err := c.budgetSrv.SyncActuals(req.Year); err != nil {
+	if err := c.budgetSrv.SyncActuals(req.Year, req.Months); err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return ctx.JSON(fiber.Map{"status": "synced", "message": fmt.Sprintf("Actuals for %s synced successfully from Database", req.Year)})
@@ -215,6 +221,31 @@ func (c *budgetController) syncCapexActual(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return ctx.JSON(fiber.Map{"status": "synced", "message": "Data synced successfully"})
+}
+
+// ---------------------------------------------------------------------
+// Clear Handlers
+// ---------------------------------------------------------------------
+
+func (c *budgetController) clearBudget(ctx *fiber.Ctx) error {
+	if err := c.budgetSrv.ClearBudget(); err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	return ctx.JSON(fiber.Map{"status": "cleared", "message": "Budget data cleared successfully"})
+}
+
+func (c *budgetController) clearCapexBudget(ctx *fiber.Ctx) error {
+	if err := c.budgetSrv.ClearCapexBudget(); err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	return ctx.JSON(fiber.Map{"status": "cleared", "message": "Capex Budget data cleared successfully"})
+}
+
+func (c *budgetController) clearCapexActual(ctx *fiber.Ctx) error {
+	if err := c.budgetSrv.ClearCapexActual(); err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	return ctx.JSON(fiber.Map{"status": "cleared", "message": "Capex Actual data cleared successfully"})
 }
 
 // ---------------------------------------------------------------------

@@ -8,7 +8,7 @@ export default function ThemeRoutes() {
     const isLoggedIn = !!user;
 
     // ✅ แก้ไข: เรียก Hook ให้เสร็จก่อนเสมอ (ห้ามมี if/return มาคั่นก่อนบรรทัดนี้)
-    const routing = useRoutes(Routes(isLoggedIn));
+    const routing = useRoutes(Routes(isLoggedIn, user));
 
     // ⏳ ค่อยมาเช็ค Loading ตรงนี้
     if (isLoading) {

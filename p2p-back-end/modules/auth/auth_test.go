@@ -15,8 +15,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
-	"gorm.io/datatypes" // ✅ เพิ่ม Import นี้สำหรับ JSON Type
+	"go.uber.org/zap" // ✅ เพิ่ม Import นี้สำหรับ JSON Type
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
@@ -88,7 +87,10 @@ func TestAuthIntegration(t *testing.T) {
 	// 5. Setup Fiber App
 	// --------------------
 	app := fiber.New()
-	controller.NewUserController(app.Group("/v1/auth"), authSrv)
+
+	// Minimal Mock for DepartmentService
+	mockDeptSrv := &mockDepartmentService{}
+	controller.NewUserController(app.Group("/v1/auth"), authSrv, mockDeptSrv)
 
 	randID := uuid.NewString()[:5]
 	testUsername := "test_user_" + randID
@@ -154,18 +156,12 @@ func TestAuthIntegration(t *testing.T) {
 	// Test 3: Repository Directly (แก้ไขการสร้าง Mock Data)
 	// --------------------
 
-	// แปลง Array String เป็น JSON Byte สำหรับเก็บลง DB จำลอง
-	rolesJSON, _ := json.Marshal([]string{"employee"})
-
 	userRepoCheck := models.UserEntity{
 		ID:        uuid.NewString(),
 		Username:  testUsername, // ซ้ำได้ใน test เพราะ mock db คนละตัวหรือเคลียร์ใหม่
 		Email:     testEmail,
 		FirstName: "RepoCheck",
 		LastName:  "Test",
-
-		// ✅ แก้ตรงนี้: ใช้ Roles (JSON) แทน Role (String)
-		Roles: datatypes.JSON(rolesJSON),
 
 		// Password:  "hashed-pass", // field นี้อาจจะไม่มีแล้วใน model ใหม่ถ้าเก็บแต่ใน KC
 	}
@@ -178,4 +174,11 @@ func TestAuthIntegration(t *testing.T) {
 	exist, err := userRepo.IsUserExistByID(userRepoCheck.ID)
 	require.NoError(t, err)
 	require.True(t, exist)
+}
+
+type mockDepartmentService struct{}
+
+func (m *mockDepartmentService) ManageDepartments() error { return nil }
+func (m *mockDepartmentService) GetMasterDepartment(navCode, entity string) (*models.DepartmentEntity, error) {
+	return &models.DepartmentEntity{Code: "ACC", Name: "Accounting"}, nil
 }

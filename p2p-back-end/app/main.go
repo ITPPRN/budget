@@ -46,7 +46,7 @@ func main() {
 
 	db, err := databases.NewPostgresConnection(cfg)
 	if err != nil {
-		logs.Error(err.Error())
+		logs.Fatal("Critical: Failed to connect to database: " + err.Error())
 	}
 
 	redis := redis.NewRedisClient(cfg)

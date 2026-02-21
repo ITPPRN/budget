@@ -21,13 +21,13 @@ function App() {
           {/* ✅ CssBaseline ช่วยรีเซ็ตสีพื้นหลังให้เป็น Dark/Light ตาม Theme */}
           <CssBaseline />
 
-          <AuthProvider>
-            <BrowserRouter>
-              <ErrorBoundary>
+          <BrowserRouter>
+            <ErrorBoundary>
+              <AuthProvider>
                 <ThemeRoutes />
-              </ErrorBoundary>
-            </BrowserRouter>
-          </AuthProvider>
+              </AuthProvider>
+            </ErrorBoundary>
+          </BrowserRouter>
 
           <ToastContainer position="top-right" autoClose={3000} />
         </ConfigProvider>

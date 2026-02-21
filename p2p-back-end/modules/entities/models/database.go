@@ -11,29 +11,48 @@ import (
 
 // --- Users (Keep Existing) ---
 type UserEntity struct {
-	ID                 string            `gorm:"primaryKey;type:varchar(36);not null" json:"id"`
-	Username           string            `gorm:"uniqueIndex;not null" json:"username"`
-	Email              string            `gorm:"uniqueIndex;not null" json:"email"`
-	FirstName          string            `json:"first_name"`
-	LastName           string            `json:"last_name"`
-	Roles              datatypes.JSON    `gorm:"type:jsonb" json:"roles"`
-	SignatureURL       string            `json:"signature_url"`
-	PdpaAcknowledgedAt *time.Time        `json:"pdpa_acknowledged_at"`
-	IsActive           bool              `gorm:"default:true" json:"is_active"`
-	DepartmentID       *uuid.UUID        `gorm:"type:uuid;index" json:"department_id"`
-	Department         *DepartmentEntity `gorm:"foreignKey:DepartmentID" json:"department,omitempty"`
-	UpdateBy           *string           `gorm:"type:varchar(36)" json:"update_by"`
-	CreatedAt          time.Time         `json:"created_at"`
-	UpdatedAt          time.Time         `json:"updated_at"`
-	DeletedAt          gorm.DeletedAt    `gorm:"index" json:"deleted_at"`
+	ID                 string                 `gorm:"primaryKey;type:varchar(36);not null" json:"id"`
+	Username           string                 `gorm:"uniqueIndex;not null" json:"username"`
+	Email              string                 `gorm:"uniqueIndex;not null" json:"email"`
+	FirstName          string                 `json:"first_name"`
+	LastName           string                 `json:"last_name"`
+	SignatureURL       string                 `json:"signature_url"`
+	PdpaAcknowledgedAt *time.Time             `json:"pdpa_acknowledged_at"`
+	IsActive           bool                   `gorm:"default:true" json:"is_active"`
+	DepartmentID       *uuid.UUID             `gorm:"type:uuid;index" json:"department_id"`
+	Department         *DepartmentEntity      `gorm:"foreignKey:DepartmentID" json:"department,omitempty"`
+	Roles              datatypes.JSON         `gorm:"type:jsonb" json:"roles"`
+	UserPermissions    []UserPermissionEntity `gorm:"foreignKey:UserID" json:"user_permissions,omitempty"`
+
+	UpdateBy  *string        `gorm:"type:varchar(36)" json:"update_by"`
+	CreatedAt time.Time      `json:"created_at"`
+	UpdatedAt time.Time      `json:"updated_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
 }
 
 func (UserEntity) TableName() string { return "user_entities" }
 
+// [New] Explicit User Permissions managed by Admin
+type UserPermissionEntity struct {
+	ID             uuid.UUID   `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
+	UserID         string      `gorm:"type:varchar(36);index" json:"user_id"`
+	User           *UserEntity `gorm:"foreignKey:UserID" json:"-"`
+	DepartmentCode string      `gorm:"index" json:"department_code"`
+	Role           string      `json:"role"` // e.g. "OWNER", "DELEGATE"
+	IsActive       *bool       `gorm:"default:true" json:"is_active"`
+	CreatedAt      time.Time   `json:"created_at"`
+	UpdatedAt      time.Time   `json:"updated_at"`
+}
+
+func (UserPermissionEntity) TableName() string { return "user_permission_entities" }
+
+// --- Department Master & Mapping ---
+
+// DepartmentEntity now represents MASTER Departments only (e.g., "ACC", "IT")
 type DepartmentEntity struct {
 	gorm.Model
 	ID        uuid.UUID   `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
-	Code      string      `gorm:"uniqueIndex;not null" json:"code"`
+	Code      string      `gorm:"uniqueIndex;not null" json:"code"` // Master Code
 	Name      string      `gorm:"not null" json:"name"`
 	UpdateBy  *uuid.UUID  `gorm:"type:uuid" json:"update_by"`
 	ManagerID *string     `gorm:"type:varchar(36)" json:"manager_id"`
@@ -41,6 +60,17 @@ type DepartmentEntity struct {
 }
 
 func (DepartmentEntity) TableName() string { return "department_entities" }
+
+// DepartmentMappingEntity maps specific Entity+NavCode to a Master Department
+type DepartmentMappingEntity struct {
+	ID           uuid.UUID         `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
+	DepartmentID uuid.UUID         `gorm:"type:uuid;index;not null" json:"department_id"` // FK to Master
+	Entity       string            `gorm:"index:idx_dept_mapping_nav_entity;not null" json:"entity"`
+	NavCode      string            `gorm:"index:idx_dept_mapping_nav_entity;not null" json:"nav_code"`
+	Department   *DepartmentEntity `gorm:"foreignKey:DepartmentID" json:"department"`
+}
+
+func (DepartmentMappingEntity) TableName() string { return "department_mapping_entities" }
 
 // --- P2P Entities (Keep Existing) ---
 type VendorEntity struct {
@@ -195,6 +225,7 @@ type FileCapexBudgetEntity struct {
 	gorm.Model
 	ID       uuid.UUID      `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
 	FileName string         `json:"file_name"`
+	Year     string         `json:"year"` // Added Year
 	UploadAt time.Time      `json:"upload_at"`
 	UserID   string         `gorm:"type:varchar(36)" json:"user_id"`
 	User     *UserEntity    `gorm:"foreignKey:UserID" json:"user,omitempty"`
@@ -207,6 +238,7 @@ type FileCapexActualEntity struct {
 	gorm.Model
 	ID       uuid.UUID      `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
 	FileName string         `json:"file_name"`
+	Year     string         `json:"year"` // Added Year
 	UploadAt time.Time      `json:"upload_at"`
 	UserID   string         `gorm:"type:varchar(36)" json:"user_id"`
 	User     *UserEntity    `gorm:"foreignKey:UserID" json:"user,omitempty"`
@@ -225,13 +257,15 @@ type BudgetFactEntity struct { // HEADER
 	FileBudget   *FileBudgetEntity `gorm:"foreignKey:FileBudgetID"`
 
 	// Dimensions
-	Entity     string `gorm:"index" json:"entity"`
-	Branch     string `gorm:"index" json:"branch"`
+	Entity     string `gorm:"index:idx_budget_year_entity_branch_dept;index:idx_budget_year_entity" json:"entity"` // Added idx_budget_year_entity
+	Branch     string `gorm:"index:idx_budget_year_entity_branch_dept" json:"branch"`
 	Group      string `json:"group"`
 	EntityGL   string `json:"entity_gl"`
 	ConsoGL    string `json:"conso_gl"`
 	GLName     string `json:"gl_name"`
-	Department string `json:"department"`
+	Department string `gorm:"index:idx_budget_year_entity_branch_dept" json:"department"`
+	NavCode    string `gorm:"index" json:"nav_code"`                                                             // Store Original Code (e.g. ACC-AP) for hierarchy
+	Year       string `gorm:"index:idx_budget_year_entity_branch_dept;index:idx_budget_year_entity" json:"year"` // Added idx_budget_year_entity
 
 	// Summary
 	YearTotal decimal.Decimal `gorm:"type:decimal(18,2)" json:"year_total"`
@@ -260,6 +294,7 @@ type CapexBudgetFactEntity struct { // HEADER
 	FileCapexBudget   *FileCapexBudgetEntity `gorm:"foreignKey:FileCapexBudgetID"`
 
 	// Dimensions
+	Year          string `gorm:"index" json:"year"`
 	Entity        string `gorm:"index" json:"entity"`
 	Department    string `json:"department"`
 	CapexNo       string `json:"capex_no"`
@@ -293,6 +328,7 @@ type CapexActualFactEntity struct { // HEADER
 	FileCapexActual   *FileCapexActualEntity `gorm:"foreignKey:FileCapexActualID"`
 
 	// Dimensions
+	Year          string `gorm:"index" json:"year"`
 	Entity        string `gorm:"index" json:"entity"`
 	Department    string `json:"department"`
 	CapexNo       string `json:"capex_no"`
@@ -326,14 +362,15 @@ type ActualFactEntity struct { // HEADER
 	// No File Source ID as this comes from DB Sync
 
 	// Dimensions
-	Entity     string `gorm:"index" json:"entity"`
-	Branch     string `gorm:"index" json:"branch"`
-	Department string `json:"department"` // Mapped from Global_Dimension_1
-	// Group      string `json:"group"` // Mapped via GL mapping?
-	EntityGL string `json:"entity_gl"`
-	ConsoGL  string `json:"conso_gl"`
-	GLName   string `json:"gl_name"`
-	Year     string `gorm:"index" json:"year"` // New Field for Sync by Year
+	Entity     string `gorm:"index:idx_actual_year_entity_branch_dept" json:"entity"`
+	Branch     string `gorm:"index:idx_actual_year_entity_branch_dept" json:"branch"`
+	Department string `gorm:"index:idx_actual_year_entity_branch_dept" json:"department"` // Mapped from Global_Dimension_1
+	NavCode    string `gorm:"index" json:"nav_code"`                                      // Original Code
+	Group      string `json:"group"`                                                      // Mapped via GL mapping
+	EntityGL   string `json:"entity_gl"`
+	ConsoGL    string `json:"conso_gl"`
+	GLName     string `json:"gl_name"`
+	Year       string `gorm:"index:idx_actual_year_entity_branch_dept" json:"year"` // New Field for Sync by Year
 
 	// Summary
 	YearTotal decimal.Decimal `gorm:"type:decimal(18,2)" json:"year_total"`
@@ -353,3 +390,41 @@ type ActualAmountEntity struct { // DETAIL
 }
 
 func (ActualAmountEntity) TableName() string { return "actual_amount_entities" }
+
+// 5. Owner Actual Fact (Separate Table for Auto-Sync)
+type OwnerActualFactEntity struct { // HEADER
+	gorm.Model
+	ID uuid.UUID `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
+
+	// Dimensions
+	Entity     string `gorm:"index:idx_owner_actual_composite;index:idx_owner_actual_year_entity" json:"entity"`
+	Branch     string `gorm:"index:idx_owner_actual_composite" json:"branch"`
+	Department string `gorm:"index:idx_owner_actual_composite" json:"department"` // Mapped
+	NavCode    string `json:"nav_code"`                                           // Original
+	EntityGL   string `json:"entity_gl"`
+	ConsoGL    string `json:"conso_gl"`
+	GLName     string `json:"gl_name"`
+	Year       string `gorm:"index:idx_owner_actual_composite;index:idx_owner_actual_year_entity" json:"year"`
+
+	// Summary
+	YearTotal decimal.Decimal `gorm:"type:decimal(18,2)" json:"year_total"`
+
+	// Amounts
+	OwnerActualAmounts []OwnerActualAmountEntity `gorm:"foreignKey:OwnerActualFactID" json:"owner_actual_amounts,omitempty"`
+
+	// Valid flag (Optional, for soft re-sync)
+	IsValid bool `gorm:"default:true" json:"is_valid"`
+}
+
+func (OwnerActualFactEntity) TableName() string { return "owner_actual_fact_entities" }
+
+type OwnerActualAmountEntity struct { // DETAIL
+	gorm.Model
+	ID                uuid.UUID              `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
+	OwnerActualFactID uuid.UUID              `gorm:"type:uuid;index" json:"owner_actual_fact_id"`
+	Month             string                 `json:"month"` // JAN, FEB
+	Amount            decimal.Decimal        `gorm:"type:decimal(18,2)" json:"amount"`
+	OwnerActualFact   *OwnerActualFactEntity `gorm:"foreignKey:OwnerActualFactID" json:"owner_actual_fact"`
+}
+
+func (OwnerActualAmountEntity) TableName() string { return "owner_actual_amount_entities" }

@@ -1,5 +1,6 @@
 // src/hooks/useAuth.jsx
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api from '../utils/api/axiosInstance';
 
 // 1. สร้าง Context (ห้องโถงกลาง)
@@ -9,20 +10,33 @@ const AuthContext = createContext(null);
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const navigate = useNavigate(); // ✅ Authorized to use here now
 
   // ฟังก์ชันเช็ค User (ใช้ตอนเปิดเว็บ หรือหลัง Login)
   const checkUser = async () => {
+    // ... (unchanged)
     console.log("AuthProvider: checkUser called");
     try {
-      // ⚠️ เช็ค URL ให้ตรงกับ Backend ของคุณ (เช่น /v1/auth/profile)
       const response = await api.get('/auth/profile');
-      // Backend Returns { data: UserInfo, status: "OK", ... }
-      // Axios returns { data: { data: UserInfo, ... } }
       console.log("AuthProvider: User found", response.data);
-      setUser(response.data.data);
+      const userData = response.data.data;
+
+      // ✅ Strict Role Check: Only set user state if they have a privileged role
+      const roles = userData.roles || [];
+      const hasAccess = roles.some(r => ['ADMIN', 'OWNER', 'DELEGATE'].includes(r.toUpperCase()));
+
+      if (hasAccess) {
+        setUser(userData);
+      } else {
+        console.warn("AuthProvider: User has no privileged roles. Not setting global state.");
+        // We DON'T set user here, so app stays on Login page (isLoggedIn = false)
+      }
+
+      return userData; // Always return data so Login.jsx can check it
     } catch {
       console.log("AuthProvider: No user found");
       setUser(null);
+      return null;
     } finally {
       setIsLoading(false);
     }
@@ -32,23 +46,30 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     console.log("AuthProvider: MOUNTED");
     checkUser();
-    return () => console.log("AuthProvider: UNMOUNTED");
+    // return () => console.log("AuthProvider: UNMOUNTED");
   }, []);
 
   // ฟังก์ชัน Login
   const login = async (username, password) => {
     await api.post('/auth/login', { username, password });
-    await checkUser(); // 🔥 สำคัญ: โหลดข้อมูลใหม่ทันทีหลัง Login ผ่าน
+    return await checkUser();
   };
 
   // ฟังก์ชัน Logout
-  const logout = async () => {
+  const logout = async (redirect = true) => {
     try {
       await api.post('/auth/logout');
       setUser(null);
-      window.location.href = "/login";
+      if (redirect) {
+        navigate("/login");
+      }
     } catch (error) {
       console.error("Logout failed", error);
+      // Ensure state is cleared even if network fails
+      setUser(null);
+      if (redirect) {
+        navigate("/login");
+      }
     }
   };
 

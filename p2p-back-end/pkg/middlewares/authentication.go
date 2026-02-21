@@ -76,12 +76,14 @@ func JwtAuthentication(handler models.TokenHandler) fiber.Handler {
 			UserId:   claims.ID,
 			UserName: claims.Username,
 			Email:    claims.Email,
-			Role:     claims.RealmAccess.Roles,
+			Roles:    claims.RealmAccess.Roles,
 			Name:     claims.Name,
 		}
 
 		// ✅ เก็บไว้ใน Context เผื่อ handler อื่นจะใช้ได้ง่าย
 		c.Locals("user", user)
+
+		logs.Info(fmt.Sprintf("JwtAuthentication Success: UserID=%s Roles=%v", user.UserId, user.Roles))
 
 		if handler == nil {
 			return c.Next()
@@ -136,9 +138,12 @@ func parseAndValidateToken(accessToken string) (*models.JWTPayload, error) {
 
 	var realmRoles []string
 	if rawAccess, ok := claimsMap["realm_access"].(map[string]interface{}); ok && rawAccess != nil {
+		logs.Infof("Debug RealmAccess: %+v", rawAccess) // 🔍 Debug Log
 		if rawRoles, ok := rawAccess["roles"].([]interface{}); ok && rawRoles != nil {
 			realmRoles = utils.ConvertInterfaceSliceToStringSlice(rawRoles)
 		}
+	} else {
+		logs.Warnf("Debug RealmAccess: Missing or Invalid format in token")
 	}
 	jwtPayload := models.JWTPayload{
 		// Azp key is typically present, but we use GetSafeString just in case or use a default
@@ -146,7 +151,7 @@ func parseAndValidateToken(accessToken string) (*models.JWTPayload, error) {
 		Email: utils.GetSafeString(claimsMap, "email"), // ใช้ Safe Getter
 		Exp:   token.Expiration().Unix(),
 		Iat:   token.IssuedAt().Unix(),
-		ID:    utils.GetSafeString(claimsMap, "id"),
+		ID:    token.Subject(), // Fix: Standard claim 'sub' is accessed via method
 		Iss:   token.Issuer(),
 		Jti:   token.JwtID(),
 		Name:  utils.GetSafeString(claimsMap, "name"),
@@ -154,7 +159,8 @@ func parseAndValidateToken(accessToken string) (*models.JWTPayload, error) {
 		Sid:   utils.GetSafeString(claimsMap, "sid"),
 
 		// แก้ไขตรงนี้: เปลี่ยนจาก "preferred_username" ไปเป็น "username"
-		Username: utils.GetSafeString(claimsMap, "username"),
+		// Keycloak usually sends 'preferred_username' in private claims
+		Username: getUsername(claimsMap), // Helper function (or inline logic)
 
 		RealmAccess: models.RealmAccess{
 			Roles: realmRoles, // ใช้ค่าที่ตรวจสอบแล้ว
@@ -185,9 +191,20 @@ func GetUserInfo(tokenString string) (*models.UserInfo, error) {
 		UserId:   claims.ID,
 		UserName: claims.Username,
 		Email:    claims.Email,
-		Role:     claims.RealmAccess.Roles,
+		Roles:    claims.RealmAccess.Roles,
 		Name:     claims.Name,
 	}
 
 	return userInfo, nil
+}
+
+func getUsername(claims map[string]interface{}) string {
+	if u := utils.GetSafeString(claims, "preferred_username"); u != "" {
+		return u
+	}
+	if u := utils.GetSafeString(claims, "username"); u != "" {
+		return u
+	}
+	// logs.Warnf("Debug Claims: %+v", claims) // Uncomment to debug if needed
+	return ""
 }
