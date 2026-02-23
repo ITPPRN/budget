@@ -419,28 +419,44 @@ func (c *authController) setUserPermissions(ctx *fiber.Ctx, user *models.UserInf
 	userID := ctx.Params("id")
 
 	// 1. Hierarchical Security Check
-	isCurrentUserOwner := false
+	actorIsAdmin := false
+	actorIsOwner := false
 	for _, r := range user.Roles {
-		if strings.EqualFold(r, models.RoleOwner) {
-			isCurrentUserOwner = true
-			break
+		if strings.EqualFold(r, models.RoleAdmin) {
+			actorIsAdmin = true
+		} else if strings.EqualFold(r, models.RoleOwner) {
+			actorIsOwner = true
 		}
 	}
 
-	if isCurrentUserOwner {
-		// Fetch target user's profile to identify their role
-		targetProfile, err := c.authSrv.GetUserProfile(userID)
-		if err == nil && targetProfile != nil {
-			isTargetOwnerOrAdmin := false
-			for _, r := range targetProfile.Roles {
-				if strings.EqualFold(r, models.RoleOwner) || strings.EqualFold(r, models.RoleAdmin) {
-					isTargetOwnerOrAdmin = true
-					break
-				}
+	targetProfile, _ := c.authSrv.GetUserProfile(userID)
+	if targetProfile != nil {
+		isTargetAdmin := false
+		isTargetOwner := false
+		isTargetDelegate := false
+		for _, r := range targetProfile.Roles {
+			upperR := strings.ToUpper(r)
+			if upperR == "ADMIN" {
+				isTargetAdmin = true
+			} else if upperR == "OWNER" {
+				isTargetOwner = true
+			} else if upperR == "DELEGATE" {
+				isTargetDelegate = true
 			}
+		}
 
-			if isTargetOwnerOrAdmin {
+		if actorIsOwner {
+			// Owner Rule: Cannot modify Admins or fellow Owners
+			if isTargetAdmin || isTargetOwner {
 				return forbiddenErrResponse(ctx, "Owners are not allowed to modify permissions for other Owners or Admins.")
+			}
+		} else if actorIsAdmin {
+			// Admin Rule: Cannot modify fellow Admins (safety) or Delegates (Owner managed)
+			if isTargetAdmin && user.UserId != userID {
+				return forbiddenErrResponse(ctx, "Admins are not allowed to modify permissions for other Admins.")
+			}
+			if isTargetDelegate {
+				return forbiddenErrResponse(ctx, "Admins are not allowed to manage Delegates (Owners manage them).")
 			}
 		}
 	}

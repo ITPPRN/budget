@@ -75,6 +75,7 @@ const UserManagePage = () => {
 
   const handleOpenModal = async (user) => {
     setSelectedUser(user);
+    setPermissions([]); // Clear stale data first
     setOpenModal(true);
     try {
       const response = await api.get(`/auth/manage/users/${user.userId}/permissions`);
@@ -91,14 +92,13 @@ const UserManagePage = () => {
     setPermissions([]);
   };
 
-  const updatePermission = (deptCode, field, value) => {
+  const updatePermission = (deptCode, fieldUpdates) => {
     setPermissions(prev => {
       const existing = prev.find(p => p.department_code === deptCode);
       if (existing) {
-        return prev.map(p => p.department_code === deptCode ? { ...p, [field]: value } : p);
+        return prev.map(p => p.department_code === deptCode ? { ...p, ...fieldUpdates } : p);
       }
-      // If doesn't exist, add new entry
-      return [...prev, { department_code: deptCode, role: 'OWNER', is_active: false, [field]: value }];
+      return [...prev, { department_code: deptCode, role: 'OWNER', is_active: false, ...fieldUpdates }];
     });
   };
 
@@ -161,6 +161,22 @@ const UserManagePage = () => {
     return [];
   };
   const allowedRoles = getAllowedRoles();
+
+  // Modal Hierarchy Restrictions
+  const isTargetAdmin = selectedUser?.roles?.some(r => r.toUpperCase() === 'ADMIN');
+  const isTargetOwner = selectedUser?.roles?.some(r => r.toUpperCase() === 'OWNER') ||
+    selectedUser?.permissions?.some(p => p.role?.toUpperCase() === 'OWNER');
+  const isTargetDelegate = selectedUser?.roles?.some(r => r.toUpperCase() === 'DELEGATE') ||
+    selectedUser?.permissions?.some(p => p.role?.toUpperCase() === 'DELEGATE');
+
+  let canModifyModal = false;
+  if (!isDelegate && selectedUser) {
+    if (currentUserRole === 'ADMIN') {
+      canModifyModal = isTargetOwner || (!isTargetAdmin && !isTargetDelegate);
+    } else if (currentUserRole === 'OWNER') {
+      canModifyModal = isTargetDelegate || (!isTargetAdmin && !isTargetOwner);
+    }
+  }
 
   return (
     <Box sx={{ p: 4, bgcolor: '#f8fafc', minHeight: '100vh' }}>
@@ -227,18 +243,50 @@ const UserManagePage = () => {
                 </TableCell>
                 <TableCell>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Typography variant="caption" sx={{ color: (isDelegate || user.userId === currentUser?.userId) ? '#cbd5e1' : '#94a3b8' }}>จัดการ</Typography>
-                    <Switch
-                      checked={user.permissions?.some(p => p.is_active) || false}
-                      color="primary"
-                      onClick={() => !(isDelegate || user.userId === currentUser?.userId) && handleOpenModal(user)}
-                      disabled={isDelegate || user.userId === currentUser?.userId}
-                      sx={{
-                        opacity: (isDelegate || user.userId === currentUser?.userId) ? 0.5 : 1,
-                        '& .MuiSwitch-switchBase.Mui-checked': { color: '#1a2a47' },
-                        '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: '#1a2a47' }
-                      }}
-                    />
+                    {(() => {
+                      const isTargetAdmin = user.roles?.some(r => r.toUpperCase() === 'ADMIN');
+                      const isTargetOwner = user.roles?.some(r => r.toUpperCase() === 'OWNER') ||
+                        user.permissions?.some(p => p.role?.toUpperCase() === 'OWNER');
+                      const isTargetDelegate = (user.roles?.some(r => r.toUpperCase() === 'DELEGATE')) ||
+                        (user.permissions?.some(p => p.role?.toUpperCase() === 'DELEGATE'));
+                      const isSelf = user.userId === currentUser?.userId;
+
+                      // Hierarchical Rules:
+                      // 1. Delegates can NEVER manage anyone.
+                      // 2. Self cannot be managed.
+                      // 3. Admin: Can manage Owners and Regular Users. CANNOT manage Delegates or other Admins.
+                      // 4. Owner: Can manage Delegates and Regular Users. CANNOT manage Admins or other Owners.
+
+                      let canManage = false;
+                      if (!isSelf && !isDelegate) {
+                        if (currentUserRole === 'ADMIN') {
+                          // Admin manages Owners and Users (who have no special role yet)
+                          canManage = isTargetOwner || (!isTargetAdmin && !isTargetDelegate);
+                        } else if (currentUserRole === 'OWNER') {
+                          // Owner manages Delegates and Users
+                          canManage = isTargetDelegate || (!isTargetAdmin && !isTargetOwner);
+                        }
+                      }
+
+                      const shouldDisable = !canManage;
+
+                      return (
+                        <>
+                          <Typography variant="caption" sx={{ color: shouldDisable ? '#cbd5e1' : '#94a3b8' }}>จัดการ</Typography>
+                          <Switch
+                            checked={user.permissions?.some(p => p.is_active) || false}
+                            color="primary"
+                            onClick={() => !shouldDisable && handleOpenModal(user)}
+                            disabled={shouldDisable}
+                            sx={{
+                              opacity: shouldDisable ? 0.5 : 1,
+                              '& .MuiSwitch-switchBase.Mui-checked': { color: '#1a2a47' },
+                              '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: '#1a2a47' }
+                            }}
+                          />
+                        </>
+                      );
+                    })()}
                   </Box>
                 </TableCell>
                 <TableCell>{getStatusChip(user)}</TableCell>
@@ -363,19 +411,15 @@ const UserManagePage = () => {
                       <TableCell>
                         <Select
                           fullWidth size="small" value={perm?.role || ''}
+                          disabled={!canModifyModal}
                           onChange={(e) => {
                             const newRole = e.target.value;
-                            updatePermission(dept.code, 'role', newRole);
-                            // Auto-activate if a role is selected for the first time
-                            if (newRole && !perm?.role) {
-                              updatePermission(dept.code, 'is_active', true);
-                            }
-                            // Auto-deactivate if role is cleared
-                            if (!newRole) {
-                              updatePermission(dept.code, 'is_active', false);
-                            }
+                            const updates = { role: newRole };
+                            if (newRole && !perm?.role) updates.is_active = true;
+                            if (!newRole) updates.is_active = false;
+                            updatePermission(dept.code, updates);
                           }}
-                          displayEmpty sx={{ borderRadius: '8px', bgcolor: 'white' }}
+                          displayEmpty sx={{ borderRadius: '8px', bgcolor: 'white', opacity: !canModifyModal ? 0.7 : 1 }}
                         >
                           <MenuItem value="">เลือกบทบาท...</MenuItem>
                           {/* Dynamic Menu Items based on Allowed Roles */}
@@ -384,14 +428,27 @@ const UserManagePage = () => {
                         </Select>
                       </TableCell>
                       <TableCell>
-                        <Switch checked={isActive} onChange={(e) => updatePermission(dept.code, 'is_active', e.target.checked)} />
+                        <Switch
+                          checked={isActive}
+                          disabled={!canModifyModal}
+                          onChange={(e) => {
+                            const active = e.target.checked;
+                            const updates = { is_active: active };
+                            if (!active) {
+                              updates.role = ''; // Reset role when turned OFF
+                            } else if (!perm?.role && allowedRoles.length > 0) {
+                              updates.role = allowedRoles[0]; // Auto-select first allowed role when turned ON
+                            }
+                            updatePermission(dept.code, updates);
+                          }}
+                        />
                       </TableCell>
                       <TableCell>
                         {isActive ? (
                           <Chip label={`เปิดสิทธิ์ ${perm?.role || ''}`} size="small" sx={{ bgcolor: '#27ae60', color: 'white', fontWeight: 'bold' }} />
                         ) : (
                           <Chip
-                            label={perm?.role ? `ปิดสิทธิ์ (${perm.role})` : "ไม่มีสิทธิ์"}
+                            label="ไม่มีสิทธิ์"
                             size="small" variant="outlined"
                             sx={{ color: '#94a3b8', borderColor: '#e2e8f0' }}
                           />
@@ -406,7 +463,12 @@ const UserManagePage = () => {
         </DialogContent>
         <DialogActions sx={{ p: 3, bgcolor: '#f8fafc' }}>
           <Button variant="outlined" onClick={handleCloseModal} sx={{ borderRadius: '8px', color: '#64748b', borderColor: '#e2e8f0' }}>ยกเลิก</Button>
-          <Button variant="contained" onClick={handleSavePermissions} disabled={isSaving} sx={{ bgcolor: '#1a2a47', borderRadius: '8px', px: 4, fontWeight: 'bold' }}>
+          <Button
+            variant="contained"
+            onClick={handleSavePermissions}
+            disabled={isSaving || !canModifyModal}
+            sx={{ bgcolor: '#1a2a47', borderRadius: '8px', px: 4, fontWeight: 'bold' }}
+          >
             {isSaving ? <CircularProgress size={20} color="inherit" /> : 'บันทึกข้อมูลสิทธิ์'}
           </Button>
         </DialogActions>

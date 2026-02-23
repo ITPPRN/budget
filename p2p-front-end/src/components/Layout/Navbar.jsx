@@ -27,18 +27,29 @@ const Navbar = ({ user, onLogout, onToggle }) => {
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
 
           {/* ถ้ามี User ให้โชว์ชื่อ */}
-          {user && (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Avatar sx={{ bgcolor: 'secondary.main', width: 32, height: 32, }}>
-                {/* JSON from Backend: { userName, name, ... } */}
-                {(user.name || user.userName || 'U').charAt(0).toUpperCase()}
-              </Avatar>
-              <Typography variant="subtitle2" sx={{ display: { xs: 'none', sm: 'block' }, color: 'white' }}>
-                {user.name || user.userName || 'ผู้ใช้งาน'}
-                {user.department_code && ` (${user.department_code})`}
-              </Typography>
-            </Box>
-          )}
+          {user && (() => {
+            const roles = user.roles || [];
+            let displayRole = 'User';
+            if (roles.some(r => r.toUpperCase().includes('ADMIN'))) displayRole = 'Admin';
+            else if (roles.some(r => r.toUpperCase().includes('OWNER'))) displayRole = 'Owner';
+            else if (roles.some(r => r.toUpperCase().includes('DELEGATE'))) displayRole = 'Delegate';
+
+            return (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                <Box sx={{ display: { xs: 'none', sm: 'flex' }, flexDirection: 'column', alignItems: 'flex-end' }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 700, color: 'white', lineHeight: 1.2 }}>
+                    {user.name || user.userName || 'ผู้ใช้งาน'} | {displayRole}
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.85)', fontWeight: 600, fontSize: '0.7rem', letterSpacing: 0.5 }}>
+                    {user.department_code || '-'}
+                  </Typography>
+                </Box>
+                <Avatar sx={{ bgcolor: 'secondary.main', width: 34, height: 34, fontSize: '0.9rem', fontWeight: 'bold', border: '1px solid rgba(255,255,255,0.2)' }}>
+                  {(user.name || user.userName || 'U').charAt(0).toUpperCase()}
+                </Avatar>
+              </Box>
+            );
+          })()}
 
           <Button
             color="inherit"

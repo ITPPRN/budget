@@ -376,6 +376,7 @@ func (s *authService) listUsersBase(optional map[string]interface{}, page, size 
 				}
 			}
 			infos[i].Roles = mergeActiveRoles(infos[i].Roles, infos[i].Permissions)
+			logs.Info(fmt.Sprintf("User: %s, Permissions: %d, FinalRoles: %v", u.Username, len(u.UserPermissions), infos[i].Roles))
 		}
 	}
 
