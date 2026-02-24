@@ -204,17 +204,7 @@ const OwnerDashboard = () => {
             console.log("Initializing Dashboard...");
             // setLoading(true); // Ensure loading is on
 
-            // Step 1: Auto Sync
-            try {
-                console.log("1. Starting Auto-Sync...");
-                await api.post('/owner/sync-actuals');
-                console.log("2. Auto-Sync Completed.");
-            } catch (err) {
-                console.error("Auto-Sync Failed (continuing to filters)", err);
-                toast.warning("Auto-sync failed, showing cached data.");
-            }
-
-            // Step 2: Fetch Filters (After Sync to ensure we get new years if any)
+            // Step 2: Fetch Filters (Data is synced by Backend on startup)
             try {
                 console.log("3. Fetching Filters...");
                 const structRes = await api.get('/owner/organization-structure');

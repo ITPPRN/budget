@@ -4,10 +4,13 @@ import (
 	"fmt"
 	"p2p-back-end/modules/entities/models"
 	"strings"
+	"sync"
 )
 
 type ownerService struct {
-	repo models.OwnerRepository
+	repo      models.OwnerRepository
+	syncMutex sync.Mutex
+	isSyncing bool
 }
 
 func NewOwnerService(repo models.OwnerRepository) models.OwnerService {
@@ -108,6 +111,22 @@ func (s *ownerService) GetOwnerFilterLists(user *models.UserInfo) (*models.Owner
 }
 
 func (s *ownerService) AutoSyncOwnerActuals() error {
+	s.syncMutex.Lock()
+	if s.isSyncing {
+		s.syncMutex.Unlock()
+		fmt.Println("[DEBUG] Owner Actuals Sync skipped: already in progress")
+		return nil
+	}
+	s.isSyncing = true
+	s.syncMutex.Unlock()
+
+	defer func() {
+		s.syncMutex.Lock()
+		s.isSyncing = false
+		s.syncMutex.Unlock()
+	}()
+
+	fmt.Println("[DEBUG] Starting Owner Actuals Sync...")
 	return s.repo.AutoSyncOwnerActuals()
 }
 

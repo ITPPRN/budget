@@ -924,9 +924,8 @@ func (r *ownerRepositoryDB) AutoSyncOwnerActuals() error {
 			UPPER(TO_CHAR(src."Posting_Date"::DATE, 'MON')) as Month,
 			SUM(src."Credit_Amount") as Amount
 		FROM achhmw_gle_api src
-        LEFT JOIN department_mapping_entities m ON m.nav_code = src."Global_Dimension_1_Code" AND m.entity = COALESCE(NULLIF(src.company, ''), 'HMW')
+        LEFT JOIN (SELECT DISTINCT ON (nav_code, entity) * FROM department_mapping_entities) m ON m.nav_code = src."Global_Dimension_1_Code" AND m.entity = COALESCE(NULLIF(src.company, ''), 'HMW')
         LEFT JOIN department_entities d ON d.id = m.department_id
-		WHERE src."G_L_Account_No" >= '50000'
 		GROUP BY 1, 2, 3, 4, 5, 6, 7, 8
 
 		UNION ALL
@@ -942,9 +941,8 @@ func (r *ownerRepositoryDB) AutoSyncOwnerActuals() error {
 			UPPER(TO_CHAR(src."Posting_Date"::DATE, 'MON')) as Month,
 			SUM(src."Credit_Amount") as Amount
 		FROM general_ledger_entries_clik src
-        LEFT JOIN department_mapping_entities m ON m.nav_code = src."Global_Dimension_1_Code" AND m.entity = 'CLIK'
+        LEFT JOIN (SELECT DISTINCT ON (nav_code, entity) * FROM department_mapping_entities) m ON m.nav_code = src."Global_Dimension_1_Code" AND m.entity = 'CLIK'
         LEFT JOIN department_entities d ON d.id = m.department_id
-		WHERE src."G_L_Account_No" >= '50000'
 		GROUP BY 1, 2, 3, 4, 5, 6, 7, 8
 	`
 
