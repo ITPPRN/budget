@@ -10,6 +10,7 @@ type OwnerService interface {
 
 	// Filter Options (Scoped to Owner)
 	GetFilterOptions(user *UserInfo) ([]FilterOptionDTO, error)
+	GetOrganizationStructure(user *UserInfo) ([]OrganizationDTO, error)
 	GetOwnerFilterLists(user *UserInfo) (*OwnerFilterListsDTO, error)
 	AutoSyncOwnerActuals() error // New Auto Sync
 }
@@ -41,7 +42,8 @@ type OwnerRepository interface {
 	GetBudgetDetails(filter map[string]interface{}) ([]BudgetFactEntity, error)
 	GetActualDetails(filter map[string]interface{}) ([]OwnerActualFactEntity, error)
 	GetActualTransactions(filter map[string]interface{}) ([]ActualTransactionDTO, error)
-	GetBudgetFilterOptions() ([]BudgetFactEntity, error) // Restored
-	GetOwnerFilterLists() (*OwnerFilterListsDTO, error)
+	GetBudgetFilterOptions(filter map[string]interface{}) ([]BudgetFactEntity, error)
+	GetOwnerFilterLists(filter map[string]interface{}) (*OwnerFilterListsDTO, error)
 	AutoSyncOwnerActuals() error // New Auto Sync
+	GetUserPermissions(userID string) ([]UserPermissionEntity, error)
 }

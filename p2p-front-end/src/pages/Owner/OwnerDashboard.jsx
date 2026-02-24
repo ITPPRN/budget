@@ -10,6 +10,13 @@ import FilterListIcon from '@mui/icons-material/FilterList';
 import DownloadIcon from '@mui/icons-material/Download';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import Inventory2Icon from '@mui/icons-material/Inventory2';
+import LocalOfferIcon from '@mui/icons-material/LocalOffer';
+import LinkIcon from '@mui/icons-material/Link';
+import FilterAltIcon from '@mui/icons-material/FilterAlt';
+import ArrowBackIosNewIcon from '@mui/icons-material/ArrowBackIosNew';
+import AccountTreeIcon from '@mui/icons-material/AccountTree';
+import PeopleIcon from '@mui/icons-material/People';
 import { useAuth } from '../../hooks/useAuth';
 import api from '../../utils/api/axiosInstance';
 import BudgetChart from '../../components/Dashboard/OwnerBudgetChart';
@@ -26,97 +33,77 @@ const formatCurrency = (value) => {
     return value.toLocaleString();
 };
 
-const MetricCard = ({ title, value, color, icon: Icon, subTitle, trend }) => (
-    <Paper sx={{
-        p: 3, borderRadius: '24px', height: '100%',
-        bgcolor: '#ffffff',
-        boxShadow: '0 10px 40px rgba(0,0,0,0.05)',
-        display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-        transition: 'all 0.3s ease',
-        '&:hover': { transform: 'translateY(-5px)', boxShadow: '0 15px 50px rgba(0,0,0,0.1)' }
-    }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <Box>
-                <Typography variant="body2" sx={{ color: '#90a4ae', fontWeight: 'bold', mb: 1, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    {title}
-                </Typography>
-                <Typography variant="h4" sx={{ fontWeight: '800', color: '#263238', letterSpacing: '-0.02em' }}>
-                    {formatCurrency(value)}
-                </Typography>
-            </Box>
-            <Box sx={{
-                width: 48, height: 48, borderRadius: '16px',
-                background: `linear-gradient(135deg, ${color} 0%, ${color}aa 100%)`,
-                color: 'white',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                boxShadow: `0 8px 16px ${color}40`
-            }}>
-                <Icon fontSize="medium" />
-            </Box>
-        </Box>
-        <Box sx={{ mt: 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Typography variant="caption" sx={{ color: '#607d8b', fontWeight: 600, bgcolor: '#f5f7f9', px: 1.5, py: 0.5, borderRadius: '8px' }}>
-                {subTitle || 'Fiscal Year'}
+const MetricCard = ({ title, value, icon: Icon, color = '#4d6eff' }) => (
+    <Paper
+        sx={{
+            p: { xs: 2.5, md: 3 },
+            borderRadius: '16px',
+            minHeight: { xs: 120, md: 150 },
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            bgcolor: color,
+            color: 'white',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.08)',
+            position: 'relative',
+            transition: 'transform 0.2s',
+            '&:hover': { transform: 'translateY(-2px)' }
+        }}
+    >
+        <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 1.5 }}>
+            <Icon sx={{ fontSize: 20, color: 'white', opacity: 0.9 }} />
+            <Typography variant="body2" sx={{ fontWeight: 600, color: 'white', letterSpacing: '0.01em', opacity: 0.9 }}>
+                {title}
             </Typography>
-            {trend && (
-                <Typography variant="caption" sx={{ color: trend > 0 ? '#ef5350' : '#4caf50', fontWeight: 'bold' }}>
-                    {trend > 0 ? '+' : ''}{trend}%
-                </Typography>
-            )}
+        </Stack>
+        <Box>
+            <Typography variant="h4" sx={{ fontWeight: 800, color: 'white', letterSpacing: '-0.02em', fontSize: { xs: '1.75rem', md: '2.1rem' } }}>
+                {value}
+            </Typography>
         </Box>
     </Paper>
 );
 
-const UsageCard = ({ usagePercent, statusLabel }) => {
-    const statusColor = statusLabel === 'In Budget' ? '#00e676' : (statusLabel === 'Near Limit' ? '#ff9100' : '#ff1744');
-
-    return (
-        <Paper sx={{
-            p: 3, borderRadius: '24px', height: '100%',
-            bgcolor: '#ffffff',
-            boxShadow: '0 10px 40px rgba(0,0,0,0.05)',
-            display: 'flex', flexDirection: 'column', justifyContent: 'center'
+const UsageCard = ({ usagePercent }) => (
+    <Paper
+        sx={{
+            p: '10px 24px',
+            borderRadius: '40px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 2,
+            bgcolor: 'white',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.04)',
+            height: 'fit-content',
+            minHeight: 56
+        }}
+    >
+        <Typography variant="body2" sx={{ fontWeight: 700, color: '#333', minWidth: 'fit-content', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Usage
+        </Typography>
+        <Box sx={{
+            flexGrow: 1,
+            height: 12,
+            bgcolor: '#f1f5f9',
+            borderRadius: '10px',
+            position: 'relative',
+            overflow: 'hidden',
+            minWidth: 120,
+            border: '1px solid #e2e8f0'
         }}>
-            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-                <Typography variant="body2" sx={{ color: '#90a4ae', fontWeight: 'bold', textTransform: 'uppercase' }}>
-                    Budget Usage
-                </Typography>
-                <Box sx={{ px: 1.5, py: 0.5, bgcolor: `${statusColor}15`, borderRadius: '8px', color: statusColor }}>
-                    <Typography variant="caption" fontWeight="bold">{statusLabel}</Typography>
-                </Box>
-            </Stack>
-
-            <Box sx={{ position: 'relative', display: 'flex', justifyContent: 'center', mb: 1 }}>
-                <CircularProgress
-                    variant="determinate"
-                    value={100}
-                    size={100}
-                    thickness={4}
-                    sx={{ color: '#f0f2f5', position: 'absolute' }}
-                />
-                <CircularProgress
-                    variant="determinate"
-                    value={Math.min(usagePercent, 100)}
-                    size={100}
-                    thickness={4}
-                    sx={{ color: statusColor, '& .MuiCircularProgress-circle': { strokeLinecap: 'round' } }}
-                />
-                <Box sx={{
-                    top: 0, left: 0, bottom: 0, right: 0,
-                    position: 'absolute', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    flexDirection: 'column'
-                }}>
-                    <Typography variant="h6" component="div" color="text.primary" fontWeight="bold">
-                        {usagePercent.toFixed(0)}%
-                    </Typography>
-                </Box>
-            </Box>
-            <Typography variant="caption" align="center" sx={{ color: '#607d8b', mt: 1 }}>
-                of Total Budget
-            </Typography>
-        </Paper>
-    );
-};
+            <Box sx={{
+                height: '100%',
+                width: `${Math.min(usagePercent, 100)}%`,
+                bgcolor: usagePercent > 100 ? '#ef5350' : '#4d6eff',
+                borderRadius: '10px',
+                transition: 'width 1s ease-in-out'
+            }} />
+        </Box>
+        <Typography variant="body1" sx={{ fontWeight: 600, color: '#666' }}>
+            {usagePercent.toFixed(0)}%
+        </Typography>
+    </Paper>
+);
 
 const OwnerDashboard = () => {
     const { user } = useAuth();
@@ -126,6 +113,7 @@ const OwnerDashboard = () => {
     // Filter Options State
     const [selectedCompany, setSelectedCompany] = useState('');
     const [selectedBranch, setSelectedBranch] = useState('');
+    const [selectedDept, setSelectedDept] = useState('');
     const [selectedYear, setSelectedYear] = useState('');
 
     const [summary, setSummary] = useState({
@@ -150,6 +138,21 @@ const OwnerDashboard = () => {
         return entityObj ? entityObj.branches : [];
     }, [selectedCompany, orgStructure]);
 
+    // Flatten all unique departments from orgStructure for easy selection
+    const allDepartments = React.useMemo(() => {
+        if (!Array.isArray(orgStructure)) return [];
+        const depts = new Set();
+        orgStructure.forEach(entity => {
+            entity.branches?.forEach(branch => {
+                branch.departments?.forEach(dept => {
+                    const deptName = typeof dept === 'string' ? dept : dept.name;
+                    if (deptName) depts.add(deptName);
+                });
+            });
+        });
+        return Array.from(depts).sort();
+    }, [orgStructure]);
+
     // 2. Fetch Dashboard Data
     const fetchDashboardData = async () => {
         if (!selectedYear) return;
@@ -158,7 +161,8 @@ const OwnerDashboard = () => {
             const payload = {
                 year: selectedYear,
                 entities: selectedCompany && selectedCompany !== 'All' ? [selectedCompany] : [],
-                branches: selectedBranch && selectedBranch !== 'All' ? [selectedBranch] : []
+                branches: selectedBranch && selectedBranch !== 'All' ? [selectedBranch] : [],
+                departments: selectedDept && selectedDept !== 'All' ? [selectedDept] : []
             };
 
             const { data } = await api.post('/owner/dashboard-summary', payload);
@@ -213,8 +217,24 @@ const OwnerDashboard = () => {
             // Step 2: Fetch Filters (After Sync to ensure we get new years if any)
             try {
                 console.log("3. Fetching Filters...");
-                const structRes = await api.get('/budgets/organization-structure');
-                setOrgStructure(structRes.data || []);
+                const structRes = await api.get('/owner/organization-structure');
+                const structData = structRes.data || [];
+                setOrgStructure(structData);
+
+                // Smart Auto-Selection (Experimental for restricted users)
+                if (structData.length === 1) {
+                    const firstEntity = structData[0];
+                    setSelectedCompany(firstEntity.entity);
+
+                    if (firstEntity.branches?.length === 1) {
+                        const firstBranch = firstEntity.branches[0];
+                        setSelectedBranch(firstBranch.name);
+
+                        if (firstBranch.departments?.length === 1) {
+                            setSelectedDept(firstBranch.departments[0]);
+                        }
+                    }
+                }
 
                 const listRes = await api.get('/owner/filter-lists');
                 const years = listRes.data.years || [];
@@ -259,7 +279,7 @@ const OwnerDashboard = () => {
             console.log("Triggering Fetch Dashboard (Filter Changed)");
             fetchDashboardData();
         }
-    }, [selectedYear, selectedCompany, selectedBranch]);
+    }, [selectedYear, selectedCompany, selectedBranch, selectedDept]);
 
 
     const usagePercent = summary.totalBudget > 0
@@ -277,192 +297,365 @@ const OwnerDashboard = () => {
 
     return (
         <ErrorBoundary>
-            <Box sx={{ p: 4, minHeight: '100vh', bgcolor: '#f4f6f8' }}>
+            <Box sx={{
+                width: '100%',
+                flex: 1,
+                display: 'flex',
+                flexDirection: 'column',
+                bgcolor: '#f8f9fc',
+                overflow: 'hidden'
+            }}>
+                {/* Fluid Wrapper - Edge to Edge */}
+                <Box sx={{
+                    width: '100%',
+                    maxWidth: 'none !important', // Strictly no max-width
+                    margin: '0 !important',
+                    px: { xs: 2, md: 4, lg: 4 }, // Added some breathing room back
+                    py: { xs: 3, md: 5 },
+                    flex: 1,
+                    display: 'flex',
+                    flexDirection: 'column'
+                }}>
 
-                {/* 1. Header & Filters */}
-                <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems="center" sx={{ mb: 4 }}>
-                    <Box>
-                        <Typography variant="h4" sx={{ fontWeight: '800', color: '#1a237e', letterSpacing: '-0.02em', mb: 1 }}>
-                            Dashboard
-                        </Typography>
-                        <Typography variant="subtitle1" sx={{ color: '#546e7a', fontWeight: 500 }}>
-                            Welcome back, {user?.name || 'Owner'}
-                        </Typography>
+                    {/* 1. Integrated Header & Filter Bar */}
+                    <Box sx={{ mb: 6 }}>
+                        <Stack
+                            direction={{ xs: 'column', lg: 'row' }}
+                            justifyContent="space-between"
+                            alignItems={{ xs: 'flex-start', lg: 'flex-end' }}
+                            spacing={3}
+                        >
+                            <Box>
+                                <Typography variant="h4" sx={{
+                                    fontWeight: 700,
+                                    color: '#043478',
+                                    letterSpacing: '-0.02em',
+                                    mb: 0.5
+                                }}>
+                                    Dashboard
+                                </Typography>
+                                <Typography variant="body1" sx={{ color: '#64748b', fontWeight: 500 }}>
+                                    Welcome {user?.name || 'Owner'}
+                                </Typography>
+                            </Box>
+
+                            {/* Filter Section */}
+                            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', justifyContent: { xs: 'flex-start', lg: 'flex-end' } }}>
+                                {/* Standalone Department Filter (Always Enabled) */}
+                                <Paper sx={{
+                                    p: '8px 16px',
+                                    borderRadius: '20px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    bgcolor: 'rgba(255,255,255,0.7)',
+                                    backdropFilter: 'blur(10px)',
+                                    border: '1px solid rgba(255,255,255,0.5)',
+                                    boxShadow: '0 4px 20px rgba(0,0,0,0.03)',
+                                    minWidth: 180
+                                }}>
+                                    <Stack direction="row" spacing={1.5} alignItems="center">
+                                        <PeopleIcon sx={{ color: '#4d6eff', fontSize: 20 }} />
+                                        <FormControl size="small" fullWidth>
+                                            <Select
+                                                value={selectedDept}
+                                                onChange={(e) => setSelectedDept(e.target.value)}
+                                                displayEmpty
+                                                variant="standard"
+                                                disableUnderline
+                                                sx={{ fontWeight: 700, color: '#043478', fontSize: '0.9rem' }}
+                                            >
+                                                <MenuItem value="">All Departments</MenuItem>
+                                                {allDepartments.map((deptName) => (
+                                                    <MenuItem key={deptName} value={deptName}>
+                                                        {deptName}
+                                                    </MenuItem>
+                                                ))}
+                                            </Select>
+                                        </FormControl>
+                                    </Stack>
+                                </Paper>
+
+                                {/* Main Filter Bar */}
+                                <Paper sx={{
+                                    p: '8px 16px',
+                                    borderRadius: '20px',
+                                    display: 'flex',
+                                    gap: 3,
+                                    alignItems: 'center',
+                                    bgcolor: 'rgba(255,255,255,0.7)',
+                                    backdropFilter: 'blur(10px)',
+                                    border: '1px solid rgba(255,255,255,0.5)',
+                                    boxShadow: '0 4px 20px rgba(0,0,0,0.03)'
+                                }}>
+                                    <Stack direction="row" spacing={1} alignItems="center">
+                                        <Typography variant="caption" sx={{ fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' }}>Company</Typography>
+                                        <FormControl size="small" sx={{ minWidth: 140 }}>
+                                            <Select
+                                                value={selectedCompany}
+                                                onChange={(e) => { setSelectedCompany(e.target.value); setSelectedBranch(''); }}
+                                                displayEmpty
+                                                variant="standard"
+                                                disableUnderline
+                                                sx={{ fontWeight: 700, color: '#043478' }}
+                                            >
+                                                <MenuItem value="">All Entities</MenuItem>
+                                                {orgStructure.map((org) => <MenuItem key={org.entity} value={org.entity}>{org.entity}</MenuItem>)}
+                                            </Select>
+                                        </FormControl>
+                                    </Stack>
+
+                                    <Box sx={{ width: 1, height: 20, bgcolor: '#e2e8f0' }} />
+
+                                    <Stack direction="row" spacing={1} alignItems="center">
+                                        <Typography variant="caption" sx={{ fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' }}>Branch</Typography>
+                                        <FormControl size="small" sx={{ minWidth: 140 }} disabled={!selectedCompany}>
+                                            <Select
+                                                value={selectedBranch}
+                                                onChange={(e) => setSelectedBranch(e.target.value)}
+                                                displayEmpty
+                                                variant="standard"
+                                                disableUnderline
+                                                sx={{ fontWeight: 700, color: '#043478' }}
+                                            >
+                                                <MenuItem value="">All Branches</MenuItem>
+                                                {availableBranches.map((b) => <MenuItem key={b.name} value={b.name}>{b.name}</MenuItem>)}
+                                            </Select>
+                                        </FormControl>
+                                    </Stack>
+
+                                    <Box sx={{ width: 1, height: 20, bgcolor: '#e2e8f0' }} />
+
+                                    <FormControl size="small" sx={{ minWidth: 80 }}>
+                                        <Select
+                                            value={selectedYear}
+                                            onChange={(e) => setSelectedYear(e.target.value)}
+                                            displayEmpty
+                                            variant="standard"
+                                            disableUnderline
+                                            sx={{ fontWeight: 700, color: '#0f172a' }}
+                                        >
+                                            <MenuItem value="" disabled>Year</MenuItem>
+                                            {filterYears.map((y) => <MenuItem key={y} value={y}>{y}</MenuItem>)}
+                                        </Select>
+                                    </FormControl>
+                                </Paper>
+                            </Box>
+                        </Stack>
                     </Box>
 
-                    <Paper sx={{ p: 1, borderRadius: '16px', display: 'flex', gap: 2, alignItems: 'center', bgcolor: 'white', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
-                        <FormControl size="small" sx={{ minWidth: 150 }}>
-                            <Select
-                                value={selectedCompany}
-                                onChange={(e) => { setSelectedCompany(e.target.value); setSelectedBranch(''); }}
-                                displayEmpty
-                                variant="standard"
-                                disableUnderline
-                                sx={{ px: 2, py: 0.5, borderRadius: '8px', bgcolor: 'transparent', fontWeight: 600, color: '#37474f' }}
-                            >
-                                <MenuItem value="">All Entities</MenuItem>
-                                {orgStructure.map((org) => <MenuItem key={org.entity} value={org.entity}>{org.entity}</MenuItem>)}
-                            </Select>
-                        </FormControl>
-                        <Box sx={{ width: 1, height: 24, bgcolor: '#cfd8dc' }} /> {/* Divider */}
-                        <FormControl size="small" sx={{ minWidth: 150 }} disabled={!selectedCompany}>
-                            <Select
-                                value={selectedBranch}
-                                onChange={(e) => setSelectedBranch(e.target.value)}
-                                displayEmpty
-                                variant="standard"
-                                disableUnderline
-                                sx={{ px: 2, py: 0.5, borderRadius: '8px', bgcolor: 'transparent', fontWeight: 600, color: '#37474f' }}
-                            >
-                                <MenuItem value="">All Branches</MenuItem>
-                                {availableBranches.map((b) => <MenuItem key={b.name} value={b.name}>{b.name}</MenuItem>)}
-                            </Select>
-                        </FormControl>
-                        <Box sx={{ width: 1, height: 24, bgcolor: '#cfd8dc' }} /> {/* Divider */}
-                        <FormControl size="small" sx={{ minWidth: 100 }}>
-                            <Select
-                                value={selectedYear}
-                                onChange={(e) => setSelectedYear(e.target.value)}
-                                displayEmpty
-                                variant="standard"
-                                disableUnderline
-                                sx={{ px: 2, py: 0.5, borderRadius: '8px', bgcolor: 'transparent', fontWeight: 600, color: '#37474f' }}
-                            >
-                                <MenuItem value="" disabled>Year</MenuItem>
-                                {filterYears.map((y) => <MenuItem key={y} value={y}>{y}</MenuItem>)}
-                            </Select>
-                        </FormControl>
-                    </Paper>
-                </Stack>
-
-                {/* 2. Stats Cards */}
-                <Grid container spacing={3} sx={{ mb: 4 }}>
-                    <Grid item xs={12} sm={6} md={3}>
-                        <MetricCard
-                            title="Approved Budget"
-                            value={summary.totalBudget}
-                            color="#2979ff" // Blue
-                            icon={AccountBalanceWalletIcon}
-                        />
-                    </Grid>
-                    <Grid item xs={12} sm={6} md={3}>
-                        <MetricCard
-                            title="Actual Spending"
-                            value={summary.totalActual}
-                            color="#ff4081" // Pink
-                            icon={ShoppingBagIcon}
-                            subTitle={`${usagePercent.toFixed(1)}% Used`}
-                        />
-                    </Grid>
-                    <Grid item xs={12} sm={6} md={3}>
-                        <MetricCard
-                            title="Remaining"
-                            value={summary.totalBudget - summary.totalActual}
-                            color="#00e5ff" // Cyan
-                            icon={PieChartIcon}
-                            subTitle="Available"
-                        />
-                    </Grid>
-                    <Grid item xs={12} sm={6} md={3}>
-                        <UsageCard usagePercent={usagePercent} statusLabel={statusLabel} />
-                    </Grid>
-                </Grid>
-
-                {/* 3. Charts Section */}
-                <Grid container spacing={3}>
-                    {/* Left: Line Chart */}
-                    <Grid item xs={12} lg={8}>
-                        <Paper sx={{ p: 4, borderRadius: '24px', boxShadow: '0 10px 40px rgba(0,0,0,0.05)', height: 500 }}>
-                            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 4 }}>
-                                <Box>
-                                    <Typography variant="h6" sx={{ fontWeight: '800', color: '#263238' }}>Budget Performance</Typography>
-                                    <Typography variant="caption" sx={{ color: '#90a4ae' }}>Monthly breakdown of expenses</Typography>
-                                </Box>
-
-                                <Paper sx={{ bgcolor: '#eceff1', borderRadius: '12px', p: 0.5, display: 'flex' }}>
-                                    <Button
-                                        size="small"
-                                        onClick={() => setChartMode('monthly')}
-                                        sx={{
-                                            bgcolor: chartMode === 'monthly' ? 'white' : 'transparent',
-                                            color: chartMode === 'monthly' ? '#1a237e' : '#78909c',
-                                            borderRadius: '8px',
-                                            fontWeight: 'bold',
-                                            boxShadow: chartMode === 'monthly' ? '0 2px 8px rgba(0,0,0,0.05)' : 'none',
-                                            textTransform: 'none', px: 2
-                                        }}
-                                    >
-                                        Monthly
-                                    </Button>
-                                    <Button
-                                        size="small"
-                                        onClick={() => setChartMode('accumulated')}
-                                        sx={{
-                                            bgcolor: chartMode === 'accumulated' ? 'white' : 'transparent',
-                                            color: chartMode === 'accumulated' ? '#1a237e' : '#78909c',
-                                            borderRadius: '8px',
-                                            fontWeight: 'bold',
-                                            boxShadow: chartMode === 'accumulated' ? '0 2px 8px rgba(0,0,0,0.05)' : 'none',
-                                            textTransform: 'none', px: 2
-                                        }}
-                                    >
-                                        Accumulated
-                                    </Button>
-                                </Paper>
-                            </Stack>
-
-                            <Box sx={{ height: '85%', width: '100%' }}>
-                                <BudgetChart data={summary.chartData} />
-                            </Box>
-                        </Paper>
+                    {/* 2. Stats Cards (Redesigned to match screenshot) */}
+                    <Grid container spacing={4} sx={{ mb: 6 }} alignItems="stretch">
+                        <Grid item xs={12} sm={6} md={3}>
+                            <MetricCard
+                                title="Approved Expense Budget"
+                                value={(summary.totalBudget / 1000000).toFixed(2) + " MB"}
+                                icon={Inventory2Icon}
+                                color="#4d6eff"
+                            />
+                        </Grid>
+                        <Grid item xs={12} sm={6} md={3}>
+                            <MetricCard
+                                title="Actual Spending"
+                                value={(summary.totalActual / 1000000).toFixed(2) + " MB"}
+                                icon={LocalOfferIcon}
+                                color="#4d6eff"
+                            />
+                        </Grid>
+                        <Grid item xs={12} sm={6} md={3}>
+                            <MetricCard
+                                title="Remaining Expense Budget"
+                                value={((summary.totalBudget - summary.totalActual) / 1000000).toFixed(2) + " MB"}
+                                icon={LinkIcon}
+                                color="#4d6eff"
+                            />
+                        </Grid>
+                        <Grid item xs={12} md={3}>
+                            <UsageCard usagePercent={usagePercent} />
+                        </Grid>
                     </Grid>
 
-                    {/* Right: Donut + Capex */}
-                    <Grid item xs={12} lg={4}>
-                        <Stack spacing={3} sx={{ height: '100%' }}>
-                            {/* Top Expense */}
-                            <Paper sx={{ p: 4, borderRadius: '24px', boxShadow: '0 10px 40px rgba(0,0,0,0.05)', flex: 1, minHeight: 400 }}>
-                                <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 3 }}>
-                                    <Box>
-                                        <Typography variant="h6" sx={{ fontWeight: '800', color: '#263238' }}>Top Expenses</Typography>
-                                        <Typography variant="caption" sx={{ color: '#90a4ae' }}>By Account Category</Typography>
-                                    </Box>
-                                    <IconButton size="small" sx={{ color: '#cfd8dc' }}><MoreHorizIcon /></IconButton>
-                                </Stack>
-                                <Box sx={{ height: 280, width: '100%', position: 'relative' }}>
-                                    <DonutChart data={summary.topExpenses} />
-                                </Box>
-                            </Paper>
-
-                            {/* CAPEX Card */}
-                            <Paper sx={{
-                                p: 3, borderRadius: '24px',
-                                background: 'linear-gradient(135deg, #1a237e 0%, #0d47a1 100%)', // Deep Blue
-                                color: 'white',
-                                boxShadow: '0 10px 30px rgba(26, 35, 126, 0.4)'
+                    {/* 3. Detailed Analysis (Side-by-Side Row) */}
+                    <Grid
+                        container
+                        spacing={3}
+                        sx={{
+                            width: '100%',
+                            margin: 0,
+                            display: 'flex',
+                            flexWrap: 'nowrap',
+                            flexDirection: { xs: 'column', lg: 'row' }
+                        }}
+                    >
+                        {/* LEFT - Budget vs Actual (Fluid Growth) */}
+                        <Grid
+                            item
+                            sx={{
+                                flexGrow: 1,
+                                minWidth: 0,
+                                width: { xs: '100%', lg: 'auto' }
                             }}>
-                                <Stack direction="row" justifyContent="space-between" alignItems="center">
-                                    <Box>
-                                        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-                                            <Paper sx={{ width: 24, height: 24, borderRadius: '8px', bgcolor: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                <TrendingUpIcon sx={{ fontSize: 16, color: 'white' }} />
-                                            </Paper>
-                                            <Typography variant="body2" fontWeight="bold" sx={{ opacity: 0.9 }}>CAPEX Status</Typography>
-                                        </Stack>
-                                        <Typography variant="h5" fontWeight="bold">{formatCurrency(summary.capexBudget)}</Typography>
-                                        <Typography variant="caption" sx={{ opacity: 0.7, mt: 0.5, display: 'block' }}>
-                                            Actual: {formatCurrency(summary.capexActual)}
+                            <Paper sx={{
+                                p: 3,
+                                borderRadius: '24px',
+                                height: 550,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                bgcolor: 'rgba(255,255,255,0.7)',
+                                boxShadow: '0 10px 40px rgba(0,0,0,0.02)'
+                            }}
+                            >
+                                {/* Header Grouping */}
+                                <Stack
+                                    direction={{ xs: 'column', sm: 'row' }}
+                                    justifyContent="space-between"
+                                    alignItems={{ xs: 'flex-start', sm: 'center' }}
+                                    spacing={2}
+                                    sx={{ mb: 3 }}
+                                >
+                                    <Box sx={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                                        <Typography variant="h6" sx={{ fontWeight: 800, color: '#333' }}>
+                                            Budget vs Actual
                                         </Typography>
                                     </Box>
-                                    <IconButton sx={{ color: 'white', bgcolor: 'rgba(255,255,255,0.1)' }}><ChevronRightIcon /></IconButton>
+
+                                    <Stack direction="row" spacing={2} alignItems="center">
+                                        <Paper sx={{ bgcolor: '#000', borderRadius: '4px', p: 0.5, display: 'flex', overflow: 'hidden' }}>
+                                            <Button
+                                                size="small"
+                                                onClick={() => setChartMode('monthly')}
+                                                sx={{
+                                                    bgcolor: chartMode === 'monthly' ? '#4d6eff' : 'transparent',
+                                                    color: 'white',
+                                                    borderRadius: '4px',
+                                                    fontWeight: 800,
+                                                    textTransform: 'none', px: 2,
+                                                    fontSize: '0.85rem',
+                                                    '&:hover': { bgcolor: chartMode === 'monthly' ? '#4d6eff' : 'rgba(255,255,255,0.1)' }
+                                                }}
+                                            >
+                                                Monthly
+                                            </Button>
+                                            <Button
+                                                size="small"
+                                                onClick={() => setChartMode('accumulated')}
+                                                sx={{
+                                                    bgcolor: chartMode === 'accumulated' ? '#4d6eff' : 'transparent',
+                                                    color: 'white',
+                                                    borderRadius: '4px',
+                                                    fontWeight: 800,
+                                                    textTransform: 'none', px: 2,
+                                                    fontSize: '0.85rem',
+                                                    '&:hover': { bgcolor: chartMode === 'accumulated' ? '#4d6eff' : 'rgba(255,255,255,0.1)' }
+                                                }}
+                                            >
+                                                Accumulated
+                                            </Button>
+                                        </Paper>
+
+                                        <Box sx={{ display: 'flex', gap: 1 }}>
+                                            <IconButton size="small" sx={{ bgcolor: '#4d6eff', color: 'white', '&:hover': { bgcolor: '#3d59cc' } }}>
+                                                <FilterAltIcon sx={{ fontSize: 18 }} />
+                                            </IconButton>
+                                            <IconButton size="small" sx={{ bgcolor: '#4d6eff', color: 'white', '&:hover': { bgcolor: '#3d59cc' } }}>
+                                                <MoreHorizIcon sx={{ fontSize: 18 }} />
+                                            </IconButton>
+                                        </Box>
+                                    </Stack>
+                                </Stack>
+
+                                <Box sx={{ flexGrow: 1, width: '100%', mt: 2 }}>
+                                    <BudgetChart data={summary.chartData} />
+                                </Box>
+
+                                {/* Legend at Bottom */}
+                                <Stack direction="row" spacing={4} justifyContent="center" sx={{ mt: 2, borderTop: '1px solid #f1f5f9', pt: 3 }}>
+                                    <Stack direction="row" spacing={1.5} alignItems="center">
+                                        <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: '#4d6eff' }} />
+                                        <Typography variant="body2" sx={{ fontWeight: 700, color: '#64748b' }}>Budget</Typography>
+                                    </Stack>
+                                    <Stack direction="row" spacing={1.5} alignItems="center">
+                                        <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: '#64b5f6' }} />
+                                        <Typography variant="body2" sx={{ fontWeight: 700, color: '#64748b' }}>Actual</Typography>
+                                    </Stack>
                                 </Stack>
                             </Paper>
-                        </Stack>
-                    </Grid>
-                </Grid>
+                        </Grid>
 
-            </Box>
-        </ErrorBoundary>
+                        {/* RIGHT - Stats Sidebar (Pure Right Edge Alignment) */}
+                        <Grid item xs={12} lg={2.4} sx={{ pr: { lg: 5 } }}>
+                            <Stack spacing={4} sx={{ height: '100%', width: '100%' }}>
+                                {/* Top Expense */}
+                                <Paper
+                                    sx={{
+                                        p: 3,
+                                        borderRadius: '12px',
+                                        flexGrow: 1,
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        width: '100%',
+                                        boxShadow: '0 4px 12px rgba(0,0,0,0.03)'
+                                    }}
+                                >
+                                    <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
+                                        <Typography variant="h6" sx={{ fontWeight: 800, color: '#333', flexGrow: 1 }}>
+                                            Top expense
+                                        </Typography>
+                                        <IconButton size="small" sx={{ bgcolor: '#4d6eff', color: 'white', '&:hover': { bgcolor: '#3d59cc' } }}>
+                                            <ChevronLeftIcon sx={{ fontSize: 20 }} />
+                                        </IconButton>
+                                        <IconButton size="small" sx={{ bgcolor: '#4d6eff', color: 'white', '&:hover': { bgcolor: '#3d59cc' } }}>
+                                            <MoreHorizIcon sx={{ fontSize: 20 }} />
+                                        </IconButton>
+                                    </Stack>
+                                    <Box sx={{ flexGrow: 1, width: '100%', position: 'relative', minHeight: 280 }}>
+                                        <DonutChart data={summary.topExpenses} />
+                                    </Box>
+                                </Paper>
+
+                                {/* CAPEX Budget */}
+                                <Paper
+                                    sx={{
+                                        p: 2.5,
+                                        borderRadius: '12px',
+                                        background: 'linear-gradient(135deg, #4d6eff 0%, #3d59cc 100%)', // Blue shade
+                                        color: 'white',
+                                        width: '100%',
+                                        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                                        position: 'relative',
+                                        overflow: 'hidden'
+                                    }}
+                                >
+                                    <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1, position: 'relative', zIndex: 1 }}>
+                                        <Stack direction="row" spacing={1} alignItems="center">
+                                            <Box sx={{ bgcolor: 'rgba(255,255,255,0.2)', p: 0.5, borderRadius: '4px', display: 'flex' }}>
+                                                <SyncIcon sx={{ fontSize: 18 }} />
+                                            </Box>
+                                            <Typography variant="body1" sx={{ fontWeight: 800, color: 'white' }}>
+                                                CAPEX Budget
+                                            </Typography>
+                                        </Stack>
+                                        <IconButton size="small" sx={{ color: 'white' }}>
+                                            <DownloadIcon sx={{ fontSize: 22 }} />
+                                        </IconButton>
+                                    </Stack>
+
+                                    <Box sx={{ position: 'relative', zIndex: 1 }}>
+                                        <Typography variant="h4" sx={{ fontWeight: 800, letterSpacing: '-0.01em', color: 'white' }}>
+                                            {(summary.capexActual / 1000000).toFixed(2)} MB
+                                        </Typography>
+                                        <Box sx={{ textAlign: 'right', mt: 1 }}>
+                                            <Typography variant="body2" sx={{ fontWeight: 700, opacity: 0.9, color: 'white' }}>
+                                                of {(summary.capexBudget / 1000000).toFixed(2)} MB
+                                            </Typography>
+                                        </Box>
+                                    </Box>
+                                </Paper>
+                            </Stack>
+                        </Grid>
+                    </Grid>
+                </Box>
+            </Box >
+        </ErrorBoundary >
     );
 };
 

@@ -15,6 +15,7 @@ func NewOwnerController(r fiber.Router, service models.OwnerService) {
 
 	r.Post("/dashboard-summary", controller.GetDashboardSummary)
 	r.Get("/filter-options", controller.GetFilterOptions)
+	r.Get("/organization-structure", controller.GetOrganizationStructure)
 	r.Get("/filter-lists", controller.GetOwnerFilterLists)
 	r.Post("/actual-transactions", controller.GetActualTransactions)
 	r.Post("/sync-actuals", controller.AutoSyncOwnerActuals)
@@ -45,6 +46,15 @@ func (c *ownerController) GetFilterOptions(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return ctx.JSON(opts)
+}
+
+func (c *ownerController) GetOrganizationStructure(ctx *fiber.Ctx) error {
+	user := ctx.Locals("user").(*models.UserInfo)
+	structure, err := c.ownerService.GetOrganizationStructure(user)
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	return ctx.JSON(structure)
 }
 
 // GetOwnerFilterLists (Dropdowns)

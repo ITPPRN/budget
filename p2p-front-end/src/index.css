@@ -4,6 +4,7 @@
 :root {
   font-family: "Kanit", sans-serif;
 }
+
 * {
   font-family: "Kanit", sans-serif;
 }
@@ -15,46 +16,78 @@
 
 body {
   margin: 0;
+  padding: 0;
+  width: 100%;
+  overflow-x: hidden;
   font-family: "Kanit", sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-attachment: fixed;
-  background-size: cover;
+  background-color: #f8f9fc;
+  /* Softer, more premium blue-grey tint */
 }
 
-.css-11mde6h-MuiPaper-root {
-  border-radius: 20px;
-  box-shadow: 0;
+#root {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
 }
 
-.MuiPaper-root
-  .MuiPaper-elevation
-  .MuiPaper-rounded
-  .MuiPaper-elevation4
-  .tss-11quiee-MUIDataTable-paper
-  .tss-1x5mjc5-MUIDataTable-root
-  .css-11mde6h-MuiPaper-root {
-  box-shadow: 0 !important;
+/* Force all MUI containers to be full width regardless of breakpoint */
+.MuiContainer-root,
+.MuiContainer-maxWidthXs,
+.MuiContainer-maxWidthSm,
+.MuiContainer-maxWidthMd,
+.MuiContainer-maxWidthLg,
+.MuiContainer-maxWidthXl {
+  max-width: none !important;
+  width: 100% !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
 }
 
-.css-1ex13cr-MuiPaper-root-MuiDrawer-paper {
-  border-radius: 0px;
+/* Premium Component Overrides */
+.MuiPaper-root {
+  border: none !important;
+  /* Clean edge */
 }
 
-.tss-1ork7hi-MUIDataTablePagination-tableCellContainer {
-  border-bottom: 0;
+.premium-card {
+  background: rgba(255, 255, 255, 0.8) !important;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.3) !important;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.02) !important;
+  transition: transform 0.3s ease, box-shadow 0.3s ease !important;
 }
 
-.css-1vqld49-MuiTablePagination-selectLabel {
-  margin-top: 11px;
+.premium-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.05) !important;
 }
 
-.css-1xt6dcw-MuiTablePagination-displayedRows {
-  margin-top: 13px;
+/* Scrollbar Polish */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
 }
 
-.MuiDrawer-root {
-  z-index: 101 !important;
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e0;
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a0aec0;
 }
 
 .ant-input {
@@ -72,23 +105,11 @@ body {
 
 .box-shadow-card {
   box-shadow: 0;
-  transition: 0.05s;
+  transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .box-shadow-card:hover {
-  box-shadow: rgba(100, 100, 111, 0.2) 0px 7px 29px 0px;
-}
-
-.box-shadow-card-active {
-  border: 0;
-  box-shadow: rgba(0, 0, 0, 0.24) 0px 2px 4px 0px inset;
-}
-
-#main {
-  display: table;
-  width: 100%;
-  height: 100vh;
-  text-align: center;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.06);
 }
 
 .fof {
@@ -107,20 +128,8 @@ body {
   from {
     box-shadow: inset -3px 0px 0px #888;
   }
+
   to {
     box-shadow: inset -3px 0px 0px transparent;
   }
-}
-
-
-.MuiTablePagination-selectLabel {
-  margin-top: 12px;
-}
-
-
-.MuiTablePagination-caption {
-  margin-top: 12px !important; /* Remove any unwanted top margin */
-  font-size: 0.875rem;      /* Optional: change font size */
-  text-align: center;       /* Center the caption text */
-  color: #333;              /* Optional: change font color */
 }

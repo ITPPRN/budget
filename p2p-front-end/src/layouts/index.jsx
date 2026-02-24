@@ -21,8 +21,7 @@ export default function MainLayout() {
   const menuItems = showOwnerMenu ? OWNER_MENU_ITEMS : MENU_ITEMS;
 
   return (
-    <Box sx={{ display: 'flex' }}>
-      {/* ส่ง Props เข้าไป ไม่ต้องเขียน Logic รกๆ ตรงนี้ */}
+    <Box sx={{ display: 'flex', width: '100vw', minHeight: '100vh', overflow: 'hidden' }}>
       <Navbar
         user={user}
         onLogout={logout}
@@ -34,9 +33,24 @@ export default function MainLayout() {
         menuItems={menuItems} // ส่งรายการเมนูที่เลือกแล้วเข้าไป
       />
 
-      <Box component="main" sx={{ flexGrow: 1, minWidth: 0, width: '100%', overflowX: 'hidden' }}>
+      <Box
+        component="main"
+        sx={{
+          flex: 1,
+          minWidth: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          width: '100% !important',
+          maxWidth: 'none !important',
+          bgcolor: '#f8f9fc',
+          overflowY: 'auto',
+          overflowX: 'hidden'
+        }}
+      >
         <Toolbar /> {/* ดัน Content ลงมา */}
-        <Outlet />  {/* เนื้อหาเปลี่ยนไปตาม Route */}
+        <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', width: '100% !important', maxWidth: 'none !important' }}>
+          <Outlet />  {/* เนื้อหาเปลี่ยนไปตาม Route */}
+        </Box>
       </Box>
     </Box>
   );

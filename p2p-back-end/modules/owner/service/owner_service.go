@@ -1,7 +1,9 @@
 package service
 
 import (
+	"fmt"
 	"p2p-back-end/modules/entities/models"
+	"strings"
 )
 
 type ownerService struct {
@@ -13,53 +15,149 @@ func NewOwnerService(repo models.OwnerRepository) models.OwnerService {
 }
 
 func (s *ownerService) GetDashboardSummary(user *models.UserInfo, filter map[string]interface{}) (*models.OwnerDashboardSummaryDTO, error) {
-	// 1. Get User Context (Department, etc.)
-	// userEntity, err := s.repo.GetUserContext(user.ID) // If needed for strict RLS
-	// For now, we trust the Filter passed from Controller (which includes Dept from Token if needed? Or we enforce it here?)
-	// Let's enforce Department Filter if User is NOT Admin/Owner-Global
-	// Actually, the requirement says "Owner sees Dashboard (OWNER)".
-	// If the user has a specific department in their profile, we SHOULD restrict the view.
-	// But `filter` coming from Controller might already have it?
-	// Let's assume Controller passes raw filters.
-
-	// Logic: If user has Department Code, FORCE validation.
-	// But for now, let's just fetch global aggregates based on the requested filter.
+	filter = s.injectPermissions(user, filter)
 	return s.repo.GetDashboardAggregates(filter)
 }
 
 func (s *ownerService) GetActualTransactions(user *models.UserInfo, filter map[string]interface{}) ([]models.ActualTransactionDTO, error) {
+	filter = s.injectPermissions(user, filter)
 	return s.repo.GetActualTransactions(filter)
 }
 
 func (s *ownerService) GetActualDetails(user *models.UserInfo, filter map[string]interface{}) ([]models.OwnerActualFactEntity, error) {
+	filter = s.injectPermissions(user, filter)
 	return s.repo.GetActualDetails(filter)
 }
 
 func (s *ownerService) GetBudgetDetails(user *models.UserInfo, filter map[string]interface{}) ([]models.BudgetFactEntity, error) {
+	filter = s.injectPermissions(user, filter)
 	return s.repo.GetBudgetDetails(filter)
 }
 
 func (s *ownerService) GetFilterOptions(user *models.UserInfo) ([]models.FilterOptionDTO, error) {
-	// Re-use budget logic or fetch from Owner Repo
-	// We need a way to Convert BudgetFactEntity to FilterOptionDTO tree.
-	// Since OwnerRepo.GetBudgetFilterOptions returns []BudgetFactEntity, we need the mapper.
-	rawOptions, err := s.repo.GetBudgetFilterOptions()
+	filter := s.injectPermissions(user, nil)
+	rawOptions, err := s.repo.GetBudgetFilterOptions(filter)
 	if err != nil {
 		return nil, err
 	}
 
-	// Mapper Logic (Duplicated from Budget Service? Or Shared?)
-	// Let's duplicate for isolation or move to shared utils.
-	// Implementing simple mapping here.
 	return s.mapFactsToFilterOptions(rawOptions), nil
 }
 
+func (s *ownerService) GetOrganizationStructure(user *models.UserInfo) ([]models.OrganizationDTO, error) {
+	filter := s.injectPermissions(user, nil)
+	facts, err := s.repo.GetBudgetFilterOptions(filter)
+	if err != nil {
+		return nil, err
+	}
+
+	// Map Entity -> Map Branch -> []Departments
+	structure := make(map[string]map[string][]string)
+	for _, f := range facts {
+		if f.Entity == "" {
+			continue
+		}
+
+		entityName := f.Entity
+		if structure[entityName] == nil {
+			structure[entityName] = make(map[string][]string)
+		}
+
+		if f.Branch != "" {
+			branchName := f.Branch
+			if _, exists := structure[entityName][branchName]; !exists {
+				structure[entityName][branchName] = []string{}
+			}
+
+			if f.Department != "" {
+				deptName := f.Department
+				found := false
+				for _, d := range structure[entityName][branchName] {
+					if d == deptName {
+						found = true
+						break
+					}
+				}
+				if !found {
+					structure[entityName][branchName] = append(structure[entityName][branchName], deptName)
+				}
+			}
+		}
+	}
+
+	var result []models.OrganizationDTO
+	for entity, branchesMap := range structure {
+		var branchDTOs []models.BranchDTO
+		for branch, depts := range branchesMap {
+			branchDTOs = append(branchDTOs, models.BranchDTO{
+				Name:        branch,
+				Departments: depts,
+			})
+		}
+		result = append(result, models.OrganizationDTO{
+			Entity:   entity,
+			Branches: branchDTOs,
+		})
+	}
+	return result, nil
+}
+
 func (s *ownerService) GetOwnerFilterLists(user *models.UserInfo) (*models.OwnerFilterListsDTO, error) {
-	return s.repo.GetOwnerFilterLists()
+	filter := s.injectPermissions(user, nil)
+	return s.repo.GetOwnerFilterLists(filter)
 }
 
 func (s *ownerService) AutoSyncOwnerActuals() error {
 	return s.repo.AutoSyncOwnerActuals()
+}
+
+func (s *ownerService) injectPermissions(user *models.UserInfo, filter map[string]interface{}) map[string]interface{} {
+	if filter == nil {
+		filter = make(map[string]interface{})
+	}
+
+	isAdmin := false
+	for _, role := range user.Roles {
+		roleUpper := strings.ToUpper(role)
+		// Robust Admin Check: Support "ADMIN", "admin", and any role containing "ADMIN"
+		if roleUpper == models.RoleAdmin || strings.Contains(roleUpper, "ADMIN") {
+			isAdmin = true
+			break
+		}
+	}
+
+	// 🔍 Debug Log (Visible in server terminal)
+	fmt.Printf("[DEBUG] injectPermissions: UserName=%s, Roles=%v, isAdmin=%v\n", user.UserName, user.Roles, isAdmin)
+
+	if !isAdmin {
+		// 🛡️ Load Missing Permissions Proactively
+		if len(user.Permissions) == 0 && user.UserId != "" {
+			dbPerms, err := s.repo.GetUserPermissions(user.UserId)
+			if err == nil && len(dbPerms) > 0 {
+				fmt.Printf("[DEBUG] injectPermissions: Loaded %d permissions from DB for UserID=%s\n", len(dbPerms), user.UserId)
+				for _, p := range dbPerms {
+					user.Permissions = append(user.Permissions, models.UserPermissionInfo{
+						DepartmentCode: p.DepartmentCode,
+						Role:           p.Role,
+						IsActive:       p.IsActive != nil && *p.IsActive,
+					})
+				}
+			}
+		}
+
+		var allowedDepts []string
+		for _, p := range user.Permissions {
+			if p.IsActive {
+				allowedDepts = append(allowedDepts, p.DepartmentCode)
+			}
+		}
+		// If user is not Admin, and has NO permissions, results should be restricted to nothing.
+		filter["allowed_departments"] = allowedDepts
+		filter["is_restricted"] = true
+		fmt.Printf("[DEBUG] injectPermissions: Restricting to Depts: %v\n", allowedDepts)
+	}
+
+	return filter
 }
 
 // Helper: Map Facts to Tree (Entity -> Branch -> Department)

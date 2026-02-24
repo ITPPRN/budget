@@ -4,32 +4,65 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 
 const BudgetChart = ({ data }) => {
     return (
-        <Box sx={{ width: '100%', height: '100%', minHeight: 300 }}>
+        <Box sx={{ width: '100%', height: '100%', minHeight: 400 }}>
             <ResponsiveContainer width="100%" height="100%">
                 <LineChart
                     data={data}
                     margin={{
-                        top: 20,
+                        top: 25,
                         right: 30,
-                        left: 0,
-                        bottom: 0,
+                        left: 20,
+                        bottom: 35,
                     }}
                 >
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e0e0e0" />
-                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#9e9e9e', fontSize: 12 }} dy={10} />
+                    <CartesianGrid
+                        strokeDasharray="4 4"
+                        stroke="#e2e8f0"
+                        vertical={true}
+                        horizontal={true}
+                    />
+                    <XAxis
+                        dataKey="name"
+                        axisLine={{ stroke: '#cbd5e1', strokeWidth: 1 }}
+                        tickLine={{ stroke: '#cbd5e1' }}
+                        tick={{ fill: '#64748b', fontSize: 11, fontWeight: 700 }}
+                        dy={10}
+                        padding={{ left: 20, right: 20 }}
+                    />
                     <YAxis
-                        axisLine={false}
-                        tickLine={false}
-                        tick={{ fill: '#9e9e9e', fontSize: 12 }}
-                        tickFormatter={(value) => `${(value / 1000000).toFixed(1)}M`}
+                        width={60}
+                        axisLine={{ stroke: '#cbd5e1', strokeWidth: 1 }}
+                        tickLine={{ stroke: '#cbd5e1' }}
+                        tick={{ fill: '#64748b', fontSize: 11, fontWeight: 600 }}
+                        tickFormatter={(value) => {
+                            if (value === 0) return '0';
+                            return `${(value / 1000000).toFixed(1)}M`;
+                        }}
                     />
                     <Tooltip
-                        contentStyle={{ borderRadius: 8, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
-                        formatter={(value) => [`${new Intl.NumberFormat('en-US').format(value)}`, undefined]}
+                        contentStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 8px 24px rgba(0,0,0,0.1)', padding: '12px' }}
+                        itemStyle={{ fontWeight: 700 }}
                     />
-                    <Legend wrapperStyle={{ paddingTop: '20px' }} />
-                    <Line type="monotone" dataKey="budget" stroke="#5b7cfa" strokeWidth={3} dot={{ r: 4, strokeWidth: 2 }} activeDot={{ r: 6 }} name="Budget" />
-                    <Line type="monotone" dataKey="actual" stroke="#26c6da" strokeWidth={3} dot={{ r: 4, strokeWidth: 2 }} activeDot={{ r: 6 }} name="Actual" />
+                    <Line
+                        type="monotone"
+                        dataKey="budget"
+                        stroke="#4d6eff"
+                        strokeWidth={3}
+                        dot={{ r: 5, fill: '#fff', stroke: '#4d6eff', strokeWidth: 2 }}
+                        activeDot={{ r: 7, fill: '#4d6eff', stroke: '#fff', strokeWidth: 2 }}
+                        name="Budget"
+                        connectNulls
+                    />
+                    <Line
+                        type="monotone"
+                        dataKey="actual"
+                        stroke="#64b5f6"
+                        strokeWidth={3}
+                        dot={{ r: 5, fill: '#fff', stroke: '#64b5f6', strokeWidth: 2 }}
+                        activeDot={{ r: 7, fill: '#64b5f6', stroke: '#fff', strokeWidth: 2 }}
+                        name="Actual"
+                        connectNulls
+                    />
                 </LineChart>
             </ResponsiveContainer>
         </Box>

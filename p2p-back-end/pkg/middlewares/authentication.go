@@ -138,12 +138,20 @@ func parseAndValidateToken(accessToken string) (*models.JWTPayload, error) {
 
 	var realmRoles []string
 	if rawAccess, ok := claimsMap["realm_access"].(map[string]interface{}); ok && rawAccess != nil {
-		logs.Infof("Debug RealmAccess: %+v", rawAccess) // 🔍 Debug Log
 		if rawRoles, ok := rawAccess["roles"].([]interface{}); ok && rawRoles != nil {
 			realmRoles = utils.ConvertInterfaceSliceToStringSlice(rawRoles)
 		}
-	} else {
-		logs.Warnf("Debug RealmAccess: Missing or Invalid format in token")
+	}
+
+	// 2.2 Client Roles (resource_access)
+	if rawResource, ok := claimsMap["resource_access"].(map[string]interface{}); ok && rawResource != nil {
+		// Keycloak usually groups by Client ID
+		if clientAccess, ok := rawResource[keycloakClientID].(map[string]interface{}); ok && clientAccess != nil {
+			if clientRoles, ok := clientAccess["roles"].([]interface{}); ok && clientRoles != nil {
+				cRoles := utils.ConvertInterfaceSliceToStringSlice(clientRoles)
+				realmRoles = append(realmRoles, cRoles...)
+			}
+		}
 	}
 	jwtPayload := models.JWTPayload{
 		// Azp key is typically present, but we use GetSafeString just in case or use a default

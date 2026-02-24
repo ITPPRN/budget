@@ -33,12 +33,22 @@ func (r *ownerRepositoryDB) CreateUser(user *models.UserEntity) error {
 	return r.db.Create(user).Error
 }
 
-func (r *ownerRepositoryDB) GetBudgetFilterOptions() ([]models.BudgetFactEntity, error) {
+func (r *ownerRepositoryDB) GetBudgetFilterOptions(filter map[string]interface{}) ([]models.BudgetFactEntity, error) {
 	// Reused logic: fetch distincts
 	var results []models.BudgetFactEntity
-	err := r.db.Model(&models.BudgetFactEntity{}).
-		Distinct("\"group\"", "department", "nav_code", "entity_gl", "conso_gl", "gl_name").
-		Order("\"group\", department, nav_code, entity_gl, conso_gl").
+	query := r.db.Model(&models.BudgetFactEntity{})
+
+	// Apply Restriction
+	if val, ok := filter["allowed_departments"]; ok {
+		if strs, ok := val.([]string); ok && len(strs) > 0 {
+			query = query.Where("department IN ? OR nav_code IN ?", strs, strs)
+		} else if isRestricted, ok := filter["is_restricted"].(bool); ok && isRestricted {
+			query = query.Where("1=0")
+		}
+	}
+
+	err := query.Distinct("entity", "branch", "\"group\"", "department", "nav_code", "entity_gl", "conso_gl", "gl_name").
+		Order("entity, branch, \"group\", department, nav_code, entity_gl, conso_gl").
 		Find(&results).Error
 	return results, err
 }
@@ -93,6 +103,20 @@ func (r *ownerRepositoryDB) GetDashboardAggregates(filter map[string]interface{}
 				} else {
 					tx = tx.Where(tableName+".department IN ?", strs)
 				}
+			}
+		}
+
+		// Enforce Permissions (Internal Filter)
+		if val, ok := filter["allowed_departments"]; ok {
+			if strs := toStringSlice(val); len(strs) > 0 {
+				tn := tableName
+				if tn == "budget_fact_entities" || tn == "owner_actual_fact_entities" {
+					tx = tx.Where(tn+".department IN ? OR "+tn+".nav_code IN ?", strs, strs)
+				} else {
+					tx = tx.Where(tableName+".department IN ?", strs)
+				}
+			} else if isRestricted, ok := filter["is_restricted"].(bool); ok && isRestricted {
+				tx = tx.Where("1=0")
 			}
 		}
 		// Year Filter
@@ -430,6 +454,15 @@ func (r *ownerRepositoryDB) GetBudgetDetails(filter map[string]interface{}) ([]m
 		}
 	}
 
+	// Enforce Permissions (Internal Filter)
+	if val, ok := filter["allowed_departments"]; ok {
+		if strs, ok := val.([]string); ok && len(strs) > 0 {
+			query = query.Where("department IN ? OR nav_code IN ?", strs, strs)
+		} else if isRestricted, ok := filter["is_restricted"].(bool); ok && isRestricted {
+			query = query.Where("1=0")
+		}
+	}
+
 	applyFilter("groups", "\"group\"")
 	applyFilter("groups", "\"group\"")
 	// Smart Filter for Departments
@@ -474,6 +507,15 @@ func (r *ownerRepositoryDB) GetActualDetails(filter map[string]interface{}) ([]m
 			if len(strs) > 0 {
 				query = query.Where(fmt.Sprintf("%s IN ?", dbCol), strs)
 			}
+		}
+	}
+
+	// Enforce Permissions (Internal Filter)
+	if val, ok := filter["allowed_departments"]; ok {
+		if strs, ok := val.([]string); ok && len(strs) > 0 {
+			query = query.Where("department IN ? OR nav_code IN ?", strs, strs)
+		} else if isRestricted, ok := filter["is_restricted"].(bool); ok && isRestricted {
+			query = query.Where("1=0")
 		}
 	}
 
@@ -605,6 +647,18 @@ func (r *ownerRepositoryDB) GetActualTransactions(filter map[string]interface{})
 
 			whereClause += " AND \"Global_Dimension_1_Code\" IN ?"
 			args = append(args, depts)
+		}
+	}
+
+	// Enforce Permissions (Internal Filter)
+	if val, ok := filter["allowed_departments"]; ok {
+		if strs, ok := val.([]string); ok && len(strs) > 0 {
+			// Combine with mapped codes if needed?
+			// For simplicity, we just filter by the allowed departments directly in "Global_Dimension_1_Code"
+			whereClause += " AND \"Global_Dimension_1_Code\" IN ?"
+			args = append(args, strs)
+		} else if isRestricted, ok := filter["is_restricted"].(bool); ok && isRestricted {
+			whereClause += " AND 1=0"
 		}
 	}
 
@@ -741,21 +795,32 @@ func (r *ownerRepositoryDB) GetActualTransactions(filter map[string]interface{})
 	return results, nil
 }
 
-func (r *ownerRepositoryDB) GetOwnerFilterLists() (*models.OwnerFilterListsDTO, error) {
+func (r *ownerRepositoryDB) GetOwnerFilterLists(filter map[string]interface{}) (*models.OwnerFilterListsDTO, error) {
 	lists := &models.OwnerFilterListsDTO{
 		Companies: []string{},
 		Branches:  []string{},
 		Years:     []string{},
 	}
 
+	// Helper for Restriction
+	applyRestriction := func(query *gorm.DB) *gorm.DB {
+		if val, ok := filter["allowed_departments"]; ok {
+			if strs, ok := val.([]string); ok && len(strs) > 0 {
+				query = query.Where("department IN ? OR nav_code IN ?", strs, strs)
+			} else if isRestricted, ok := filter["is_restricted"].(bool); ok && isRestricted {
+				query = query.Where("1=0")
+			}
+		}
+		return query
+	}
+
 	// 1. Companies (Entity)
-	// Union from Budget and Actual
 	var budgetEntities []string
-	if err := r.db.Model(&models.BudgetFactEntity{}).Distinct("entity").Pluck("entity", &budgetEntities).Error; err != nil {
+	if err := applyRestriction(r.db.Model(&models.BudgetFactEntity{})).Distinct("entity").Pluck("entity", &budgetEntities).Error; err != nil {
 		return nil, err
 	}
 	var actualEntities []string
-	if err := r.db.Model(&models.OwnerActualFactEntity{}).Distinct("entity").Pluck("entity", &actualEntities).Error; err != nil { // Still using Actual? Should use OwnerActual
+	if err := applyRestriction(r.db.Model(&models.OwnerActualFactEntity{})).Distinct("entity").Pluck("entity", &actualEntities).Error; err != nil {
 		return nil, err
 	}
 	// Merge Unique
@@ -774,11 +839,11 @@ func (r *ownerRepositoryDB) GetOwnerFilterLists() (*models.OwnerFilterListsDTO, 
 
 	// 2. Branches
 	var budgetBranches []string
-	if err := r.db.Model(&models.BudgetFactEntity{}).Distinct("branch").Pluck("branch", &budgetBranches).Error; err != nil {
+	if err := applyRestriction(r.db.Model(&models.BudgetFactEntity{})).Distinct("branch").Pluck("branch", &budgetBranches).Error; err != nil {
 		return nil, err
 	}
 	var actualBranches []string
-	if err := r.db.Model(&models.OwnerActualFactEntity{}).Distinct("branch").Pluck("branch", &actualBranches).Error; err != nil {
+	if err := applyRestriction(r.db.Model(&models.OwnerActualFactEntity{})).Distinct("branch").Pluck("branch", &actualBranches).Error; err != nil {
 		return nil, err
 	}
 	branchMap := make(map[string]bool)
@@ -797,11 +862,11 @@ func (r *ownerRepositoryDB) GetOwnerFilterLists() (*models.OwnerFilterListsDTO, 
 	// 3. Years
 	// Years might need to be sorted descending
 	var budgetYears []string
-	if err := r.db.Model(&models.BudgetFactEntity{}).Distinct("year").Pluck("year", &budgetYears).Error; err != nil {
+	if err := applyRestriction(r.db.Model(&models.BudgetFactEntity{})).Distinct("year").Pluck("year", &budgetYears).Error; err != nil {
 		return nil, err
 	}
 	var actualYears []string
-	if err := r.db.Model(&models.OwnerActualFactEntity{}).Distinct("year").Pluck("year", &actualYears).Error; err != nil {
+	if err := applyRestriction(r.db.Model(&models.OwnerActualFactEntity{})).Distinct("year").Pluck("year", &actualYears).Error; err != nil {
 		return nil, err
 	}
 	yearMap := make(map[string]bool)
@@ -821,6 +886,12 @@ func (r *ownerRepositoryDB) GetOwnerFilterLists() (*models.OwnerFilterListsDTO, 
 }
 
 // AutoSyncOwnerActuals trancates and re-populates OwnerActualFactEntity
+func (r *ownerRepositoryDB) GetUserPermissions(userID string) ([]models.UserPermissionEntity, error) {
+	var perms []models.UserPermissionEntity
+	err := r.db.Where("user_id = ? AND is_active = true", userID).Find(&perms).Error
+	return perms, err
+}
+
 func (r *ownerRepositoryDB) AutoSyncOwnerActuals() error {
 	// 1. Truncate Tables
 	if err := r.db.Exec("TRUNCATE TABLE owner_actual_amount_entities, owner_actual_fact_entities RESTART IDENTITY CASCADE").Error; err != nil {
@@ -891,7 +962,50 @@ func (r *ownerRepositoryDB) AutoSyncOwnerActuals() error {
 	var facts []*models.OwnerActualFactEntity
 	var amounts []models.OwnerActualAmountEntity
 
+	// Mapping Dicts
+	entityMapping := map[string]string{
+		"AUTOCORP HOLDING": "ACG",
+		"HONDA MALIWAN":    "HMW",
+	}
+	branchMapping := map[string]string{
+		"AUTOCORP HEAD OFFICE": "HQ",
+		"BURIRUM":              "BUR",
+		"HEAD OFFICE":          "HOF",
+		"HEADOFFICE":           "HOF",
+		"KRABI":                "KBI",
+		"MINI_SURIN":           "MSR",
+		"MUEANG KRABI":         "MKB",
+		"NAKA":                 "NAK",
+		"NANGRONG":             "AVN",
+		"PHACHA":               "PHC",
+		"PHUKET":               "PRA",
+		"SURIN":                "SUR",
+	}
+
 	for _, row := range rows {
+		// --- MAPPING LOGIC ---
+		// 1. Entity Mapping
+		entUpper := strings.ToUpper(strings.TrimSpace(row.Entity))
+		if mappedEnt, ok := entityMapping[entUpper]; ok {
+			row.Entity = mappedEnt
+		} else if row.Entity == "CLIK" {
+			// Stay CLIK
+		}
+
+		// 2. Branch Mapping
+		brUpper := strings.ToUpper(strings.TrimSpace(row.Branch))
+		if mappedBr, ok := branchMapping[brUpper]; ok {
+			row.Branch = mappedBr
+		} else {
+			// CLIK Special Case: BRANCH01 -> Branch01
+			if brUpper == "" {
+				row.Branch = "Branch00"
+			} else if strings.HasPrefix(brUpper, "BRANCH") {
+				// Convert BRANCHXX to BranchXX
+				row.Branch = strings.Title(strings.ToLower(brUpper))
+			}
+		}
+
 		// Key for Fact Uniqueness - INCLUDE NavCode
 		// Use Pipes to separate
 		key := fmt.Sprintf("%s|%s|%s|%s|%s|%s", row.Entity, row.Branch, row.Department, row.NavCode, row.EntityGL, row.Year)
