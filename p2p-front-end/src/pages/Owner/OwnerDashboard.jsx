@@ -107,14 +107,15 @@ const UsageCard = ({ usagePercent }) => (
 
 const OwnerDashboard = () => {
     const { user } = useAuth();
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(true); // Filter initialization
+    const [dataLoading, setDataLoading] = useState(false); // Background data fetch
     const [chartMode, setChartMode] = useState('monthly'); // 'monthly' | 'accumulated'
 
-    // Filter Options State
-    const [selectedCompany, setSelectedCompany] = useState('');
-    const [selectedBranch, setSelectedBranch] = useState('');
-    const [selectedDept, setSelectedDept] = useState('');
-    const [selectedYear, setSelectedYear] = useState('');
+    // Filter Options State (Loaded from localStorage if available)
+    const [selectedCompany, setSelectedCompany] = useState(localStorage.getItem('owner_dashboard_company') || '');
+    const [selectedBranch, setSelectedBranch] = useState(localStorage.getItem('owner_dashboard_branch') || '');
+    const [selectedDept, setSelectedDept] = useState(localStorage.getItem('owner_dashboard_dept') || '');
+    const [selectedYear, setSelectedYear] = useState(localStorage.getItem('owner_dashboard_year') || '');
 
     const [summary, setSummary] = useState({
         totalBudget: 0,
@@ -156,7 +157,7 @@ const OwnerDashboard = () => {
     // 2. Fetch Dashboard Data
     const fetchDashboardData = async () => {
         if (!selectedYear) return;
-        setLoading(true);
+        setDataLoading(true);
         try {
             const payload = {
                 year: selectedYear,
@@ -164,6 +165,12 @@ const OwnerDashboard = () => {
                 branches: selectedBranch && selectedBranch !== 'All' ? [selectedBranch] : [],
                 departments: selectedDept && selectedDept !== 'All' ? [selectedDept] : []
             };
+
+            // Save to localStorage
+            localStorage.setItem('owner_dashboard_year', selectedYear);
+            localStorage.setItem('owner_dashboard_company', selectedCompany);
+            localStorage.setItem('owner_dashboard_branch', selectedBranch);
+            localStorage.setItem('owner_dashboard_dept', selectedDept);
 
             const { data } = await api.post('/owner/dashboard-summary', payload);
 
@@ -189,7 +196,7 @@ const OwnerDashboard = () => {
             console.error("Owner Dashboard Fetch Error", err);
             // toast.error("Failed to load dashboard data"); 
         } finally {
-            setLoading(false);
+            setDataLoading(false);
         }
     };
 
@@ -204,56 +211,48 @@ const OwnerDashboard = () => {
             console.log("Initializing Dashboard...");
             // setLoading(true); // Ensure loading is on
 
-            // Step 2: Fetch Filters (Data is synced by Backend on startup)
+            // Step 2: Fetch Filters Parallelized (Promise.all)
             try {
-                console.log("3. Fetching Filters...");
-                const structRes = await api.get('/owner/organization-structure');
+                console.log("3. Fetching Filters (Parallel)...");
+                const [structRes, listRes] = await Promise.all([
+                    api.get('/owner/organization-structure'),
+                    api.get('/owner/filter-lists')
+                ]);
+
                 const structData = structRes.data || [];
                 setOrgStructure(structData);
 
-                // Smart Auto-Selection (Experimental for restricted users)
-                if (structData.length === 1) {
+                const years = listRes.data.years || [];
+                setFilterYears(years);
+                console.log("4. Filters Fetched. Years:", years);
+
+                // Smart Default logic only if no localStorage exists
+                if (!localStorage.getItem('owner_dashboard_year') && years.length > 0) {
+                    const sortedYears = [...years].sort((a, b) => b.localeCompare(a));
+                    const defaultYear = sortedYears[0];
+                    setSelectedYear(defaultYear);
+                } else if (selectedYear) {
+                    // Flash refresh if we already have a year from localStorage
+                    fetchDashboardData();
+                }
+
+                // Smart Auto-Selection logic (only if not already set)
+                if (!selectedCompany && structData.length === 1) {
                     const firstEntity = structData[0];
                     setSelectedCompany(firstEntity.entity);
-
-                    if (firstEntity.branches?.length === 1) {
+                    if (!selectedBranch && firstEntity.branches?.length === 1) {
                         const firstBranch = firstEntity.branches[0];
                         setSelectedBranch(firstBranch.name);
-
-                        if (firstBranch.departments?.length === 1) {
+                        if (!selectedDept && firstBranch.departments?.length === 1) {
                             setSelectedDept(firstBranch.departments[0]);
                         }
                     }
                 }
 
-                const listRes = await api.get('/owner/filter-lists');
-                const years = listRes.data.years || [];
-                setFilterYears(years);
-                console.log("4. Filters Fetched. Years:", years);
-
-                if (years.length > 0) {
-                    // Sort descending
-                    const sortedYears = [...years].sort((a, b) => b.localeCompare(a));
-                    const defaultYear = sortedYears[0];
-
-                    // Select Year (this will trigger the Data Fetch Effect)
-                    if (selectedYear !== defaultYear) {
-                        console.log(`5. Setting Year to ${defaultYear}`);
-                        setSelectedYear(defaultYear);
-                    } else {
-                        // If year is SAME as before (e.g. re-mount), we MUST force a re-fetch 
-                        // because the data might have changed due to Sync.
-                        console.log("5. Year unchanged, forcing data refresh...");
-                        fetchDashboardData();
-                    }
-                } else {
-                    console.warn("No years found.");
-                    setLoading(false); // Stop loading if no data
-                }
-
             } catch (err) {
                 console.error("Filter Fetch Error", err);
                 toast.error("Failed to load filters");
+            } finally {
                 setLoading(false);
             }
         };
@@ -281,7 +280,9 @@ const OwnerDashboard = () => {
             usagePercent > 100 ? 'Over Budget' :
                 usagePercent > 80 ? 'Near Limit' : 'In Budget';
 
-    if (loading && summary.totalBudget === 0 && !selectedYear) {
+    // Optimized Loading State: Only block IF we have absolutely NO data and NO year yet.
+    // If we have a year (from localStorage), let the UI render.
+    if (loading && !selectedYear) {
         return (<Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}> <CircularProgress /> </Box>);
     }
 
@@ -295,6 +296,22 @@ const OwnerDashboard = () => {
                 bgcolor: '#f8f9fc',
                 overflow: 'hidden'
             }}>
+                {/* Top Loading Indicator (Granular UX) */}
+                {dataLoading && (
+                    <LinearProgress 
+                        sx={{ 
+                            position: 'absolute', 
+                            top: 0, 
+                            left: 0, 
+                            right: 0, 
+                            zIndex: 9999,
+                            height: 4,
+                            bgcolor: 'rgba(77, 110, 255, 0.1)',
+                            '& .MuiLinearProgress-bar': { bgcolor: '#4d6eff' }
+                        }} 
+                    />
+                )}
+                
                 {/* Fluid Wrapper - Edge to Edge */}
                 <Box sx={{
                     width: '100%',
