@@ -2,56 +2,69 @@ import React from 'react';
 import { Paper, Typography, Box } from '@mui/material';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
-const COLORS = ['#4d6eff', '#64b5f6', '#10254a', '#1e88e5', '#90caf9'];
+export const COLORS = ['#6becdf', '#4accdb', '#2b82a3', '#1e88e5', '#90caf9'];
 
-const DonutChart = ({ data }) => {
-    const total = data.reduce((sum, entry) => sum + entry.value, 0);
+const DonutChart = ({ data, showLegend = true }) => {
+    // Ensure all empty string names are converted to 'Unknown' BEFORE Recharts reads them,
+    // otherwise Recharts Legend defaults to the dataKey ("value").
+    const safeData = (data || []).map(item => ({
+        ...item,
+        name: item.name ? item.name : 'Unknown Account'
+    }));
 
-    const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, value, name }) => {
-        const RADIAN = Math.PI / 180;
-        const radius = outerRadius * 1.3;
-        const x = cx + radius * Math.cos(-midAngle * RADIAN);
-        const y = cy + radius * Math.sin(-midAngle * RADIAN);
-        const percent = ((value / total) * 100).toFixed(1);
-
+    // Graceful fallback for completely empty data (e.g., no spending at all)
+    if (safeData.length === 0) {
         return (
-            <text
-                x={x}
-                y={y}
-                fill="#333"
-                textAnchor={x > cx ? 'start' : 'end'}
-                dominantBaseline="central"
-                fontSize="12"
-                fontWeight="700"
-            >
-                <tspan x={x} dy="-0.6em">{name}</tspan>
-                <tspan x={x} dy="1.2em" fill="#666" fontWeight="500">{`${percent}%`}</tspan>
-            </text>
+            <Box display="flex" justifyContent="center" alignItems="center" height="100%">
+                <Typography variant="body2" color="text.secondary">
+                    No expenses data available
+                </Typography>
+            </Box>
         );
-    };
+    }
+
+    const total = safeData.reduce((sum, entry) => sum + entry.value, 0);
+
+    // If data exists but all values are 0, Recharts Pie will silently fail to render wedges.
+    if (total === 0) {
+        return (
+            <Box display="flex" justifyContent="center" alignItems="center" height="100%">
+                <Typography variant="body2" color="text.secondary">
+                    No spending recorded for this period (Amounts are 0)
+                </Typography>
+            </Box>
+        );
+    }
 
     return (
         <Box sx={{ width: '100%', height: '100%', minHeight: 250 }}>
             <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                     <Pie
-                        data={data}
+                        data={safeData}
                         cx="50%"
                         cy="45%"
-                        innerRadius={55}
-                        outerRadius={75}
+                        innerRadius="60%"
+                        outerRadius="85%"
                         paddingAngle={2}
                         dataKey="value"
                         nameKey="name"
-                        label={renderCustomizedLabel}
-                        labelLine={{ stroke: '#cfd8dc', strokeWidth: 1 }}
+                        labelLine={false}
+                        isAnimationActive={false} // Disable animation to prevent visual glitches on re-render
                     >
-                        {data.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                        ))}
+                        {safeData.map((entry, index) => {
+                            // Ensure empty names are categorized as Unknown for the legend and tooltip
+                            const sliceName = entry.name || 'Unknown Account';
+                            return (
+                                <Cell key={`cell-${index}`} name={sliceName} fill={COLORS[index % COLORS.length]} />
+                            );
+                        })}
                     </Pie>
                     <Tooltip
-                        formatter={(value) => `${new Intl.NumberFormat('en-US').format(value)}`}
+                        formatter={(value) => {
+                            const percent = ((value / total) * 100).toFixed(1);
+                            return `${percent}%`;
+                        }}
                         contentStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 8px 24px rgba(0,0,0,0.1)' }}
                     />
                 </PieChart>

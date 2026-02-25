@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"p2p-back-end/modules/entities/models"
 	"sort"
+	"strings"
 
 	"gorm.io/gorm"
 )
@@ -814,6 +815,15 @@ func (r *budgetRepositoryDB) GetDashboardAggregates(filter map[string]interface{
 		if val, ok := filter["nav_codes"]; ok {
 			if strs := toStringSlice(val); len(strs) > 0 {
 				tx = tx.Where(tableName+".nav_code IN ?", strs)
+			}
+		}
+		// Added: Year Filter (Only for Actuals, Budget ignores year)
+		if val, ok := filter["year"]; ok {
+			if s, ok := val.(string); ok && s != "" {
+				s = strings.ReplaceAll(s, "FY", "")
+				if !strings.Contains(tableName, "budget") {
+					tx = tx.Where(tableName+".year = ?", s)
+				}
 			}
 		}
 		return tx

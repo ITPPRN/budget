@@ -123,7 +123,9 @@ func (r *ownerRepositoryDB) GetDashboardAggregates(filter map[string]interface{}
 		if val, ok := filter["year"]; ok {
 			if s, ok := val.(string); ok && s != "" {
 				s = strings.ReplaceAll(s, "FY", "")
-				tx = tx.Where(tableName+".year = ?", s)
+				if !strings.Contains(tableName, "budget") {
+					tx = tx.Where(tableName+".year = ?", s)
+				}
 			}
 		}
 		return tx
@@ -337,10 +339,10 @@ func (r *ownerRepositoryDB) GetDashboardAggregates(filter map[string]interface{}
 		defer func() { <-sem }() // Release
 		fmt.Println("[DEBUG] Start Top Expenses")
 		tx := r.db.Table("owner_actual_fact_entities").
-			Select("gl_name as name, SUM(year_total) as total").
+			Select("gl_name as name, CAST(SUM(year_total) AS FLOAT) as total").
 			Group("gl_name").
 			Order("total desc").
-			Limit(5)
+			Limit(3)
 		tx = applyFilter(tx, "owner_actual_fact_entities")
 		if err := tx.Scan(&topExps).Error; err != nil {
 			fmt.Printf("[WARN] Failed to fetch Top Expenses: %v\n", err)
@@ -900,15 +902,15 @@ func (r *ownerRepositoryDB) AutoSyncOwnerActuals() error {
 
 	// 2. Fetch Source Data (One Pass)
 	type SourceRow struct {
-		Entity     string
-		Branch     string
-		Department string
-		NavCode    string // Original Code
-		EntityGL   string
-		GLName     string
-		Year       string
-		Month      string
-		Amount     decimal.Decimal
+		Entity     string          `gorm:"column:entity"`
+		Branch     string          `gorm:"column:branch"`
+		Department string          `gorm:"column:department"`
+		NavCode    string          `gorm:"column:navcode"`
+		EntityGL   string          `gorm:"column:entitygl"`
+		GLName     string          `gorm:"column:glname"`
+		Year       string          `gorm:"column:year"`
+		Month      string          `gorm:"column:month"`
+		Amount     decimal.Decimal `gorm:"column:amount"`
 	}
 
 	var rows []SourceRow

@@ -167,13 +167,13 @@ type MonthlyStatDTO struct {
 }
 
 type ActualAggregatedDTO struct {
-	Company       string          `json:"company"`
-	Branch        string          `json:"branch"`
-	Department    string          `json:"department"`
-	GLAccountNo   string          `json:"gl_account_no"`
-	GLAccountName string          `json:"gl_account_name"`
-	Month         string          `json:"month"`
-	TotalAmount   decimal.Decimal `json:"total_amount"`
+	Company       string          `json:"company" gorm:"column:company"`
+	Branch        string          `json:"branch" gorm:"column:branch"`
+	Department    string          `json:"department" gorm:"column:department"`
+	GLAccountNo   string          `json:"gl_account_no" gorm:"column:gl_account_no"`
+	GLAccountName string          `json:"gl_account_name" gorm:"column:gl_account_name"`
+	Month         string          `json:"month" gorm:"column:month"`
+	TotalAmount   decimal.Decimal `json:"total_amount" gorm:"column:total_amount"`
 }
 
 type ActualTransactionDTO struct {

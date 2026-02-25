@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Grid, Typography, FormControl, Select, MenuItem, Stack, Paper, CircularProgress, Button, IconButton, Tooltip, LinearProgress } from '@mui/material';
+import { Box, Grid, Typography, FormControl, Select, MenuItem, Stack, Paper, CircularProgress, Button, IconButton, Tooltip, LinearProgress, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from '@mui/material';
 import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
 import SyncIcon from '@mui/icons-material/Sync';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
@@ -20,7 +20,7 @@ import PeopleIcon from '@mui/icons-material/People';
 import { useAuth } from '../../hooks/useAuth';
 import api from '../../utils/api/axiosInstance';
 import BudgetChart from '../../components/Dashboard/OwnerBudgetChart';
-import DonutChart from '../../components/Dashboard/DonutChart';
+import DonutChart, { COLORS } from '../../components/Dashboard/DonutChart';
 import ErrorBoundary from '../../components/ErrorBoundary';
 import { toast } from 'react-toastify';
 
@@ -110,12 +110,13 @@ const OwnerDashboard = () => {
     const [loading, setLoading] = useState(true); // Filter initialization
     const [dataLoading, setDataLoading] = useState(false); // Background data fetch
     const [chartMode, setChartMode] = useState('monthly'); // 'monthly' | 'accumulated'
+    const [isTopExpenseExpanded, setIsTopExpenseExpanded] = useState(false);
 
-    // Filter Options State (Loaded from localStorage if available)
-    const [selectedCompany, setSelectedCompany] = useState(localStorage.getItem('owner_dashboard_company') || '');
-    const [selectedBranch, setSelectedBranch] = useState(localStorage.getItem('owner_dashboard_branch') || '');
-    const [selectedDept, setSelectedDept] = useState(localStorage.getItem('owner_dashboard_dept') || '');
-    const [selectedYear, setSelectedYear] = useState(localStorage.getItem('owner_dashboard_year') || '');
+    // Filter Options State (Reset on load)
+    const [selectedCompany, setSelectedCompany] = useState('');
+    const [selectedBranch, setSelectedBranch] = useState('');
+    const [selectedDept, setSelectedDept] = useState('');
+    const [selectedYear, setSelectedYear] = useState('');
 
     const [summary, setSummary] = useState({
         totalBudget: 0,
@@ -166,11 +167,7 @@ const OwnerDashboard = () => {
                 departments: selectedDept && selectedDept !== 'All' ? [selectedDept] : []
             };
 
-            // Save to localStorage
-            localStorage.setItem('owner_dashboard_year', selectedYear);
-            localStorage.setItem('owner_dashboard_company', selectedCompany);
-            localStorage.setItem('owner_dashboard_branch', selectedBranch);
-            localStorage.setItem('owner_dashboard_dept', selectedDept);
+
 
             const { data } = await api.post('/owner/dashboard-summary', payload);
 
@@ -186,7 +183,7 @@ const OwnerDashboard = () => {
                 })),
                 topExpenses: (data.top_expenses || []).map(item => ({
                     name: item.name,
-                    value: item.amount
+                    value: Number(item.amount) || 0
                 })),
                 overBudgetCount: data.over_budget_count || 0,
                 nearLimitCount: data.near_limit_count || 0
@@ -226,14 +223,11 @@ const OwnerDashboard = () => {
                 setFilterYears(years);
                 console.log("4. Filters Fetched. Years:", years);
 
-                // Smart Default logic only if no localStorage exists
-                if (!localStorage.getItem('owner_dashboard_year') && years.length > 0) {
+                // Smart Default logic
+                if (!selectedYear && years.length > 0) {
                     const sortedYears = [...years].sort((a, b) => b.localeCompare(a));
                     const defaultYear = sortedYears[0];
                     setSelectedYear(defaultYear);
-                } else if (selectedYear) {
-                    // Flash refresh if we already have a year from localStorage
-                    fetchDashboardData();
                 }
 
                 // Smart Auto-Selection logic (only if not already set)
@@ -298,20 +292,20 @@ const OwnerDashboard = () => {
             }}>
                 {/* Top Loading Indicator (Granular UX) */}
                 {dataLoading && (
-                    <LinearProgress 
-                        sx={{ 
-                            position: 'absolute', 
-                            top: 0, 
-                            left: 0, 
-                            right: 0, 
+                    <LinearProgress
+                        sx={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            right: 0,
                             zIndex: 9999,
                             height: 4,
                             bgcolor: 'rgba(77, 110, 255, 0.1)',
                             '& .MuiLinearProgress-bar': { bgcolor: '#4d6eff' }
-                        }} 
+                        }}
                     />
                 )}
-                
+
                 {/* Fluid Wrapper - Edge to Edge */}
                 <Box sx={{
                     width: '100%',
@@ -588,8 +582,8 @@ const OwnerDashboard = () => {
                             </Paper>
                         </Grid>
 
-                        {/* RIGHT - Stats Sidebar (Pure Right Edge Alignment) */}
-                        <Grid item xs={12} lg={2.4} sx={{ pr: { lg: 5 } }}>
+                        {/* RIGHT - Stats Sidebar (Fluid Expandable) */}
+                        <Grid item xs={12} lg={isTopExpenseExpanded ? 6 : 2.4} sx={{ pr: { lg: 5 }, transition: 'all 0.4s ease-in-out' }}>
                             <Stack spacing={4} sx={{ height: '100%', width: '100%' }}>
                                 {/* Top Expense */}
                                 <Paper
@@ -607,15 +601,53 @@ const OwnerDashboard = () => {
                                         <Typography variant="h6" sx={{ fontWeight: 800, color: '#333', flexGrow: 1 }}>
                                             Top expense
                                         </Typography>
-                                        <IconButton size="small" sx={{ bgcolor: '#4d6eff', color: 'white', '&:hover': { bgcolor: '#3d59cc' } }}>
-                                            <ChevronLeftIcon sx={{ fontSize: 20 }} />
+                                        <IconButton size="small" onClick={() => setIsTopExpenseExpanded(!isTopExpenseExpanded)} sx={{ bgcolor: '#4d6eff', color: 'white', '&:hover': { bgcolor: '#3d59cc' } }}>
+                                            {isTopExpenseExpanded ? <ChevronRightIcon sx={{ fontSize: 20 }} /> : <ChevronLeftIcon sx={{ fontSize: 20 }} />}
                                         </IconButton>
                                         <IconButton size="small" sx={{ bgcolor: '#4d6eff', color: 'white', '&:hover': { bgcolor: '#3d59cc' } }}>
                                             <MoreHorizIcon sx={{ fontSize: 20 }} />
                                         </IconButton>
                                     </Stack>
-                                    <Box sx={{ flexGrow: 1, width: '100%', position: 'relative', minHeight: 280 }}>
-                                        <DonutChart data={summary.topExpenses} />
+                                    <Box sx={{ flexGrow: 1, width: '100%', position: 'relative', minHeight: 280, display: 'flex', gap: 2 }}>
+                                        <Box sx={{ flex: 1 }}>
+                                            <DonutChart data={summary.topExpenses} showLegend={!isTopExpenseExpanded} />
+                                        </Box>
+                                        {isTopExpenseExpanded && (
+                                            <Box sx={{ flex: 1, overflowY: 'auto', maxHeight: 280, pr: 1 }}>
+                                                <TableContainer>
+                                                    <Table size="small" stickyHeader>
+                                                        <TableHead>
+                                                            <TableRow>
+                                                                <TableCell sx={{ fontWeight: 800, color: '#64748b' }}>Account Name</TableCell>
+                                                                <TableCell align="right" sx={{ fontWeight: 800, color: '#64748b' }}>Amount (THB)</TableCell>
+                                                            </TableRow>
+                                                        </TableHead>
+                                                        <TableBody>
+                                                            {summary.topExpenses.map((expense, index) => (
+                                                                <TableRow key={index} hover sx={{ '&:last-child td, &:last-child th': { border: 0 } }}>
+                                                                    <TableCell component="th" scope="row" sx={{ color: '#334155', fontWeight: 600 }}>
+                                                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                                            <Box sx={{ flexShrink: 0, width: 12, height: 12, borderRadius: '50%', bgcolor: COLORS[index % COLORS.length] }} />
+                                                                            <span>{expense.name || 'Unknown Account'}</span>
+                                                                        </Box>
+                                                                    </TableCell>
+                                                                    <TableCell align="right" sx={{ color: '#0f172a', fontWeight: 700 }}>
+                                                                        {new Intl.NumberFormat('en-US', { minimumFractionDigits: 2 }).format(expense.value)}
+                                                                    </TableCell>
+                                                                </TableRow>
+                                                            ))}
+                                                            {summary.topExpenses.length === 0 && (
+                                                                <TableRow>
+                                                                    <TableCell colSpan={2} align="center" sx={{ py: 3, color: '#94a3b8' }}>
+                                                                        No expenses recorded
+                                                                    </TableCell>
+                                                                </TableRow>
+                                                            )}
+                                                        </TableBody>
+                                                    </Table>
+                                                </TableContainer>
+                                            </Box>
+                                        )}
                                     </Box>
                                 </Paper>
 
