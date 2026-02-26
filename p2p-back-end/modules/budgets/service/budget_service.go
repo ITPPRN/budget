@@ -1122,7 +1122,7 @@ func sanitizeFilter(filter map[string]interface{}) {
 	}
 }
 
-func (s *budgetService) GetBudgetDetails(filter map[string]interface{}) ([]models.BudgetFactEntity, error) {
+func (s *budgetService) GetBudgetDetails(filter map[string]interface{}) ([]models.BudgetDetailDTO, error) {
 	sanitizeFilter(filter)
 	return s.repo.GetBudgetDetails(filter)
 }
@@ -1139,7 +1139,7 @@ func (s *budgetService) GetDashboardSummary(filter map[string]interface{}) (*mod
 	return s.repo.GetDashboardAggregates(filter)
 }
 
-func (s *budgetService) GetActualTransactions(filter map[string]interface{}) ([]models.ActualTransactionDTO, error) {
+func (s *budgetService) GetActualTransactions(filter map[string]interface{}) (*models.PaginatedActualTransactionDTO, error) {
 	sanitizeFilter(filter)
 	return s.repo.GetActualTransactions(filter)
 }

@@ -14,7 +14,7 @@ import ExpandLess from '@mui/icons-material/ExpandLess';
 import ExpandMore from '@mui/icons-material/ExpandMore';
 import { useBudget } from '../../contexts/BudgetContext';
 
-const FilterNode = ({ node }) => {
+const FilterNode = React.memo(({ node }) => {
     const [open, setOpen] = useState(false);
     const { getNodeState, toggleNode } = useBudget();
 
@@ -83,6 +83,6 @@ const FilterNode = ({ node }) => {
             )}
         </>
     );
-};
+});
 
 export default FilterNode;

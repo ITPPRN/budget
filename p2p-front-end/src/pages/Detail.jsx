@@ -19,6 +19,11 @@ const DetailContent = () => {
   // Date Filter State for Actuals
   const [actualDateFilter, setActualDateFilter] = useState({ startDate: '', endDate: '' });
 
+  // Pagination State for Actuals
+  const [actualPage, setActualPage] = useState(0);
+  const [actualRowsPerPage, setActualRowsPerPage] = useState(10);
+  const [actualTotalCount, setActualTotalCount] = useState(0);
+
   // Filters State
   const [selectedEntity, setSelectedEntity] = useState('');
   const [selectedBranch, setSelectedBranch] = useState('');
@@ -38,7 +43,7 @@ const DetailContent = () => {
     fetchFilters();
   }, []);
 
-  // Derived state for branches (Now returns objects: {name, departments})
+  // Derived state for branches
   const availableBranches = useMemo(() => {
     if (!selectedEntity) return [];
     const entityObj = orgStructure.find(o => o.entity === selectedEntity);
@@ -47,10 +52,22 @@ const DetailContent = () => {
 
   // Derived state for departments
   const availableDepartments = useMemo(() => {
-    if (!selectedBranch) return [];
-    const branchObj = availableBranches.find(b => b.name === selectedBranch);
-    return branchObj ? branchObj.departments : [];
-  }, [selectedBranch, availableBranches]);
+    if (selectedBranch) {
+      const branchObj = availableBranches.find(b => b.name === selectedBranch);
+      return branchObj ? branchObj.departments : [];
+    } else {
+      // Flatten all unique departments across entire org if no branch selected
+      const depts = new Set();
+      orgStructure.forEach(entity => {
+        entity.branches?.forEach(branch => {
+          branch.departments?.forEach(dept => {
+            depts.add(dept);
+          });
+        });
+      });
+      return Array.from(depts).sort();
+    }
+  }, [selectedBranch, availableBranches, orgStructure]);
 
   // Auto Fetch Details when Selection Changes or Date Filter Changes
   useEffect(() => {
@@ -83,7 +100,9 @@ const DetailContent = () => {
           end_date: actualDateFilter.endDate,
           entities: selectedEntity ? [selectedEntity] : [],     // Add Entity Filter
           branches: selectedBranch ? [selectedBranch] : [],      // Add Branch Filter
-          departments: selectedDepartment ? [selectedDepartment] : [] // Add Department Filter
+          departments: selectedDepartment ? [selectedDepartment] : [], // Add Department Filter
+          page: actualPage,
+          limit: actualRowsPerPage
         };
 
         // Parallel Fetch
@@ -121,11 +140,13 @@ const DetailContent = () => {
 
         // --- Process Actual (Transactions) ---
         if (results[1].status === 'fulfilled') {
-          const rawActual = results[1].value.data || [];
-          setActualDetails(rawActual);
+          const resMap = results[1].value.data || {};
+          setActualDetails(resMap.data || []);
+          setActualTotalCount(resMap.total_count || 0);
         } else {
           console.error("Actual Transactions Fetch Failed", results[1].reason);
           setActualDetails([]);
+          setActualTotalCount(0);
         }
 
       } catch (err) {
@@ -147,7 +168,7 @@ const DetailContent = () => {
       isMounted = false;
       clearTimeout(timeoutId);
     };
-  }, [selectedLeaves, getAllLeafIds, actualDateFilter, selectedEntity, selectedBranch, selectedDepartment]); // Add dependencies
+  }, [selectedLeaves, getAllLeafIds, actualDateFilter, selectedEntity, selectedBranch, selectedDepartment, actualPage, actualRowsPerPage]); // Add dependencies
 
   return (
     <Box sx={{ p: 2, height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -203,7 +224,6 @@ const DetailContent = () => {
               value={selectedDepartment}
               label="Department (แผนก)"
               onChange={(e) => setSelectedDepartment(e.target.value)}
-              disabled={!selectedBranch}
             >
               <MenuItem value=""><em>All Departments</em></MenuItem>
               {availableDepartments.map((dept) => (
@@ -252,6 +272,11 @@ const DetailContent = () => {
             data={actualDetails}
             dateFilter={actualDateFilter}
             onDateFilterChange={setActualDateFilter}
+            page={actualPage}
+            rowsPerPage={actualRowsPerPage}
+            totalCount={actualTotalCount}
+            onPageChange={setActualPage}
+            onRowsPerPageChange={setActualRowsPerPage}
           />
         </Box>
 

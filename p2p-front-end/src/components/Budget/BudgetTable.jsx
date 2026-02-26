@@ -20,7 +20,7 @@ import CloseIcon from '@mui/icons-material/Close';
 
 const months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
 
-const BudgetTable = ({ loading, data, selectedCount }) => {
+const BudgetTable = React.memo(({ loading, data, selectedCount }) => {
     const [openFullScreen, setOpenFullScreen] = React.useState(false);
     const [page, setPage] = React.useState(0);
     const [rowsPerPage, setRowsPerPage] = React.useState(10);
@@ -39,14 +39,14 @@ const BudgetTable = ({ loading, data, selectedCount }) => {
 
     const renderTable = (isMaximized = false) => (
         <React.Fragment>
-            <TableContainer sx={{ flexGrow: 1, width: '100%', overflow: 'auto' }}>
+            <TableContainer sx={{ flexGrow: 1, width: '100%', overflow: 'auto', border: '1px solid #e0e0e0', borderRadius: '4px' }}>
                 <Table stickyHeader size={isMaximized ? "medium" : "small"} sx={{ minWidth: '100%' }}>
                     <TableHead>
                         <TableRow>
-                            <TableCell sx={{ bgcolor: '#4e73df', color: 'white', fontWeight: 'bold', whiteSpace: 'nowrap', position: 'sticky', left: 0, zIndex: 3, minWidth: 100 }}>GL Code</TableCell>
-                            <TableCell sx={{ bgcolor: '#4e73df', color: 'white', fontWeight: 'bold', minWidth: 200, whiteSpace: 'nowrap', position: 'sticky', left: 100, zIndex: 3 }}>GL Name</TableCell>
+                            <TableCell sx={{ bgcolor: '#4e73df', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)', whiteSpace: 'nowrap', position: 'sticky', left: 0, zIndex: 3, minWidth: 100 }}>GL Code</TableCell>
+                            <TableCell sx={{ bgcolor: '#4e73df', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)', minWidth: 200, whiteSpace: 'nowrap', position: 'sticky', left: 100, zIndex: 3 }}>GL Name</TableCell>
                             {months.map(m => (
-                                <TableCell key={m} align="right" sx={{ bgcolor: '#4e73df', color: 'white', fontWeight: 'bold', whiteSpace: 'nowrap' }}>{m}</TableCell>
+                                <TableCell key={m} align="right" sx={{ bgcolor: '#4e73df', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)', whiteSpace: 'nowrap' }}>{m}</TableCell>
                             ))}
                             <TableCell align="right" sx={{ bgcolor: '#4e73df', color: 'white', fontWeight: 'bold', whiteSpace: 'nowrap' }}>Total</TableCell>
                         </TableRow>
@@ -71,11 +71,11 @@ const BudgetTable = ({ loading, data, selectedCount }) => {
                                 });
 
                                 return (
-                                    <TableRow key={row.id} hover>
-                                        <TableCell sx={{ whiteSpace: 'nowrap', position: 'sticky', left: 0, bgcolor: 'background.paper', zIndex: 1, minWidth: 100 }}>{row.conso_gl || "-"}</TableCell>
-                                        <TableCell sx={{ whiteSpace: 'nowrap', position: 'sticky', left: 100, bgcolor: 'background.paper', zIndex: 1 }}>{row.gl_name}</TableCell>
+                                    <TableRow key={row.conso_gl} hover>
+                                        <TableCell sx={{ whiteSpace: 'nowrap', borderRight: '1px solid #e0e0e0', position: 'sticky', left: 0, bgcolor: 'background.paper', zIndex: 1, minWidth: 100 }}>{row.conso_gl || "-"}</TableCell>
+                                        <TableCell sx={{ whiteSpace: 'nowrap', borderRight: '1px solid #e0e0e0', position: 'sticky', left: 100, bgcolor: 'background.paper', zIndex: 1 }}>{row.gl_name}</TableCell>
                                         {months.map(m => (
-                                            <TableCell key={m} align="right" sx={{ whiteSpace: 'nowrap' }}>
+                                            <TableCell key={m} align="right" sx={{ whiteSpace: 'nowrap', borderRight: '1px solid #e0e0e0' }}>
                                                 {parseFloat(amountMap[m] || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                             </TableCell>
                                         ))}
@@ -97,7 +97,7 @@ const BudgetTable = ({ loading, data, selectedCount }) => {
             </TableContainer>
             {/* Pagination Control */}
             {!loading && data.length > 0 && (
-                <Box sx={{ flexShrink: 0 }}>
+                <Box sx={{ flexShrink: 0, borderTop: '1px solid #e0e0e0' }}>
                     <TablePagination
                         rowsPerPageOptions={[10, 25, 50, 100]}
                         component="div"
@@ -106,6 +106,10 @@ const BudgetTable = ({ loading, data, selectedCount }) => {
                         page={page}
                         onPageChange={handleChangePage}
                         onRowsPerPageChange={handleChangeRowsPerPage}
+                        sx={{
+                            '.MuiTablePagination-toolbar': { minHeight: '36px', px: 1 },
+                            '.MuiTablePagination-selectLabel, .MuiTablePagination-input, .MuiTablePagination-displayedRows': { fontSize: '0.75rem' }
+                        }}
                     />
                 </Box>
             )}
@@ -114,7 +118,8 @@ const BudgetTable = ({ loading, data, selectedCount }) => {
 
     return (
         <Paper sx={{
-            p: 2,
+            p: 1.5,
+            pt: 1,
             display: 'flex',
             flexDirection: 'column',
             borderRadius: 2,
@@ -123,11 +128,13 @@ const BudgetTable = ({ loading, data, selectedCount }) => {
             minHeight: { xs: '400px', md: 0 }, // Mobile gets fixed minHeight, Desktop fits available space
             overflow: 'hidden'
         }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', bgcolor: '#1976d2', p: 1, borderRadius: 1, mb: 2 }}>
-                <Typography variant="h6" sx={{ color: 'white' }}>
-                    Budget Detail
-                </Typography>
-                <IconButton onClick={() => setOpenFullScreen(true)} size="small" sx={{ color: 'white' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2, px: 1 }}>
+                <Box sx={{ bgcolor: '#2563eb', px: 2, py: 0.5, borderRadius: '8px' }}>
+                    <Typography variant="h6" sx={{ color: 'white', fontWeight: 'bold' }}>
+                        Budget Detail
+                    </Typography>
+                </Box>
+                <IconButton onClick={() => setOpenFullScreen(true)} size="small" sx={{ color: '#424242' }}>
                     <FullscreenIcon />
                 </IconButton>
             </Box>
@@ -142,8 +149,8 @@ const BudgetTable = ({ loading, data, selectedCount }) => {
                 onClose={() => setOpenFullScreen(false)}
                 fullScreen
             >
-                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', bgcolor: '#1976d2', p: 2 }}>
-                    <Typography variant="h6" sx={{ color: 'white' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', bgcolor: '#2563eb', p: 2 }}>
+                    <Typography variant="h6" sx={{ color: 'white', fontWeight: 'bold' }}>
                         Budget Detail (Full Screen)
                     </Typography>
                     <IconButton onClick={() => setOpenFullScreen(false)} sx={{ color: 'white' }}>
@@ -156,6 +163,6 @@ const BudgetTable = ({ loading, data, selectedCount }) => {
             </Dialog>
         </Paper>
     );
-};
+});
 
 export default BudgetTable;

@@ -186,9 +186,9 @@ func (r *budgetRepositoryDB) GetOrganizationStructure() ([]models.BudgetFactEnti
 	return results, err
 }
 
-func (r *budgetRepositoryDB) GetBudgetDetails(filter map[string]interface{}) ([]models.BudgetFactEntity, error) {
-	var results []models.BudgetFactEntity
-	query := r.db.Model(&models.BudgetFactEntity{}).Preload("BudgetAmounts")
+func (r *budgetRepositoryDB) GetBudgetDetails(filter map[string]interface{}) ([]models.BudgetDetailDTO, error) {
+	var results []models.BudgetDetailDTO
+	query := r.db.Model(&models.BudgetFactEntity{})
 
 	// Dynamic Filtering Helper
 	applyFilter := func(key string, dbCol string) {
@@ -202,7 +202,7 @@ func (r *budgetRepositoryDB) GetBudgetDetails(filter map[string]interface{}) ([]
 				}
 			}
 			if len(strs) > 0 {
-				query = query.Where(fmt.Sprintf("%s IN ?", dbCol), strs)
+				query = query.Where(fmt.Sprintf("budget_fact_entities.%s IN ?", dbCol), strs)
 			}
 		}
 	}
@@ -214,8 +214,50 @@ func (r *budgetRepositoryDB) GetBudgetDetails(filter map[string]interface{}) ([]
 	applyFilter("entities", "entity")
 	applyFilter("branches", "branch")
 
-	err := query.Order("\"group\", department, entity_gl, conso_gl, gl_name").Find(&results).Error
-	return results, err
+	type flatResult struct {
+		ConsoGL string
+		GLName  string
+		Month   string
+		Amount  float64
+	}
+
+	var flatData []flatResult
+	err := query.
+		Joins("JOIN budget_amount_entities ba ON ba.budget_fact_id = budget_fact_entities.id AND ba.deleted_at IS NULL").
+		Select("budget_fact_entities.conso_gl, MAX(budget_fact_entities.gl_name) as gl_name, ba.month, SUM(ba.amount) as amount").
+		Group("budget_fact_entities.conso_gl, ba.month").
+		Scan(&flatData).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Map flat results to nested DTO
+	budgetMap := make(map[string]*models.BudgetDetailDTO)
+	for _, row := range flatData {
+		dto, exists := budgetMap[row.ConsoGL]
+		if !exists {
+			dto = &models.BudgetDetailDTO{
+				ConsoGL:       row.ConsoGL,
+				GLName:        row.GLName,
+				YearTotal:     0,
+				BudgetAmounts: []models.BudgetAmountDTO{},
+			}
+			budgetMap[row.ConsoGL] = dto
+		}
+		dto.BudgetAmounts = append(dto.BudgetAmounts, models.BudgetAmountDTO{
+			Month:  row.Month,
+			Amount: row.Amount,
+		})
+		dto.YearTotal += row.Amount
+	}
+
+	// Convert map to slice
+	for _, dto := range budgetMap {
+		results = append(results, *dto)
+	}
+
+	return results, nil
 }
 
 func (r *budgetRepositoryDB) GetActualDetails(filter map[string]interface{}) ([]models.ActualFactEntity, error) {
@@ -467,10 +509,17 @@ func (r *budgetRepositoryDB) GetAllClikGle() ([]models.ClikGleEntity, error) {
 // ---------------------------------------------------------------------
 // 7. การรวมข้อมูลสำหรับ Dashboard (Dashboard Aggregation - Optimized)
 // ---------------------------------------------------------------------
-func (r *budgetRepositoryDB) GetActualTransactions(filter map[string]interface{}) ([]models.ActualTransactionDTO, error) {
-	var results []models.ActualTransactionDTO
+func (r *budgetRepositoryDB) GetActualTransactions(filter map[string]interface{}) (*models.PaginatedActualTransactionDTO, error) {
+	// 0. Ensure Indexes exist for performance (Run once safely)
+	r.db.Exec("CREATE INDEX IF NOT EXISTS idx_hmw_posting_date ON achhmw_gle_api (\"Posting_Date\")")
+	r.db.Exec("CREATE INDEX IF NOT EXISTS idx_clik_posting_date ON general_ledger_entries_clik (\"Posting_Date\")")
 
-	// ตรรกะการกรองข้อมูล (Filtering Logic)
+	// Debug schema
+	var firstRow map[string]interface{}
+	r.db.Table("achhmw_gle_api").First(&firstRow)
+	fmt.Printf("[DEBUG] HMW First Row: %+v\n", firstRow)
+
+	// Filtering Logic
 	whereClause := "1=1"
 	var args []interface{}
 
@@ -633,13 +682,13 @@ func (r *budgetRepositoryDB) GetActualTransactions(filter map[string]interface{}
 	// Date Filtering
 	if val, ok := filter["start_date"]; ok {
 		if startDate, ok := val.(string); ok && startDate != "" {
-			whereClause += " AND \"Posting_Date\"::DATE >= ?"
+			whereClause += " AND \"Posting_Date\" >= ?"
 			args = append(args, startDate)
 		}
 	}
 	if val, ok := filter["end_date"]; ok {
 		if endDate, ok := val.(string); ok && endDate != "" {
-			whereClause += " AND \"Posting_Date\"::DATE <= ?"
+			whereClause += " AND \"Posting_Date\" <= ?"
 			args = append(args, endDate)
 		}
 	}
@@ -661,33 +710,41 @@ func (r *budgetRepositoryDB) GetActualTransactions(filter map[string]interface{}
 		}
 	}
 
-	// Helper เพื่อใส่ Limit/Order ใน Subquery
-	applyLimit := func(db *gorm.DB) *gorm.DB {
-		return db.Order("\"Posting_Date\" ASC").Limit(2000)
-	}
-
 	// ✅ อัปเดต Logic การกรอง:
 	// แสดงเฉพาะ Transaction ของปีที่ "Sync" แล้วเท่านั้น (Active ใน actual_fact_entities)
-	// ตรงตามความต้องการผู้ใช้ที่ว่า "Sync 2026" แล้วจะไม่เห็นข้อมูล 2025
 	var activeYears []string
 	r.db.Model(&models.ActualFactEntity{}).Distinct("year").Pluck("year", &activeYears)
 	fmt.Printf("[DEBUG] Active Years in Facts: %v\n", activeYears)
 
-	// ✅ Re-enable Filter: Only show data for years that are synced.
-	// This ensures that if a user "Unsyncs" a year, the data disappears from the view.
-	whereClause += " AND TO_CHAR(\"Posting_Date\"::DATE, 'YYYY') IN ?"
+	// ✅ Optimized Year Filter using ranges (for Index support)
 	if len(activeYears) > 0 {
-		args = append(args, activeYears)
+		var yearClauses []string
+		for _, y := range activeYears {
+			yearClauses = append(yearClauses, fmt.Sprintf("(\"Posting_Date\" >= '%s-01-01' AND \"Posting_Date\" <= '%s-12-31')", y, y))
+		}
+		whereClause += " AND (" + strings.Join(yearClauses, " OR ") + ")"
 	} else {
-		// If no years are synced, show nothing
 		whereClause += " AND 1=0"
 	}
 
 	fmt.Printf("[DEBUG] WhereClause: %s\n", whereClause)
 	fmt.Printf("[DEBUG] Args: %v\n", args)
 
-	// Query HMW
-	hmwQuery := r.db.Table("achhmw_gle_api").
+	// No applyLimit for the queries so we can get accurate count
+	// Pagination parameters
+	page := 0
+	limit := 10
+	if p, ok := filter["page"].(float64); ok {
+		page = int(p)
+	}
+	if l, ok := filter["limit"].(float64); ok {
+		limit = int(l)
+	}
+	offset := page * limit
+
+	// Construct the Union query as a raw SQL string or using GORM's Table
+	// We'll use a subquery approach for accurate total count and sorting
+	hmwSQL := r.db.Table("achhmw_gle_api").
 		Select(`
 			'HMW' as source,
 			TO_CHAR("Posting_Date"::DATE, 'YYYY-MM-DD') as posting_date,
@@ -700,20 +757,16 @@ func (r *budgetRepositoryDB) GetActualTransactions(filter map[string]interface{}
 			company,
 			branch
 		`).
-		Where(whereClause, args...).
-		Scopes(applyLimit)
+		Where(whereClause, args...)
 
-	// นำ Entity Filter ไปใช้กับ HMW (ใช้ชื่อที่ Map แล้ว)
 	if len(hmwEntities) > 0 {
-		hmwQuery = hmwQuery.Where("company IN ?", hmwEntities)
+		hmwSQL = hmwSQL.Where("company IN ?", hmwEntities)
 	}
-	// นำ Branch Filter ไปใช้กับ HMW (ใช้ชื่อที่ Map แล้ว)
 	if len(hmwBranches) > 0 {
-		hmwQuery = hmwQuery.Where("branch IN ?", hmwBranches)
+		hmwSQL = hmwSQL.Where("branch IN ?", hmwBranches)
 	}
 
-	// Query CLIK
-	clikQuery := r.db.Table("general_ledger_entries_clik").
+	clikSQL := r.db.Table("general_ledger_entries_clik").
 		Select(`
 			'CLIK' as source,
 			TO_CHAR("Posting_Date"::DATE, 'YYYY-MM-DD') as posting_date,
@@ -726,15 +779,9 @@ func (r *budgetRepositoryDB) GetActualTransactions(filter map[string]interface{}
 			'CLIK' as company,
 			"Global_Dimension_2_Code" as branch
 		`).
-		Where(whereClause, args...).
-		Scopes(applyLimit)
+		Where(whereClause, args...)
 
-	// นำ Entity Filter ไปใช้กับ CLIK
-	// สำหรับ CLIK company คือ 'CLIK' เสมอ
-	// ดังนั้นเราจะคืนค่าก็ต่อเมื่อ 'CLIK' (code) ถูกเลือกมา
-	// รายการ hmwEntities ของเราควรจะมี 'CLIK' ถ้า User เลือก 'CLIK' มา
 	if len(hmwEntities) > 0 {
-		// ตรวจสอบว่า "CLIK" ถูกเลือกหรือไม่
 		hasClik := false
 		for _, e := range hmwEntities {
 			if e == "CLIK" {
@@ -743,31 +790,104 @@ func (r *budgetRepositoryDB) GetActualTransactions(filter map[string]interface{}
 			}
 		}
 		if !hasClik {
-			clikQuery = clikQuery.Where("1=0")
+			clikSQL = clikSQL.Where("1=0")
 		}
 	}
-
-	// นำ Branch Filter ไปใช้กับ CLIK (ใช้ชื่อที่ Map แล้ว)
 	if len(clikBranches) > 0 {
-		clikQuery = clikQuery.Where("\"Global_Dimension_2_Code\" IN ?", clikBranches)
+		clikSQL = clikSQL.Where("\"Global_Dimension_2_Code\" IN ?", clikBranches)
 	}
 
-	// รวมข้อมูล (Union)
-	var hmwRows []models.ActualTransactionDTO
-	if err := hmwQuery.Scan(&hmwRows).Error; err != nil {
+	// 1. Get Total Count (Simpler and faster)
+	var totalCount int64
+	var countHMW, countCLIK int64
+
+	// Construct dedicated count queries without the expensive Select(...) part
+	hmwCountQuery := r.db.Table("achhmw_gle_api").Where(whereClause, args...)
+	if len(hmwEntities) > 0 {
+		hmwCountQuery = hmwCountQuery.Where("company IN ?", hmwEntities)
+	}
+	if len(hmwBranches) > 0 {
+		hmwCountQuery = hmwCountQuery.Where("branch IN ?", hmwBranches)
+	}
+
+	clikCountQuery := r.db.Table("general_ledger_entries_clik").Where(whereClause, args...)
+	if len(hmwEntities) > 0 {
+		hasClik := false
+		for _, e := range hmwEntities {
+			if e == "CLIK" {
+				hasClik = true
+				break
+			}
+		}
+		if !hasClik {
+			clikCountQuery = clikCountQuery.Where("1=0")
+		}
+	}
+	if len(clikBranches) > 0 {
+		clikCountQuery = clikCountQuery.Where("\"Global_Dimension_2_Code\" IN ?", clikBranches)
+	}
+
+	// Use channels to wait for result
+	type countResult struct {
+		count int64
+		err   error
+	}
+	hmwChan := make(chan countResult, 1)
+	clikChan := make(chan countResult, 1)
+
+	go func() {
+		var c int64
+		err := hmwCountQuery.Count(&c).Error
+		hmwChan <- countResult{c, err}
+	}()
+
+	go func() {
+		var c int64
+		err := clikCountQuery.Count(&c).Error
+		clikChan <- countResult{c, err}
+	}()
+
+	resHMW := <-hmwChan
+	if resHMW.err != nil {
+		return nil, resHMW.err
+	}
+	resCLIK := <-clikChan
+	if resCLIK.err != nil {
+		return nil, resCLIK.err
+	}
+
+	countHMW = resHMW.count
+	countCLIK = resCLIK.count
+	totalCount = countHMW + countCLIK
+
+	// 2. Get Paginated Data (Double-Sort Optimization)
+	var pagedData []models.ActualTransactionDTO
+
+	// Apply ORDER BY and LIMIT to EACH branch first.
+	// This makes the Union extremely fast because it only combines a few rows.
+	hmwSQL_sorted := hmwSQL.Order("posting_date ASC").Limit(limit + offset)
+	clikSQL_sorted := clikSQL.Order("posting_date ASC").Limit(limit + offset)
+
+	err := r.db.Raw(`
+		SELECT * FROM (
+			SELECT * FROM (?) AS hmw_sub
+			UNION ALL
+			SELECT * FROM (?) AS clik_sub
+		) AS u
+		ORDER BY posting_date ASC
+		LIMIT ? OFFSET ?
+	`, hmwSQL_sorted, clikSQL_sorted, limit, offset).Scan(&pagedData).Error
+
+	if err != nil {
 		return nil, err
 	}
-	var clikRows []models.ActualTransactionDTO
-	if err := clikQuery.Scan(&clikRows).Error; err != nil {
-		return nil, err
-	}
 
-	results = append(results, hmwRows...)
-	results = append(results, clikRows...)
-
-	// เรียงลำดับตามวันที่จากมากไปน้อย (เนื่องจากเราต่อ 2 ลิสต์เข้าด้วยกัน เราควรเรียงใหม่ถ้าจำเป็น)
-	// สำหรับ 4000 แถว ส่งไปแบบนี้ก็ได้ Frontend จัดการต่อเองได้
-	return results, nil
+	return &models.PaginatedActualTransactionDTO{
+		Data:       pagedData,
+		TotalCount: totalCount,
+		Page:       page,
+		Limit:      limit,
+	}, nil
 }
 
 func (r *budgetRepositoryDB) GetDashboardAggregates(filter map[string]interface{}) (*models.DashboardSummaryDTO, error) {

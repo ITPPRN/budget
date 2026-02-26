@@ -35,9 +35,9 @@ type BudgetRepository interface {
 	// Dashboard / Detail View
 	GetBudgetFilterOptions() ([]BudgetFactEntity, error)
 	GetOrganizationStructure() ([]BudgetFactEntity, error)
-	GetBudgetDetails(filter map[string]interface{}) ([]BudgetFactEntity, error)
-	GetActualDetails(filter map[string]interface{}) ([]ActualFactEntity, error)          // New
-	GetActualTransactions(filter map[string]interface{}) ([]ActualTransactionDTO, error) // New Transaction View
+	GetBudgetDetails(filter map[string]interface{}) ([]BudgetDetailDTO, error)
+	GetActualDetails(filter map[string]interface{}) ([]ActualFactEntity, error)                  // New
+	GetActualTransactions(filter map[string]interface{}) (*PaginatedActualTransactionDTO, error) // New Transaction View
 
 	// Aggregation
 	GetDashboardAggregates(filter map[string]interface{}) (*DashboardSummaryDTO, error)
@@ -90,7 +90,7 @@ type BudgetService interface {
 	// Dashboard Service
 	GetFilterOptions() ([]FilterOptionDTO, error)
 	GetOrganizationStructure() ([]OrganizationDTO, error)
-	GetBudgetDetails(filter map[string]interface{}) ([]BudgetFactEntity, error)
+	GetBudgetDetails(filter map[string]interface{}) ([]BudgetDetailDTO, error)
 	GetActualDetails(filter map[string]interface{}) ([]ActualFactEntity, error) // New
 
 	// List Files (For UI)
@@ -114,8 +114,8 @@ type BudgetService interface {
 
 	// Dashboard Optimized
 	GetDashboardSummary(filter map[string]interface{}) (*DashboardSummaryDTO, error)
-	GetActualTransactions(filter map[string]interface{}) ([]ActualTransactionDTO, error) // New
-	GetRawDate() (string, error)                                                         // Debugging
+	GetActualTransactions(filter map[string]interface{}) (*PaginatedActualTransactionDTO, error) // New
+	GetRawDate() (string, error)                                                                 // Debugging
 
 }
 
@@ -188,4 +188,23 @@ type ActualTransactionDTO struct {
 	Department    string          `json:"department" gorm:"column:department"`
 	Company       string          `json:"company" gorm:"column:company"`
 	Branch        string          `json:"branch" gorm:"column:branch"`
+}
+
+type BudgetDetailDTO struct {
+	ConsoGL       string            `json:"conso_gl"`
+	GLName        string            `json:"gl_name"`
+	YearTotal     float64           `json:"year_total"`
+	BudgetAmounts []BudgetAmountDTO `json:"budget_amounts"`
+}
+
+type BudgetAmountDTO struct {
+	Month  string  `json:"month"`
+	Amount float64 `json:"amount"`
+}
+
+type PaginatedActualTransactionDTO struct {
+	Data       []ActualTransactionDTO `json:"data"`
+	TotalCount int64                  `json:"total_count"`
+	Page       int                    `json:"page"`
+	Limit      int                    `json:"limit"`
 }

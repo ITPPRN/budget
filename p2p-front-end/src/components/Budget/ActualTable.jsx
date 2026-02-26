@@ -22,9 +22,17 @@ import FullscreenIcon from '@mui/icons-material/Fullscreen';
 import CloseIcon from '@mui/icons-material/Close';
 import FilterListIcon from '@mui/icons-material/FilterList';
 
-const ActualTable = ({ loading, data = [], dateFilter, onDateFilterChange }) => {
-    const [page, setPage] = useState(0);
-    const [rowsPerPage, setRowsPerPage] = useState(10);
+const ActualTable = React.memo(({
+    loading,
+    data = [],
+    dateFilter,
+    onDateFilterChange,
+    page,
+    rowsPerPage,
+    totalCount,
+    onPageChange,
+    onRowsPerPageChange
+}) => {
     const [openFullScreen, setOpenFullScreen] = useState(false);
 
     // Filter Popover State
@@ -52,32 +60,29 @@ const ActualTable = ({ loading, data = [], dateFilter, onDateFilterChange }) => 
     };
 
     const handleChangePage = (event, newPage) => {
-        setPage(newPage);
+        onPageChange(newPage);
     };
 
     const handleChangeRowsPerPage = (event) => {
-        setRowsPerPage(parseInt(event.target.value, 10));
-        setPage(0);
+        onRowsPerPageChange(parseInt(event.target.value, 10));
     };
 
-    // Slice data for pagination
-    const paginatedData = rowsPerPage > 0
-        ? data.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
-        : data;
+    // Data is now paginated from server
+    const paginatedData = data;
 
     const renderTable = (isMaximized = false) => (
         <React.Fragment>
-            <TableContainer sx={{ flexGrow: 1, width: '100%', overflow: 'auto' }}>
+            <TableContainer sx={{ flexGrow: 1, width: '100%', overflow: 'auto', border: '1px solid #e0e0e0', borderRadius: '4px' }}>
                 <Table stickyHeader size={isMaximized ? "medium" : "small"} sx={{ minWidth: '100%' }}>
                     <TableHead>
                         <TableRow>
-                            <TableCell sx={{ bgcolor: '#ed6c02', color: 'white', fontWeight: 'bold' }}>GL Code</TableCell>
-                            <TableCell sx={{ bgcolor: '#ed6c02', color: 'white', fontWeight: 'bold' }}>GL Name</TableCell>
-                            <TableCell sx={{ bgcolor: '#ed6c02', color: 'white', fontWeight: 'bold' }}>Doc No.</TableCell>
-                            <TableCell align="right" sx={{ bgcolor: '#ed6c02', color: 'white', fontWeight: 'bold' }}>Amount</TableCell>
-                            <TableCell sx={{ bgcolor: '#ed6c02', color: 'white', fontWeight: 'bold' }}>Vendor</TableCell>
-                            <TableCell sx={{ bgcolor: '#ed6c02', color: 'white', fontWeight: 'bold' }}>Description</TableCell>
-                            <TableCell sx={{ bgcolor: '#ed6c02', color: 'white', fontWeight: 'bold' }}>Date</TableCell>
+                            <TableCell sx={{ bgcolor: '#0388d1', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)' }}>GL Code</TableCell>
+                            <TableCell sx={{ bgcolor: '#0388d1', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)' }}>GL Name</TableCell>
+                            <TableCell sx={{ bgcolor: '#0388d1', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)' }}>Doc No.</TableCell>
+                            <TableCell align="right" sx={{ bgcolor: '#0388d1', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)' }}>Amount</TableCell>
+                            <TableCell sx={{ bgcolor: '#0388d1', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)' }}>Vendor</TableCell>
+                            <TableCell sx={{ bgcolor: '#0388d1', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)' }}>Description</TableCell>
+                            <TableCell sx={{ bgcolor: '#0388d1', color: 'white', fontWeight: 'bold' }}>Date</TableCell>
                         </TableRow>
                     </TableHead>
                     <TableBody>
@@ -96,14 +101,14 @@ const ActualTable = ({ loading, data = [], dateFilter, onDateFilterChange }) => 
                         ) : paginatedData.length > 0 ? (
                             paginatedData.map((row, index) => (
                                 <TableRow key={index} hover>
-                                    <TableCell>{row.gl_account_no}</TableCell>
-                                    <TableCell>{row.gl_account_name}</TableCell>
-                                    <TableCell>{row.document_no}</TableCell>
-                                    <TableCell align="right" sx={{ fontWeight: 'bold', color: parseFloat(row.amount) < 0 ? 'red' : 'green' }}>
+                                    <TableCell sx={{ borderRight: '1px solid #e0e0e0' }}>{row.gl_account_no}</TableCell>
+                                    <TableCell sx={{ borderRight: '1px solid #e0e0e0' }}>{row.gl_account_name}</TableCell>
+                                    <TableCell sx={{ borderRight: '1px solid #e0e0e0' }}>{row.document_no}</TableCell>
+                                    <TableCell align="right" sx={{ fontWeight: 'bold', color: parseFloat(row.amount) < 0 ? 'red' : 'green', borderRight: '1px solid #e0e0e0' }}>
                                         {parseFloat(row.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                     </TableCell>
-                                    <TableCell>{row.vendor || "-"}</TableCell>
-                                    <TableCell>{row.description}</TableCell>
+                                    <TableCell sx={{ borderRight: '1px solid #e0e0e0' }}>{row.vendor || "-"}</TableCell>
+                                    <TableCell sx={{ borderRight: '1px solid #e0e0e0' }}>{row.description}</TableCell>
                                     <TableCell>{row.posting_date}</TableCell>
                                 </TableRow>
                             ))
@@ -119,15 +124,19 @@ const ActualTable = ({ loading, data = [], dateFilter, onDateFilterChange }) => 
             </TableContainer>
             {/* Pagination Control */}
             {!loading && data.length > 0 && (
-                <Box sx={{ flexShrink: 0 }}>
+                <Box sx={{ flexShrink: 0, borderTop: '1px solid #e0e0e0' }}>
                     <TablePagination
-                        rowsPerPageOptions={[10, 25, 50, 100, { label: 'All', value: -1 }]}
+                        rowsPerPageOptions={[10, 25, 50, 100]}
                         component="div"
-                        count={data.length}
+                        count={totalCount}
                         rowsPerPage={rowsPerPage}
                         page={page}
                         onPageChange={handleChangePage}
                         onRowsPerPageChange={handleChangeRowsPerPage}
+                        sx={{
+                            '.MuiTablePagination-toolbar': { minHeight: '36px', px: 1 },
+                            '.MuiTablePagination-selectLabel, .MuiTablePagination-input, .MuiTablePagination-displayedRows': { fontSize: '0.75rem' }
+                        }}
                     />
                 </Box>
             )}
@@ -138,7 +147,8 @@ const ActualTable = ({ loading, data = [], dateFilter, onDateFilterChange }) => 
 
     return (
         <Paper sx={{
-            p: 2,
+            p: 1.5,
+            pt: 1,
             display: 'flex',
             flexDirection: 'column',
             borderRadius: 2,
@@ -147,15 +157,17 @@ const ActualTable = ({ loading, data = [], dateFilter, onDateFilterChange }) => 
             minHeight: { xs: '400px', md: 0 },
             overflow: 'hidden'
         }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', bgcolor: '#ed6c02', p: 1, borderRadius: 1, mb: 2 }}>
-                <Typography variant="h6" sx={{ color: 'white' }}>
-                    Actual Detail
-                </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2, px: 1 }}>
+                <Box sx={{ bgcolor: '#0388d1', px: 2, py: 0.5, borderRadius: '8px' }}>
+                    <Typography variant="h6" sx={{ color: 'white', fontWeight: 'bold' }}>
+                        Actual Detail
+                    </Typography>
+                </Box>
                 <Box>
-                    <IconButton onClick={handleFilterClick} size="small" sx={{ color: 'white', mr: 1 }}>
+                    <IconButton onClick={handleFilterClick} size="small" sx={{ color: '#424242', mr: 1 }}>
                         <FilterListIcon />
                     </IconButton>
-                    <IconButton onClick={() => setOpenFullScreen(true)} size="small" sx={{ color: 'white' }}>
+                    <IconButton onClick={() => setOpenFullScreen(true)} size="small" sx={{ color: '#424242' }}>
                         <FullscreenIcon />
                     </IconButton>
                 </Box>
@@ -214,8 +226,8 @@ const ActualTable = ({ loading, data = [], dateFilter, onDateFilterChange }) => 
                 onClose={() => setOpenFullScreen(false)}
                 fullScreen
             >
-                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', bgcolor: '#ed6c02', p: 2 }}>
-                    <Typography variant="h6" sx={{ color: 'white' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', bgcolor: '#0388d1', p: 2 }}>
+                    <Typography variant="h6" sx={{ color: 'white', fontWeight: 'bold' }}>
                         Actual Detail (Full Screen)
                     </Typography>
                     <Box>
@@ -235,6 +247,6 @@ const ActualTable = ({ loading, data = [], dateFilter, onDateFilterChange }) => 
             </Dialog>
         </Paper>
     );
-};
+});
 
 export default ActualTable;
