@@ -22,7 +22,7 @@ func (s *ownerService) GetDashboardSummary(user *models.UserInfo, filter map[str
 	return s.repo.GetDashboardAggregates(filter)
 }
 
-func (s *ownerService) GetActualTransactions(user *models.UserInfo, filter map[string]interface{}) ([]models.ActualTransactionDTO, error) {
+func (s *ownerService) GetActualTransactions(user *models.UserInfo, filter map[string]interface{}) (*models.PaginatedActualTransactionDTO, error) {
 	filter = s.injectPermissions(user, filter)
 	return s.repo.GetActualTransactions(filter)
 }

@@ -510,15 +510,6 @@ func (r *budgetRepositoryDB) GetAllClikGle() ([]models.ClikGleEntity, error) {
 // 7. การรวมข้อมูลสำหรับ Dashboard (Dashboard Aggregation - Optimized)
 // ---------------------------------------------------------------------
 func (r *budgetRepositoryDB) GetActualTransactions(filter map[string]interface{}) (*models.PaginatedActualTransactionDTO, error) {
-	// 0. Ensure Indexes exist for performance (Run once safely)
-	r.db.Exec("CREATE INDEX IF NOT EXISTS idx_hmw_posting_date ON achhmw_gle_api (\"Posting_Date\")")
-	r.db.Exec("CREATE INDEX IF NOT EXISTS idx_clik_posting_date ON general_ledger_entries_clik (\"Posting_Date\")")
-
-	// Debug schema
-	var firstRow map[string]interface{}
-	r.db.Table("achhmw_gle_api").First(&firstRow)
-	fmt.Printf("[DEBUG] HMW First Row: %+v\n", firstRow)
-
 	// Filtering Logic
 	whereClause := "1=1"
 	var args []interface{}
@@ -638,7 +629,7 @@ func (r *budgetRepositoryDB) GetActualTransactions(filter map[string]interface{}
 			}
 		}
 
-		if len(consoGLs) > 0 {
+		if len(consoGLs) > 0 && len(consoGLs) < 200 {
 			// ขั้นตอนที่ 1: หา Entity GLs ที่ตรงกันจากตาราง Mapping
 			// ใช้ BUDGET FACTS เป็นแหล่งข้อมูลหลัก (Source of Truth) สำหรับการ Mapping
 			var mappedEntityGLs []string
@@ -651,11 +642,8 @@ func (r *budgetRepositoryDB) GetActualTransactions(filter map[string]interface{}
 			}
 
 			mappingQuery.Pluck("entity_gl", &mappedEntityGLs)
-			fmt.Printf("[DEBUG] GL Mapping (Budget): Conso %v -> EntityGLs %v\n", consoGLs, mappedEntityGLs)
+			// fmt.Printf("[DEBUG] GL Mapping (Budget): Conso %v -> EntityGLs %v\n", consoGLs, mappedEntityGLs)
 
-			// Fallback: หากไม่เจอ Mapping ใน Budget เป็นไปได้ว่า ConsoGL คือ EntityGL (ตรงกันเลย)
-			// หรือ Actual มีอยู่จริงโดยไม่มี Budget
-			// ดังนั้นเราต้องรวม ConsoGLs เดิมเข้าไปในรายการค้นหาด้วย
 			// รวม mapped + original
 			finalGLs := append(mappedEntityGLs, consoGLs...)
 
@@ -673,9 +661,10 @@ func (r *budgetRepositoryDB) GetActualTransactions(filter map[string]interface{}
 			if len(list) > 0 {
 				whereClause += " AND \"G_L_Account_No\" IN ?"
 				args = append(args, list)
-			} else {
-				whereClause += " AND 1=0"
 			}
+		} else if len(consoGLs) >= 200 {
+			// หากส่งมาเยอะเกินไป (เช่น ส่งมาทั้งหมด) ให้ถือว่าไม่กรอง GL เพื่อความเร็ว
+			// ไม่ต้องเพิ่ม WHERE G_L_Account_No เข้าไป
 		}
 	}
 

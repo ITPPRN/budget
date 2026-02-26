@@ -4,7 +4,7 @@ package models
 type OwnerService interface {
 	// Dashboard
 	GetDashboardSummary(user *UserInfo, filter map[string]interface{}) (*OwnerDashboardSummaryDTO, error)
-	GetActualTransactions(user *UserInfo, filter map[string]interface{}) ([]ActualTransactionDTO, error)
+	GetActualTransactions(user *UserInfo, filter map[string]interface{}) (*PaginatedActualTransactionDTO, error)
 	GetActualDetails(user *UserInfo, filter map[string]interface{}) ([]OwnerActualFactEntity, error)
 	GetBudgetDetails(user *UserInfo, filter map[string]interface{}) ([]BudgetFactEntity, error)
 
@@ -41,7 +41,7 @@ type OwnerRepository interface {
 	GetDashboardAggregates(filter map[string]interface{}) (*OwnerDashboardSummaryDTO, error)
 	GetBudgetDetails(filter map[string]interface{}) ([]BudgetFactEntity, error)
 	GetActualDetails(filter map[string]interface{}) ([]OwnerActualFactEntity, error)
-	GetActualTransactions(filter map[string]interface{}) ([]ActualTransactionDTO, error)
+	GetActualTransactions(filter map[string]interface{}) (*PaginatedActualTransactionDTO, error)
 	GetBudgetFilterOptions(filter map[string]interface{}) ([]BudgetFactEntity, error)
 	GetOwnerFilterLists(filter map[string]interface{}) (*OwnerFilterListsDTO, error)
 	AutoSyncOwnerActuals() error // New Auto Sync

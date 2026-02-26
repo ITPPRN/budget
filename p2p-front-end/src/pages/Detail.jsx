@@ -74,19 +74,10 @@ const DetailContent = () => {
     let isMounted = true;
 
     const fetchDetails = async () => {
-      // Logic: If selection is empty -> Fetch ALL. If selection exists -> Fetch Selected.
+      // Logic: If selection is empty -> Fetch ALL (send empty list to backend to optimize)
       const idsToFetch = selectedLeaves.size > 0
         ? Array.from(selectedLeaves)
-        : getAllLeafIds();
-
-      // Ensure we have IDs to fetch (edge case: empty tree)
-      if (idsToFetch.length === 0) {
-        if (isMounted) {
-          setBudgetDetails([]);
-          setActualDetails([]);
-        }
-        return;
-      }
+        : []; // Optimizing: Don't send 200+ IDs if not specifically filtered
 
       if (isMounted) {
         setLoadingDetails(true);
@@ -98,60 +89,65 @@ const DetailContent = () => {
           conso_gls: idsToFetch,
           start_date: actualDateFilter.startDate,
           end_date: actualDateFilter.endDate,
-          entities: selectedEntity ? [selectedEntity] : [],     // Add Entity Filter
-          branches: selectedBranch ? [selectedBranch] : [],      // Add Branch Filter
-          departments: selectedDepartment ? [selectedDepartment] : [], // Add Department Filter
+          entities: selectedEntity ? [selectedEntity] : [],
+          branches: selectedBranch ? [selectedBranch] : [],
+          departments: selectedDepartment ? [selectedDepartment] : [],
           page: actualPage,
           limit: actualRowsPerPage
         };
 
-        // Parallel Fetch
-        const results = await Promise.allSettled([
-          api.post('/budgets/details', payload),
-          api.post('/budgets/actuals-transactions', payload)
-        ]);
-
-        if (!isMounted) return;
-
-        // --- Process Budget ---
-        if (results[0].status === 'fulfilled') {
-          const rawBudget = results[0].value.data || [];
-          const budgetMap = new Map();
-          rawBudget.forEach(item => {
-            const key = `${item.conso_gl}|${item.gl_name}`;
-            if (!budgetMap.has(key)) {
-              budgetMap.set(key, { ...item, budget_amounts: [...(item.budget_amounts || [])] });
-            } else {
-              const existing = budgetMap.get(key);
-              existing.year_total = (parseFloat(existing.year_total) || 0) + (parseFloat(item.year_total) || 0);
-              const existingAmounts = existing.budget_amounts;
-              item.budget_amounts?.forEach(newAmt => {
-                const match = existingAmounts.find(ea => ea.month === newAmt.month);
-                if (match) match.amount = (parseFloat(match.amount) || 0) + (parseFloat(newAmt.amount) || 0);
-                else existingAmounts.push({ ...newAmt });
-              });
-            }
+        // Fetch Budget (Fast)
+        api.post('/budgets/details', payload)
+          .then(res => {
+            if (!isMounted) return;
+            const rawBudget = res.data || [];
+            const budgetMap = new Map();
+            rawBudget.forEach(item => {
+              const key = `${item.conso_gl}|${item.gl_name}`;
+              if (!budgetMap.has(key)) {
+                budgetMap.set(key, { ...item, budget_amounts: [...(item.budget_amounts || [])] });
+              } else {
+                const existing = budgetMap.get(key);
+                existing.year_total = (parseFloat(existing.year_total) || 0) + (parseFloat(item.year_total) || 0);
+                const existingAmounts = existing.budget_amounts;
+                item.budget_amounts?.forEach(newAmt => {
+                  const match = existingAmounts.find(ea => ea.month === newAmt.month);
+                  if (match) match.amount = (parseFloat(match.amount) || 0) + (parseFloat(newAmt.amount) || 0);
+                  else existingAmounts.push({ ...newAmt });
+                });
+              }
+            });
+            setBudgetDetails(Array.from(budgetMap.values()));
+          })
+          .catch(err => {
+            console.error("Budget Details Fetch Failed", err);
+            if (isMounted) setBudgetDetails([]);
+          })
+          .finally(() => {
+            if (isMounted) setLoadingDetails(false);
           });
-          setBudgetDetails(Array.from(budgetMap.values()));
-        } else {
-          console.error("Budget Details Fetch Failed", results[0].reason);
-          setBudgetDetails([]);
-        }
 
-        // --- Process Actual (Transactions) ---
-        if (results[1].status === 'fulfilled') {
-          const resMap = results[1].value.data || {};
-          setActualDetails(resMap.data || []);
-          setActualTotalCount(resMap.total_count || 0);
-        } else {
-          console.error("Actual Transactions Fetch Failed", results[1].reason);
-          setActualDetails([]);
-          setActualTotalCount(0);
-        }
+        // Fetch Actuals (May be slower due to large DB)
+        api.post('/budgets/actuals-transactions', payload)
+          .then(res => {
+            if (!isMounted) return;
+            const resMap = res.data || {};
+            setActualDetails(resMap.data || []);
+            setActualTotalCount(resMap.total_count || 0);
+          })
+          .catch(err => {
+            console.error("Actual Transactions Fetch Failed", err);
+            if (isMounted) {
+              setActualDetails([]);
+              setActualTotalCount(0);
+            }
+          })
+          .finally(() => {
+            if (isMounted) setLoadingActuals(false);
+          });
 
       } catch (err) {
-        console.error("Fetch Details Error", err);
-      } finally {
+        console.error("Fetch Setup Error", err);
         if (isMounted) {
           setLoadingDetails(false);
           setLoadingActuals(false);

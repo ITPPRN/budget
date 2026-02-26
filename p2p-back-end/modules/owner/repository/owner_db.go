@@ -551,18 +551,29 @@ func (r *ownerRepositoryDB) GetActualDetails(filter map[string]interface{}) ([]m
 	return results, err
 }
 
-func (r *ownerRepositoryDB) GetActualTransactions(filter map[string]interface{}) ([]models.ActualTransactionDTO, error) {
-	var results []models.ActualTransactionDTO
-	// Requires Union Query logic.
-	// For Owner View, simpler logic? Or full copy?
-	// Full Copy is safer for consistency.
-
+func (r *ownerRepositoryDB) GetActualTransactions(filter map[string]interface{}) (*models.PaginatedActualTransactionDTO, error) {
 	whereClause := "1=1"
 	var args []interface{}
 
-	// Maps (Entity/Branch) - Hardcoded/Duplicated from BudgetDB
-	// If shared constants existed, we'd use them.
-	// Duplicating for isolation.
+	// Pagination parameters
+	page := 1
+	limit := 10
+	if val, ok := filter["page"]; ok {
+		if v, ok := val.(float64); ok {
+			page = int(v)
+		} else if v, ok := val.(int); ok {
+			page = v
+		}
+	}
+	if val, ok := filter["limit"]; ok {
+		if v, ok := val.(float64); ok {
+			limit = int(v)
+		} else if v, ok := val.(int); ok {
+			limit = v
+		}
+	}
+	offset := (page - 1) * limit
+
 	entityCodeToNameMap := map[string][]string{
 		"HMW":  {"HONDA MALIWAN", "HMW", "Honda Maliwan"},
 		"ACG":  {"AUTOCORP HOLDING", "ACG", "Autocorp Holding"},
@@ -588,16 +599,18 @@ func (r *ownerRepositoryDB) GetActualTransactions(filter map[string]interface{})
 		branchCodeToNameMap[key] = []string{fmt.Sprintf("BRANCH%02d", i), fmt.Sprintf("Branch%02d", i)}
 	}
 
-	// Filter Logic
 	var hmwEntities []string
 	var clikEntities []string
 	if val, ok := filter["entities"]; ok {
 		var entities []string
 		if s, ok := val.([]string); ok {
 			entities = s
+		} else if s, ok := val.([]interface{}); ok {
+			for _, item := range s {
+				entities = append(entities, fmt.Sprintf("%v", item))
+			}
 		}
 		if len(entities) > 0 {
-			// selectedEntities = entities // Unused
 			for _, e := range entities {
 				if names, ok := entityCodeToNameMap[e]; ok {
 					hmwEntities = append(hmwEntities, names...)
@@ -616,6 +629,10 @@ func (r *ownerRepositoryDB) GetActualTransactions(filter map[string]interface{})
 		var branches []string
 		if s, ok := val.([]string); ok {
 			branches = s
+		} else if s, ok := val.([]interface{}); ok {
+			for _, item := range s {
+				branches = append(branches, fmt.Sprintf("%v", item))
+			}
 		}
 		if len(branches) > 0 {
 			for _, b := range branches {
@@ -630,21 +647,22 @@ func (r *ownerRepositoryDB) GetActualTransactions(filter map[string]interface{})
 		}
 	}
 
-	// Dept Filter
 	if val, ok := filter["departments"]; ok {
 		var depts []string
 		if s, ok := val.([]string); ok {
 			depts = s
+		} else if s, ok := val.([]interface{}); ok {
+			for _, item := range s {
+				depts = append(depts, fmt.Sprintf("%v", item))
+			}
 		}
 		if len(depts) > 0 {
-			// Expand Master Codes to NavCodes
 			var mappedCodes []string
 			r.db.Table("department_mapping_entities").
 				Joins("JOIN department_entities ON department_entities.id = department_mapping_entities.department_id").
 				Where("department_entities.code IN ?", depts).
 				Pluck("department_mapping_entities.nav_code", &mappedCodes)
 
-			// Combine
 			depts = append(depts, mappedCodes...)
 
 			whereClause += " AND \"Global_Dimension_1_Code\" IN ?"
@@ -652,11 +670,8 @@ func (r *ownerRepositoryDB) GetActualTransactions(filter map[string]interface{})
 		}
 	}
 
-	// Enforce Permissions (Internal Filter)
 	if val, ok := filter["allowed_departments"]; ok {
 		if strs, ok := val.([]string); ok && len(strs) > 0 {
-			// Combine with mapped codes if needed?
-			// For simplicity, we just filter by the allowed departments directly in "Global_Dimension_1_Code"
 			whereClause += " AND \"Global_Dimension_1_Code\" IN ?"
 			args = append(args, strs)
 		} else if isRestricted, ok := filter["is_restricted"].(bool); ok && isRestricted {
@@ -664,7 +679,6 @@ func (r *ownerRepositoryDB) GetActualTransactions(filter map[string]interface{})
 		}
 	}
 
-	// Date
 	if val, ok := filter["start_date"]; ok {
 		if s, ok := val.(string); ok && s != "" {
 			whereClause += " AND \"Posting_Date\"::DATE >= ?"
@@ -678,9 +692,8 @@ func (r *ownerRepositoryDB) GetActualTransactions(filter map[string]interface{})
 		}
 	}
 
-	// Active Years
 	var activeYears []string
-	r.db.Model(&models.ActualFactEntity{}).Distinct("year").Pluck("year", &activeYears)
+	r.db.Model(&models.OwnerActualFactEntity{}).Distinct("year").Pluck("year", &activeYears)
 	whereClause += " AND TO_CHAR(\"Posting_Date\"::DATE, 'YYYY') IN ?"
 	if len(activeYears) > 0 {
 		args = append(args, activeYears)
@@ -688,23 +701,85 @@ func (r *ownerRepositoryDB) GetActualTransactions(filter map[string]interface{})
 		whereClause += " AND 1=0"
 	}
 
-	// Queries
-	hmwQuery := r.db.Table("achhmw_gle_api").
-		Select(`'HMW' as source, TO_CHAR("Posting_Date"::DATE, 'YYYY-MM-DD') as posting_date, "Document_No" as doc_no, "Description" as description, "G_L_Account_No" as gl_account_no,  "G_L_Account_Name" as gl_account_name, "Global_Dimension_1_Code" as department, "Credit_Amount" as amount, "Company" as company, "Branch" as branch`).
-		Where(whereClause, args...).Limit(2000)
+	// Optimize GL Map Search (Don't query if array is empty or too large)
+	if val, ok := filter["conso_gls"]; ok {
+		var consoGLs []string
+		if s, ok := val.([]string); ok {
+			consoGLs = s
+		} else if s, ok := val.([]interface{}); ok {
+			for _, item := range s {
+				consoGLs = append(consoGLs, fmt.Sprintf("%v", item))
+			}
+		}
+
+		if len(consoGLs) > 0 && len(consoGLs) < 200 {
+			var mappedEntityGLs []string
+			mappingQuery := r.db.Model(&models.BudgetFactEntity{}).
+				Where("conso_gl IN ?", consoGLs).
+				Distinct("entity_gl")
+
+			if len(hmwEntities) > 0 {
+				mappingQuery = mappingQuery.Where("entity IN ?", hmwEntities)
+			}
+			mappingQuery.Pluck("entity_gl", &mappedEntityGLs)
+
+			finalGLs := append(mappedEntityGLs, consoGLs...)
+
+			uniqueGLs := make(map[string]bool)
+			var list []string
+			for _, item := range finalGLs {
+				if _, value := uniqueGLs[item]; !value {
+					uniqueGLs[item] = true
+					list = append(list, item)
+				}
+			}
+
+			if len(list) > 0 {
+				whereClause += " AND \"G_L_Account_No\" IN ?"
+				args = append(args, list)
+			}
+		} else if len(consoGLs) >= 200 {
+			// Optimization: Skip mapping if list is huge
+		}
+	}
+
+	hmwSQL := r.db.Table("achhmw_gle_api").
+		Select(`
+			'HMW' as source,
+			TO_CHAR("Posting_Date"::DATE, 'YYYY-MM-DD') as posting_date,
+			"Document_No" as doc_no,
+			"Description" as description, 
+			"G_L_Account_No" as gl_account_no,
+			"G_L_Account_Name" as gl_account_name,
+			"Global_Dimension_1_Code" as department,
+			"Credit_Amount" as amount,
+			company,
+			branch
+		`).
+		Where(whereClause, args...)
 
 	if len(hmwEntities) > 0 {
-		hmwQuery = hmwQuery.Where("company IN ?", hmwEntities)
+		hmwSQL = hmwSQL.Where("company IN ?", hmwEntities)
 	}
 	if len(hmwBranches) > 0 {
-		hmwQuery = hmwQuery.Where("branch IN ?", hmwBranches)
+		hmwSQL = hmwSQL.Where("branch IN ?", hmwBranches)
 	}
 
-	clikQuery := r.db.Table("general_ledger_entries_clik").
-		Select(`'CLIK' as source, TO_CHAR("Posting_Date"::DATE, 'YYYY-MM-DD') as posting_date, "Document_No" as doc_no, "Description" as description, "G_L_Account_No" as gl_account_no, "G_L_Account_Name" as gl_account_name, "Global_Dimension_1_Code" as department, "Credit_Amount" as amount, 'CLIK' as company, "Global_Dimension_2_Code" as branch`).
-		Where(whereClause, args...).Limit(2000)
+	clikSQL := r.db.Table("general_ledger_entries_clik").
+		Select(`
+			'CLIK' as source,
+			TO_CHAR("Posting_Date"::DATE, 'YYYY-MM-DD') as posting_date,
+			"Document_No" as doc_no, 
+			"Description" as description,
+			"G_L_Account_No" as gl_account_no,
+			"G_L_Account_Name" as gl_account_name,
+			"Global_Dimension_1_Code" as department,
+			"Credit_Amount" as amount,
+			'CLIK' as company,
+			"Global_Dimension_2_Code" as branch
+		`).
+		Where(whereClause, args...)
 
-	// CLIK Company Check
 	if len(hmwEntities) > 0 {
 		hasClik := false
 		for _, e := range hmwEntities {
@@ -714,87 +789,140 @@ func (r *ownerRepositoryDB) GetActualTransactions(filter map[string]interface{})
 			}
 		}
 		if !hasClik {
-			clikQuery = clikQuery.Where("1=0")
+			clikSQL = clikSQL.Where("1=0")
 		}
 	}
 	if len(clikBranches) > 0 {
-		clikQuery = clikQuery.Where("\"Global_Dimension_2_Code\" IN ?", clikBranches)
+		clikSQL = clikSQL.Where("\"Global_Dimension_2_Code\" IN ?", clikBranches)
 	}
 
-	var hmwRows []models.ActualTransactionDTO
-	if err := hmwQuery.Scan(&hmwRows).Error; err != nil {
+	// Calculate Count First
+	var totalCount int64
+	var countHMW, countCLIK int64
+
+	hmwCountQuery := r.db.Table("achhmw_gle_api").Where(whereClause, args...)
+	if len(hmwEntities) > 0 {
+		hmwCountQuery = hmwCountQuery.Where("company IN ?", hmwEntities)
+	}
+	if len(hmwBranches) > 0 {
+		hmwCountQuery = hmwCountQuery.Where("branch IN ?", hmwBranches)
+	}
+
+	clikCountQuery := r.db.Table("general_ledger_entries_clik").Where(whereClause, args...)
+	if len(hmwEntities) > 0 {
+		hasClik := false
+		for _, e := range hmwEntities {
+			if e == "CLIK" {
+				hasClik = true
+				break
+			}
+		}
+		if !hasClik {
+			clikCountQuery = clikCountQuery.Where("1=0")
+		}
+	}
+	if len(clikBranches) > 0 {
+		clikCountQuery = clikCountQuery.Where("\"Global_Dimension_2_Code\" IN ?", clikBranches)
+	}
+
+	type countResult struct {
+		count int64
+		err   error
+	}
+	hmwChan := make(chan countResult, 1)
+	clikChan := make(chan countResult, 1)
+
+	go func() {
+		var c int64
+		err := hmwCountQuery.Count(&c).Error
+		hmwChan <- countResult{c, err}
+	}()
+
+	go func() {
+		var c int64
+		err := clikCountQuery.Count(&c).Error
+		clikChan <- countResult{c, err}
+	}()
+
+	resHMW := <-hmwChan
+	if resHMW.err != nil {
+		return nil, resHMW.err
+	}
+	resCLIK := <-clikChan
+	if resCLIK.err != nil {
+		return nil, resCLIK.err
+	}
+
+	countHMW = resHMW.count
+	countCLIK = resCLIK.count
+	totalCount = countHMW + countCLIK
+
+	var pagedData []models.ActualTransactionDTO
+
+	hmwSQL_sorted := hmwSQL.Order("posting_date ASC").Limit(limit + offset)
+	clikSQL_sorted := clikSQL.Order("posting_date ASC").Limit(limit + offset)
+
+	err := r.db.Raw(`
+		SELECT * FROM (
+			SELECT * FROM (?) AS hmw_sub
+			UNION ALL
+			SELECT * FROM (?) AS clik_sub
+		) AS u
+		ORDER BY posting_date ASC
+		LIMIT ? OFFSET ?
+	`, hmwSQL_sorted, clikSQL_sorted, limit, offset).Scan(&pagedData).Error
+
+	if err != nil {
 		return nil, err
 	}
-	var clikRows []models.ActualTransactionDTO
-	if err := clikQuery.Scan(&clikRows).Error; err != nil {
-		return nil, err
-	}
 
-	results = append(results, hmwRows...)
-	results = append(results, clikRows...)
-
-	// --- Display Mapping (DB Full Name -> Abbreviation) ---
-	// Create Mapping directly here or reuse constant
-	// Entity Mapping
 	dbToDisplayEntity := map[string]string{
 		"HONDA MALIWAN":    "HMW",
 		"AUTOCORP HOLDING": "ACG",
 		"CLIK":             "CLIK",
 	}
 
-	// Branch Mapping
 	dbToDisplayBranch := map[string]string{
-		// HMW
-		"BURIRUM":      "BUR",
-		"HEAD OFFICE":  "HOF",
-		"KRABI":        "KBI",
-		"MINI_SURIN":   "MSR",
-		"MUEANG KRABI": "MKB",
-		"NAKA":         "NAK",
-		"NANGRONG":     "AVN",
-		"PHACHA":       "PHC",
-		"PHUKET":       "PRA",
-		"SURIN":        "SUR",
-		"VEERAWAT":     "VEE",
-		// ACG
+		"BURIRUM":              "BUR",
+		"HEAD OFFICE":          "HOF",
+		"KRABI":                "KBI",
+		"MINI_SURIN":           "MSR",
+		"MUEANG KRABI":         "MKB",
+		"NAKA":                 "NAK",
+		"NANGRONG":             "AVN",
+		"PHACHA":               "PHC",
+		"PHUKET":               "PRA",
+		"SURIN":                "SUR",
+		"VEERAWAT":             "VEE",
 		"AUTOCORP HEAD OFFICE": "HQ",
-		// CLIK
-		"HEADOFFICE": "HOF",
-		// "BranchXX" usually maps validation logic, but here likely just needs pass through or normalization
 	}
 
-	for i := range results {
-		// Map Company
-		// Norm and Trim Check
-		compUpper := strings.ToUpper(strings.TrimSpace(results[i].Company))
-		if code, ok := dbToDisplayEntity[compUpper]; ok {
-			results[i].Company = code
-		} else if compUpper == "" && results[i].Source == "CLIK" {
-			results[i].Company = "CLIK" // Safety
+	for i := range pagedData {
+		v := &pagedData[i]
+
+		compUpper := strings.ToUpper(strings.TrimSpace(v.Company))
+		if abbr, ok := dbToDisplayEntity[compUpper]; ok {
+			v.Company = abbr
+		} else if compUpper == "" && v.Source == "CLIK" {
+			v.Company = "CLIK"
 		}
 
-		// Map Branch
-		branchUpper := strings.ToUpper(strings.TrimSpace(results[i].Branch))
-		if code, ok := dbToDisplayBranch[branchUpper]; ok {
-			results[i].Branch = code
+		branchUpper := strings.ToUpper(strings.TrimSpace(v.Branch))
+		if abbr, ok := dbToDisplayBranch[branchUpper]; ok {
+			v.Branch = abbr
 		} else {
-			// Special Cases
 			if branchUpper == "" {
-				results[i].Branch = "Branch00"
-			} else {
-				// Normalize BRANCHXX -> BranchXX logic if needed?
-				// User said: BRANCH01 -> Branch01
-				if strings.HasPrefix(branchUpper, "BRANCH") {
-					// Convert to Title Case or just keep as passed if it matches "Branch01" logic?
-					// Simple hack: "BRANCH01" -> "Branch01"
-					// Caser for Title?
-					results[i].Branch = strings.Title(strings.ToLower(branchUpper))
-				}
+				v.Branch = "Branch00"
 			}
 		}
 	}
 
-	return results, nil
+	return &models.PaginatedActualTransactionDTO{
+		Data:       pagedData,
+		TotalCount: totalCount,
+		Page:       page,
+		Limit:      limit,
+	}, nil
 }
 
 func (r *ownerRepositoryDB) GetOwnerFilterLists(filter map[string]interface{}) (*models.OwnerFilterListsDTO, error) {
@@ -1006,9 +1134,17 @@ func (r *ownerRepositoryDB) AutoSyncOwnerActuals() error {
 			}
 		}
 
-		// Key for Fact Uniqueness - INCLUDE NavCode
+		// 3. GL Mapping (Entity GL -> Conso GL)
+		consoGL := row.EntityGL // Default to original if no mapping found
+		if entityGls, ok := models.GlobalGLMapping[row.Entity]; ok {
+			if mappedConso, ok := entityGls[row.EntityGL]; ok {
+				consoGL = mappedConso
+			}
+		}
+
+		// Key for Fact Uniqueness - INCLUDE NavCode and ConsoGL
 		// Use Pipes to separate
-		key := fmt.Sprintf("%s|%s|%s|%s|%s|%s", row.Entity, row.Branch, row.Department, row.NavCode, row.EntityGL, row.Year)
+		key := fmt.Sprintf("%s|%s|%s|%s|%s|%s", row.Entity, row.Branch, row.Department, row.NavCode, consoGL, row.Year)
 
 		if _, exists := factMap[key]; !exists {
 			newID := uuid.New()
@@ -1019,6 +1155,7 @@ func (r *ownerRepositoryDB) AutoSyncOwnerActuals() error {
 				Department: row.Department,
 				NavCode:    row.NavCode, // Save
 				EntityGL:   row.EntityGL,
+				ConsoGL:    consoGL,
 				GLName:     row.GLName,
 				Year:       row.Year,
 				YearTotal:  decimal.Zero,

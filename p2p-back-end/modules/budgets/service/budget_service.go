@@ -267,9 +267,9 @@ func (s *budgetService) SyncActuals(year string, months []string) error {
 
 	// 3. Merge HMW + CLIK
 	// Use Map to merge duplicates across sources (if any, though unlikely given distinct tables)
-	// Key: Entity|Branch|Dept|GLCode|Month
+	// Key: Entity|Branch|Dept|NavCode|EntityGL|ConsoGL|Month
 	type AggKey struct {
-		Entity, Branch, Dept, NavCode, GLCode, GLName, Month string
+		Entity, Branch, Dept, NavCode, EntityGL, ConsoGL, GLName, Month string
 	}
 	mergedMap := make(map[AggKey]decimal.Decimal)
 
@@ -347,6 +347,14 @@ func (s *budgetService) SyncActuals(year string, months []string) error {
 			company := mapToCode(row.Company, entityNameMap)
 			branch := mapToCode(row.Branch, branchNameMap)
 
+			// 3. GL Mapping (Entity GL -> Conso GL)
+			consoGL := row.GLAccountNo // Default to original
+			if entityGls, ok := models.GlobalGLMapping[company]; ok {
+				if mappedConso, ok := entityGls[row.GLAccountNo]; ok {
+					consoGL = mappedConso
+				}
+			}
+
 			// Map Department to Master
 			originalDept := row.Department // Store original code
 			deptCode := row.Department
@@ -363,7 +371,7 @@ func (s *budgetService) SyncActuals(year string, months []string) error {
 
 			k := AggKey{
 				Entity: company, Branch: branch, Dept: deptCode, NavCode: originalDept,
-				GLCode: row.GLAccountNo, GLName: row.GLAccountName, Month: row.Month,
+				EntityGL: row.GLAccountNo, ConsoGL: consoGL, GLName: row.GLAccountName, Month: row.Month,
 			}
 			mergedMap[k] = mergedMap[k].Add(row.TotalAmount)
 		}
@@ -374,12 +382,12 @@ func (s *budgetService) SyncActuals(year string, months []string) error {
 
 	// 4. Transform to Entities (Header + Details)
 	type HeaderKey struct {
-		Entity, Branch, Dept, NavCode, GLCode, GLName string
+		Entity, Branch, Dept, NavCode, EntityGL, ConsoGL, GLName string
 	}
 	headerMap := make(map[HeaderKey][]models.ActualAmountEntity)
 
 	for k, amt := range mergedMap {
-		hk := HeaderKey{k.Entity, k.Branch, k.Dept, k.NavCode, k.GLCode, k.GLName}
+		hk := HeaderKey{k.Entity, k.Branch, k.Dept, k.NavCode, k.EntityGL, k.ConsoGL, k.GLName}
 		headerMap[hk] = append(headerMap[hk], models.ActualAmountEntity{
 			ID:     uuid.New(),
 			Month:  k.Month,
@@ -434,10 +442,9 @@ func (s *budgetService) SyncActuals(year string, months []string) error {
 		}
 
 		// Apply Mapping
-		var grp, entGL string
-		if val, ok := glProfileMap[k.GLCode]; ok {
+		var grp string
+		if val, ok := glProfileMap[k.ConsoGL]; ok {
 			grp = val.Group
-			entGL = val.EntityGL
 		}
 		// Fallback: If no map, maybe use empty or "Unmapped"
 
@@ -447,10 +454,10 @@ func (s *budgetService) SyncActuals(year string, months []string) error {
 			Branch:        k.Branch,
 			Department:    k.Dept,
 			NavCode:       k.NavCode, // Save Original
-			ConsoGL:       k.GLCode,
+			ConsoGL:       k.ConsoGL,
 			GLName:        k.GLName,
-			Group:         grp,   // Mapped
-			EntityGL:      entGL, // Mapped
+			Group:         grp,        // Mapped By ConsoGL Matches
+			EntityGL:      k.EntityGL, // Real Original
 			YearTotal:     total,
 			ActualAmounts: amounts,
 			Year:          year, // ✅ Populate Year

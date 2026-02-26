@@ -31,10 +31,10 @@ const OwnerDetailContent = () => {
     const [actualRowsPerPage, setActualRowsPerPage] = useState(10);
     const [actualTotalCount, setActualTotalCount] = useState(0);
 
-    // Filters State (Initialized with User Profile)
-    const [selectedEntity, setSelectedEntity] = useState(userEntity);
-    const [selectedBranch, setSelectedBranch] = useState(userBranch);
-    const [selectedDepartment, setSelectedDepartment] = useState(userDepartment);
+    // Filters State (Initialized to 'All' by default)
+    const [selectedEntity, setSelectedEntity] = useState('');
+    const [selectedBranch, setSelectedBranch] = useState('');
+    const [selectedDepartment, setSelectedDepartment] = useState('');
     const [orgStructure, setOrgStructure] = useState([]);
 
     // Fetch Filter Options
@@ -85,15 +85,7 @@ const OwnerDetailContent = () => {
         const fetchDetails = async () => {
             const idsToFetch = selectedLeaves.size > 0
                 ? Array.from(selectedLeaves)
-                : getAllLeafIds();
-
-            if (idsToFetch.length === 0) {
-                if (isMounted) {
-                    setBudgetDetails([]);
-                    setActualDetails([]);
-                }
-                return;
-            }
+                : []; // Optimized: Empty list means 'All' to the backend
 
             if (isMounted) {
                 setLoadingDetails(true);
@@ -108,41 +100,45 @@ const OwnerDetailContent = () => {
                     entities: selectedEntity ? [selectedEntity] : [],
                     branches: selectedBranch ? [selectedBranch] : [],
                     departments: selectedDepartment ? [selectedDepartment] : [],
-                    page: actualPage,
+                    page: actualPage + 1,
                     limit: actualRowsPerPage
                 };
 
-                // Parallel Fetch
-                const results = await Promise.allSettled([
-                    api.post('/budgets/details', payload),
-                    api.post('/budgets/actuals-transactions', payload)
-                ]);
+                // Fetch Budget (Fast)
+                api.post('/budgets/details', payload)
+                    .then(res => {
+                        if (!isMounted) return;
+                        setBudgetDetails(res.data || []);
+                    })
+                    .catch(err => {
+                        console.error("Budget Details Fetch Failed", err);
+                        if (isMounted) setBudgetDetails([]);
+                    })
+                    .finally(() => {
+                        if (isMounted) setLoadingDetails(false);
+                    });
 
-                if (!isMounted) return;
-
-                // --- Process Budget ---
-                if (results[0].status === 'fulfilled') {
-                    // Assuming same return structure from backend
-                    setBudgetDetails(results[0].value.data || []);
-                } else {
-                    console.error("Budget Details Fetch Failed", results[0].reason);
-                    setBudgetDetails([]);
-                }
-
-                // --- Process Actual (Transactions) ---
-                if (results[1].status === 'fulfilled') {
-                    const resMap = results[1].value.data || {};
-                    setActualDetails(resMap.data || []);
-                    setActualTotalCount(resMap.total_count || 0);
-                } else {
-                    console.error("Actual Transactions Fetch Failed", results[1].reason);
-                    setActualDetails([]);
-                    setActualTotalCount(0);
-                }
+                // Fetch Actuals (May be slower)
+                api.post('/owner/actual-transactions', payload)
+                    .then(res => {
+                        if (!isMounted) return;
+                        const resMap = res.data || {};
+                        setActualDetails(resMap.data || []);
+                        setActualTotalCount(resMap.total_count || 0);
+                    })
+                    .catch(err => {
+                        console.error("Actual Transactions Fetch Failed", err);
+                        if (isMounted) {
+                            setActualDetails([]);
+                            setActualTotalCount(0);
+                        }
+                    })
+                    .finally(() => {
+                        if (isMounted) setLoadingActuals(false);
+                    });
 
             } catch (err) {
-                console.error("Fetch Details Error", err);
-            } finally {
+                console.error("Fetch Setup Error", err);
                 if (isMounted) {
                     setLoadingDetails(false);
                     setLoadingActuals(false);
