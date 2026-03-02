@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Grid, Typography, FormControl, Select, MenuItem, Stack, Paper, CircularProgress, Button, IconButton, Tooltip, LinearProgress, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from '@mui/material';
+import { Box, Grid, Typography, FormControl, Select, MenuItem, Stack, Paper, CircularProgress, Button, IconButton, Tooltip, LinearProgress, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, InputLabel } from '@mui/material';
 import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
 import SyncIcon from '@mui/icons-material/Sync';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
@@ -28,9 +28,14 @@ import { toast } from 'react-toastify';
 const formatCurrency = (value) => {
     // If value is 0 or null/undefined, return "0"
     if (!value) return "0";
-    if (value >= 1000000) return `${(value / 1000000).toFixed(2)} MB`;
-    if (value >= 1000) return `${(value / 1000).toFixed(2)} K`;
-    return value.toLocaleString();
+
+    const absValue = Math.abs(value);
+    const sign = value < 0 ? "-" : "";
+
+    if (absValue >= 1000000) return `${sign}${(absValue / 1000000).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MB`;
+    if (absValue >= 1000) return `${sign}${(absValue / 1000).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} K`;
+
+    return value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
 const MetricCard = ({ title, value, icon: Icon, color = '#4d6eff' }) => (
@@ -61,6 +66,37 @@ const MetricCard = ({ title, value, icon: Icon, color = '#4d6eff' }) => (
                 {value}
             </Typography>
         </Box>
+    </Paper>
+);
+
+const RemainingBudgetCard = ({ value }) => (
+    <Paper
+        sx={{
+            p: { xs: 2.5, md: 3 },
+            borderRadius: '16px',
+            minHeight: { xs: 120, md: 150 },
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            bgcolor: '#4d6eff',
+            color: 'white',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.08)',
+            position: 'relative',
+            overflow: 'hidden',
+        }}
+    >
+        <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 1.5, position: 'relative', zIndex: 1, color: 'rgba(255,255,255,0.8)' }}>
+            <LinkIcon sx={{ fontSize: 20 }} />
+            <Typography variant="body2" sx={{ fontWeight: 800, letterSpacing: '0.02em', textTransform: 'uppercase',color: 'white' }}>
+                Remaining Budget
+            </Typography>
+        </Stack>
+        <Box sx={{ position: 'relative', zIndex: 1 }}>
+            <Typography variant="h4" sx={{ fontWeight: 900, color: 'white', letterSpacing: '-0.03em', fontSize: { xs: '1.75rem', md: '2.4rem' } }}>
+                {value}
+            </Typography>
+        </Box>
+
     </Paper>
 );
 
@@ -225,9 +261,13 @@ const OwnerDashboard = () => {
 
                 // Smart Default logic
                 if (!selectedYear && years.length > 0) {
-                    const sortedYears = [...years].sort((a, b) => b.localeCompare(a));
-                    const defaultYear = sortedYears[0];
-                    setSelectedYear(defaultYear);
+                    if (years.includes('All')) {
+                        setSelectedYear('All');
+                    } else {
+                        const sortedYears = [...years].sort((a, b) => b.localeCompare(a));
+                        const defaultYear = sortedYears[0];
+                        setSelectedYear(defaultYear);
+                    }
                 }
 
                 // Smart Auto-Selection logic (only if not already set)
@@ -273,6 +313,26 @@ const OwnerDashboard = () => {
         summary.totalBudget === 0 && summary.totalActual > 0 ? 'Over Budget' :
             usagePercent > 100 ? 'Over Budget' :
                 usagePercent > 80 ? 'Near Limit' : 'In Budget';
+
+    // Calculate chart data based on selected mode (Accumulated vs Monthly)
+    const displayChartData = React.useMemo(() => {
+        if (!summary.chartData || summary.chartData.length === 0) return [];
+
+        if (chartMode === 'accumulated') {
+            let accBudget = 0;
+            let accActual = 0;
+            return summary.chartData.map(item => {
+                accBudget += (item.budget || 0);
+                accActual += (item.actual || 0);
+                return {
+                    name: item.name,
+                    budget: accBudget,
+                    actual: accActual
+                };
+            });
+        }
+        return summary.chartData;
+    }, [summary.chartData, chartMode]);
 
     // Optimized Loading State: Only block IF we have absolutely NO data and NO year yet.
     // If we have a year (from localStorage), let the UI render.
@@ -340,107 +400,63 @@ const OwnerDashboard = () => {
                                 </Typography>
                             </Box>
 
-                            {/* Filter Section */}
-                            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', justifyContent: { xs: 'flex-start', lg: 'flex-end' } }}>
-                                {/* Standalone Department Filter (Always Enabled) */}
-                                <Paper sx={{
-                                    p: '8px 16px',
-                                    borderRadius: '20px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    bgcolor: 'rgba(255,255,255,0.7)',
-                                    backdropFilter: 'blur(10px)',
-                                    border: '1px solid rgba(255,255,255,0.5)',
-                                    boxShadow: '0 4px 20px rgba(0,0,0,0.03)',
-                                    minWidth: 180
-                                }}>
-                                    <Stack direction="row" spacing={1.5} alignItems="center">
-                                        <PeopleIcon sx={{ color: '#4d6eff', fontSize: 20 }} />
-                                        <FormControl size="small" fullWidth>
-                                            <Select
-                                                value={selectedDept}
-                                                onChange={(e) => setSelectedDept(e.target.value)}
-                                                displayEmpty
-                                                variant="standard"
-                                                disableUnderline
-                                                sx={{ fontWeight: 700, color: '#043478', fontSize: '0.9rem' }}
-                                            >
-                                                <MenuItem value="">All Departments</MenuItem>
-                                                {allDepartments.map((deptName) => (
-                                                    <MenuItem key={deptName} value={deptName}>
-                                                        {deptName}
-                                                    </MenuItem>
-                                                ))}
-                                            </Select>
-                                        </FormControl>
-                                    </Stack>
-                                </Paper>
+                            {/* Filter Section (Admin Theme Match) */}
+                            <Stack direction="row" spacing={2} sx={{ minWidth: 300, flexWrap: 'wrap', justifyContent: { xs: 'flex-start', lg: 'flex-end' } }}>
+                                {/* Department Filter */}
+                                <FormControl size="small" sx={{ minWidth: 200, bgcolor: 'white', borderRadius: 1 }}>
+                                    <InputLabel>Department (แผนก)</InputLabel>
+                                    <Select
+                                        value={selectedDept}
+                                        label="Department (แผนก)"
+                                        onChange={(e) => setSelectedDept(e.target.value)}
+                                    >
+                                        <MenuItem value=""><em>All Departments</em></MenuItem>
+                                        {allDepartments.map((deptName) => (
+                                            <MenuItem key={deptName} value={deptName}>{deptName}</MenuItem>
+                                        ))}
+                                    </Select>
+                                </FormControl>
 
-                                {/* Main Filter Bar */}
-                                <Paper sx={{
-                                    p: '8px 16px',
-                                    borderRadius: '20px',
-                                    display: 'flex',
-                                    gap: 3,
-                                    alignItems: 'center',
-                                    bgcolor: 'rgba(255,255,255,0.7)',
-                                    backdropFilter: 'blur(10px)',
-                                    border: '1px solid rgba(255,255,255,0.5)',
-                                    boxShadow: '0 4px 20px rgba(0,0,0,0.03)'
-                                }}>
-                                    <Stack direction="row" spacing={1} alignItems="center">
-                                        <Typography variant="caption" sx={{ fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' }}>Company</Typography>
-                                        <FormControl size="small" sx={{ minWidth: 140 }}>
-                                            <Select
-                                                value={selectedCompany}
-                                                onChange={(e) => { setSelectedCompany(e.target.value); setSelectedBranch(''); }}
-                                                displayEmpty
-                                                variant="standard"
-                                                disableUnderline
-                                                sx={{ fontWeight: 700, color: '#043478' }}
-                                            >
-                                                <MenuItem value="">All Entities</MenuItem>
-                                                {orgStructure.map((org) => <MenuItem key={org.entity} value={org.entity}>{org.entity}</MenuItem>)}
-                                            </Select>
-                                        </FormControl>
-                                    </Stack>
+                                {/* Company Filter */}
+                                <FormControl size="small" sx={{ minWidth: 200, bgcolor: 'white', borderRadius: 1 }}>
+                                    <InputLabel>Entity (บริษัท)</InputLabel>
+                                    <Select
+                                        value={selectedCompany}
+                                        label="Entity (บริษัท)"
+                                        onChange={(e) => { setSelectedCompany(e.target.value); setSelectedBranch(''); }}
+                                    >
+                                        <MenuItem value=""><em>All Entities</em></MenuItem>
+                                        {orgStructure.map((org) => <MenuItem key={org.entity} value={org.entity}>{org.entity}</MenuItem>)}
+                                    </Select>
+                                </FormControl>
 
-                                    <Box sx={{ width: 1, height: 20, bgcolor: '#e2e8f0' }} />
+                                {/* Branch Filter */}
+                                <FormControl size="small" sx={{ minWidth: 200, bgcolor: 'white', borderRadius: 1 }}>
+                                    <InputLabel>Branch (สาขา)</InputLabel>
+                                    <Select
+                                        value={selectedBranch}
+                                        label="Branch (สาขา)"
+                                        onChange={(e) => setSelectedBranch(e.target.value)}
+                                        disabled={!selectedCompany}
+                                    >
+                                        <MenuItem value=""><em>All Branches</em></MenuItem>
+                                        {availableBranches.map((b) => <MenuItem key={b.name} value={b.name}>{b.name}</MenuItem>)}
+                                    </Select>
+                                </FormControl>
 
-                                    <Stack direction="row" spacing={1} alignItems="center">
-                                        <Typography variant="caption" sx={{ fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' }}>Branch</Typography>
-                                        <FormControl size="small" sx={{ minWidth: 140 }} disabled={!selectedCompany}>
-                                            <Select
-                                                value={selectedBranch}
-                                                onChange={(e) => setSelectedBranch(e.target.value)}
-                                                displayEmpty
-                                                variant="standard"
-                                                disableUnderline
-                                                sx={{ fontWeight: 700, color: '#043478' }}
-                                            >
-                                                <MenuItem value="">All Branches</MenuItem>
-                                                {availableBranches.map((b) => <MenuItem key={b.name} value={b.name}>{b.name}</MenuItem>)}
-                                            </Select>
-                                        </FormControl>
-                                    </Stack>
-
-                                    <Box sx={{ width: 1, height: 20, bgcolor: '#e2e8f0' }} />
-
-                                    <FormControl size="small" sx={{ minWidth: 80 }}>
-                                        <Select
-                                            value={selectedYear}
-                                            onChange={(e) => setSelectedYear(e.target.value)}
-                                            displayEmpty
-                                            variant="standard"
-                                            disableUnderline
-                                            sx={{ fontWeight: 700, color: '#0f172a' }}
-                                        >
-                                            <MenuItem value="" disabled>Year</MenuItem>
-                                            {filterYears.map((y) => <MenuItem key={y} value={y}>{y}</MenuItem>)}
-                                        </Select>
-                                    </FormControl>
-                                </Paper>
-                            </Box>
+                                {/* Year Filter (Owner specific but styling match) */}
+                                <FormControl size="small" sx={{ minWidth: 120, bgcolor: 'white', borderRadius: 1 }}>
+                                    <InputLabel>Year</InputLabel>
+                                    <Select
+                                        value={selectedYear}
+                                        label="Year"
+                                        onChange={(e) => setSelectedYear(e.target.value)}
+                                    >
+                                        <MenuItem value="" disabled><em>Year</em></MenuItem>
+                                        {filterYears.map((y) => <MenuItem key={y} value={y}>{y.replace('FY', '')}</MenuItem>)}
+                                    </Select>
+                                </FormControl>
+                            </Stack>
                         </Stack>
                     </Box>
 
@@ -449,7 +465,7 @@ const OwnerDashboard = () => {
                         <Grid item xs={12} sm={6} md={3}>
                             <MetricCard
                                 title="Approved Expense Budget"
-                                value={(summary.totalBudget / 1000000).toFixed(2) + " MB"}
+                                value={formatCurrency(summary.totalBudget)}
                                 icon={Inventory2Icon}
                                 color="#4d6eff"
                             />
@@ -457,17 +473,14 @@ const OwnerDashboard = () => {
                         <Grid item xs={12} sm={6} md={3}>
                             <MetricCard
                                 title="Actual Spending"
-                                value={(summary.totalActual / 1000000).toFixed(2) + " MB"}
+                                value={formatCurrency(summary.totalActual)}
                                 icon={LocalOfferIcon}
                                 color="#4d6eff"
                             />
                         </Grid>
                         <Grid item xs={12} sm={6} md={3}>
-                            <MetricCard
-                                title="Remaining Expense Budget"
-                                value={((summary.totalBudget - summary.totalActual) / 1000000).toFixed(2) + " MB"}
-                                icon={LinkIcon}
-                                color="#4d6eff"
+                            <RemainingBudgetCard
+                                value={formatCurrency(summary.totalBudget - summary.totalActual)}
                             />
                         </Grid>
                         <Grid item xs={12} md={3}>
@@ -565,7 +578,7 @@ const OwnerDashboard = () => {
                                 </Stack>
 
                                 <Box sx={{ flexGrow: 1, width: '100%', mt: 2 }}>
-                                    <BudgetChart data={summary.chartData} />
+                                    <BudgetChart data={displayChartData} />
                                 </Box>
 
                                 {/* Legend at Bottom */}

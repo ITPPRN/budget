@@ -433,16 +433,45 @@ func (s *authService) UpdateUserPermissions(userID string, perms []models.UserPe
 
 	return s.authRepo.SetUserPermissions(userID, entities)
 }
-func (s *authService) ListDepartments() ([]models.DepartmentEntity, error) {
+func (s *authService) ListDepartments(user *models.UserInfo) ([]models.DepartmentEntity, error) {
 	depts, err := s.authRepo.ListDepartments()
 	if err != nil {
 		return nil, err
 	}
-	// Filter out "None" for Admin Access Control usage
-	var filtered []models.DepartmentEntity
+
+	isAdmin := false
+	isOwner := false
+	ownedDepts := make(map[string]bool)
+
+	for _, r := range user.Roles {
+		if strings.EqualFold(r, "ADMIN") {
+			isAdmin = true
+		} else if strings.EqualFold(r, "OWNER") {
+			isOwner = true
+		}
+	}
+
+	// Collect departments where user is an active OWNER
+	if isOwner {
+		for _, p := range user.Permissions {
+			if p.IsActive && strings.EqualFold(p.Role, "OWNER") {
+				ownedDepts[p.DepartmentCode] = true
+			}
+		}
+	}
+
+	filtered := []models.DepartmentEntity{}
 	for _, d := range depts {
-		if !strings.EqualFold(d.Code, "None") {
+		if strings.EqualFold(d.Code, "None") {
+			continue
+		}
+
+		if isAdmin {
 			filtered = append(filtered, d)
+		} else if isOwner {
+			if ownedDepts[d.Code] {
+				filtered = append(filtered, d)
+			}
 		}
 	}
 	return filtered, nil

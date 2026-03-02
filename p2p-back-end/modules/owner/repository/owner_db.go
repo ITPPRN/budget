@@ -121,7 +121,7 @@ func (r *ownerRepositoryDB) GetDashboardAggregates(filter map[string]interface{}
 		}
 		// Year Filter
 		if val, ok := filter["year"]; ok {
-			if s, ok := val.(string); ok && s != "" {
+			if s, ok := val.(string); ok && s != "" && !strings.EqualFold(s, "All") {
 				s = strings.ReplaceAll(s, "FY", "")
 				if !strings.Contains(tableName, "budget") {
 					tx = tx.Where(tableName+".year = ?", s)
@@ -1008,9 +1008,13 @@ func (r *ownerRepositoryDB) GetOwnerFilterLists(filter map[string]interface{}) (
 	}
 	for y := range yearMap {
 		if y != "" {
-			lists.Years = append(lists.Years, y)
+			lists.Years = append(lists.Years, "FY"+y)
 		}
 	}
+
+	// Add 'All' option ONLY if we have years or if we want to allow viewing everything
+	// The user wants strictly DB years, but 'All' is a functional requirement for "Everything"
+	lists.Years = append(lists.Years, "All")
 
 	return lists, nil
 }
@@ -1194,4 +1198,13 @@ func (r *ownerRepositoryDB) AutoSyncOwnerActuals() error {
 	}
 
 	return nil
+}
+func (r *ownerRepositoryDB) GetNavCodesByMasterDepts(masterCodes []string) ([]string, error) {
+	var navCodes []string
+	err := r.db.Table("department_mapping_entities").
+		Joins("JOIN department_entities ON department_entities.id = department_mapping_entities.department_id").
+		Where("department_entities.code IN ?", masterCodes).
+		Distinct("department_mapping_entities.nav_code").
+		Pluck("department_mapping_entities.nav_code", &navCodes).Error
+	return navCodes, err
 }

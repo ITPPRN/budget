@@ -77,21 +77,20 @@ func (r *userRepositoryDB) GetAll(optional map[string]interface{}, ctx context.C
 		visibilityQuery := "user_entities.id = ?"
 		args := []interface{}{currentUserID}
 
+		notOwnerOrAdmin := `NOT EXISTS (
+			SELECT 1 FROM user_permission_entities 
+			WHERE user_permission_entities.user_id = user_entities.id 
+			AND user_permission_entities.is_active = true 
+			AND (user_permission_entities.role ILIKE '%ADMIN%' OR user_permission_entities.role ILIKE '%OWNER%')
+		) AND (COALESCE(user_entities.roles::text, '') NOT ILIKE '%ADMIN%' AND COALESCE(user_entities.roles::text, '') NOT ILIKE '%OWNER%')`
+
 		if len(allowedDepts) > 0 {
 			if role == "OWNER" {
-				// Owner: See Self OR Allowed Departments
-				visibilityQuery += " OR department_entities.code IN ?"
+				// Owner: See Self OR (Allowed Departments AND NOT OTHER Owner/Admin)
+				visibilityQuery += " OR (department_entities.code IN ? AND " + notOwnerOrAdmin + ")"
 				args = append(args, allowedDepts)
 			} else if role == "DELEGATE" {
 				// Delegate: See Self OR (Allowed Departments AND NOT (Admin OR Owner))
-				// CRITICAL FIX: Must check both static roles column AND dynamic user_permission_entities table
-				notOwnerOrAdmin := `NOT EXISTS (
-					SELECT 1 FROM user_permission_entities 
-					WHERE user_permission_entities.user_id = user_entities.id 
-					AND user_permission_entities.is_active = true 
-					AND (user_permission_entities.role ILIKE '%ADMIN%' OR user_permission_entities.role ILIKE '%OWNER%')
-				) AND (COALESCE(user_entities.roles::text, '') NOT ILIKE '%ADMIN%' AND COALESCE(user_entities.roles::text, '') NOT ILIKE '%OWNER%')`
-
 				visibilityQuery += " OR (department_entities.code IN ? AND " + notOwnerOrAdmin + ")"
 				args = append(args, allowedDepts)
 			}

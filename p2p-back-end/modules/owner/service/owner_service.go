@@ -170,10 +170,34 @@ func (s *ownerService) injectPermissions(user *models.UserInfo, filter map[strin
 				allowedDepts = append(allowedDepts, p.DepartmentCode)
 			}
 		}
+
+		// 🖇️ NEW: Find all NavCodes mapped to these Master Depts
+		if len(allowedDepts) > 0 {
+			mappedCodes, err := s.repo.GetNavCodesByMasterDepts(allowedDepts)
+			if err == nil && len(mappedCodes) > 0 {
+				fmt.Printf("[DEBUG] injectPermissions: Expanded Depts %v to include NavCodes %v\n", allowedDepts, mappedCodes)
+
+				// Deduplicate to avoid giant slices
+				deptMap := make(map[string]bool)
+				for _, d := range allowedDepts {
+					deptMap[d] = true
+				}
+				for _, d := range mappedCodes {
+					deptMap[d] = true
+				}
+
+				finalDepts := make([]string, 0, len(deptMap))
+				for d := range deptMap {
+					finalDepts = append(finalDepts, d)
+				}
+				allowedDepts = finalDepts
+			}
+		}
+
 		// If user is not Admin, and has NO permissions, results should be restricted to nothing.
 		filter["allowed_departments"] = allowedDepts
 		filter["is_restricted"] = true
-		fmt.Printf("[DEBUG] injectPermissions: Restricting to Depts: %v\n", allowedDepts)
+		fmt.Printf("[DEBUG] injectPermissions: Restricting to Depts/NavCodes: %v\n", allowedDepts)
 	}
 
 	return filter

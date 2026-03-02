@@ -46,4 +46,5 @@ type OwnerRepository interface {
 	GetOwnerFilterLists(filter map[string]interface{}) (*OwnerFilterListsDTO, error)
 	AutoSyncOwnerActuals() error // New Auto Sync
 	GetUserPermissions(userID string) ([]UserPermissionEntity, error)
+	GetNavCodesByMasterDepts(masterCodes []string) ([]string, error)
 }

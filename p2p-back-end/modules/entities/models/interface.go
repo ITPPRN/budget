@@ -21,7 +21,7 @@ type AuthService interface {
 	ListUsersForManagement(optional map[string]interface{}, page, size int) ([]UserInfo, int, error)
 	GetUserPermissions(userID string) ([]UserPermissionInfo, error)
 	UpdateUserPermissions(userID string, perms []UserPermissionInfo) error
-	ListDepartments() ([]DepartmentEntity, error)
+	ListDepartments(user *UserInfo) ([]DepartmentEntity, error)
 }
 
 // TokenHandler is a function signature for handling JWT tokens

@@ -31,7 +31,7 @@ const BudgetChart = ({ data, title, selectedDept }) => {
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="name" />
                         <YAxis tickFormatter={(value) => `${(value / 1000000).toFixed(1)} `} />
-                        <Tooltip />
+                        <Tooltip formatter={(value) => value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} />
                         <Legend />
                         <Line type="monotone" dataKey="budget" stroke="#1976d2" activeDot={{ r: 8 }} name="Budget" strokeWidth={2} />
                         <Line type="monotone" dataKey="actual" stroke="#00bcd4" name="Actual" strokeWidth={2} />

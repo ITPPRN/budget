@@ -473,7 +473,7 @@ func (c *authController) setUserPermissions(ctx *fiber.Ctx, user *models.UserInf
 	return responseSuccess(ctx, "Permissions updated successfully")
 }
 func (c *authController) listDepartments(ctx *fiber.Ctx, user *models.UserInfo) error {
-	depts, err := c.authSrv.ListDepartments()
+	depts, err := c.authSrv.ListDepartments(user)
 	if err != nil {
 		return responseWithError(ctx, err)
 	}

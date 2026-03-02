@@ -86,7 +86,7 @@ const OwnerUserManagePage = () => {
     const fetchDepartments = async () => {
         try {
             const response = await api.get('/auth/manage/departments');
-            setDepartments(response.data.data || response.data || []);
+            setDepartments(Array.isArray(response.data.data) ? response.data.data : []);
         } catch (error) {
             console.error('Failed to fetch departments:', error);
         }
@@ -102,7 +102,7 @@ const OwnerUserManagePage = () => {
         setOpenModal(true);
         try {
             const response = await api.get(`/auth/manage/users/${user.userId}/permissions`);
-            setPermissions(response.data.data || response.data || []);
+            setPermissions(Array.isArray(response.data.data) ? response.data.data : []);
         } catch (error) {
             console.error('Failed to fetch user permissions:', error);
             toast.error('ไม่สามารถโหลดข้อมูลสิทธิ์ของผู้ใช้ได้');
@@ -151,11 +151,12 @@ const OwnerUserManagePage = () => {
     };
 
     // Modal Hierarchy Restrictions
-    const isTargetAdmin = selectedUser?.roles?.some(r => r.toUpperCase() === 'ADMIN');
+    const isTargetAdmin = selectedUser?.roles?.some(r => r.toUpperCase() === 'ADMIN') ||
+        selectedUser?.permissions?.some(p => p.is_active && p.role?.toUpperCase() === 'ADMIN');
     const isTargetOwner = selectedUser?.roles?.some(r => r.toUpperCase() === 'OWNER') ||
-        selectedUser?.permissions?.some(p => p.role?.toUpperCase() === 'OWNER');
+        selectedUser?.permissions?.some(p => p.is_active && p.role?.toUpperCase() === 'OWNER');
     const isTargetDelegate = selectedUser?.roles?.some(r => r.toUpperCase() === 'DELEGATE') ||
-        selectedUser?.permissions?.some(p => p.role?.toUpperCase() === 'DELEGATE');
+        selectedUser?.permissions?.some(p => p.is_active && p.role?.toUpperCase() === 'DELEGATE');
 
     let canModifyModal = false;
     if (!isDelegate && selectedUser) {
@@ -233,11 +234,12 @@ const OwnerUserManagePage = () => {
                                 </TableCell>
                                 <TableCell>
                                     {(() => {
-                                        const isTargetAdmin = user.roles?.some(r => r.toUpperCase() === 'ADMIN');
+                                        const isTargetAdmin = user.roles?.some(r => r.toUpperCase() === 'ADMIN') ||
+                                            user.permissions?.some(p => p.is_active && p.role?.toUpperCase() === 'ADMIN');
                                         const isTargetOwner = user.roles?.some(r => r.toUpperCase() === 'OWNER') ||
-                                            user.permissions?.some(p => p.role?.toUpperCase() === 'OWNER');
+                                            user.permissions?.some(p => p.is_active && p.role?.toUpperCase() === 'OWNER');
                                         const isTargetDelegate = (user.roles?.some(r => r.toUpperCase() === 'DELEGATE')) ||
-                                            (user.permissions?.some(p => p.role?.toUpperCase() === 'DELEGATE'));
+                                            (user.permissions?.some(p => p.is_active && p.role?.toUpperCase() === 'DELEGATE'));
                                         const isSelf = user.userId === currentUser?.userId;
 
                                         // Hierarchical Rules (Synchronized with UserManage.jsx):

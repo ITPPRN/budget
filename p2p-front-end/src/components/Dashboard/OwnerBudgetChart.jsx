@@ -42,6 +42,7 @@ const BudgetChart = ({ data }) => {
                     <Tooltip
                         contentStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 8px 24px rgba(0,0,0,0.1)', padding: '12px' }}
                         itemStyle={{ fontWeight: 700 }}
+                        formatter={(value) => value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     />
                     <Line
                         type="monotone"
