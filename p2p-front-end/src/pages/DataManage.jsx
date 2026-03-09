@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   Box, Grid, Paper, Typography, Button, Select,
   MenuItem, Switch, Link, IconButton, Dialog,
@@ -20,6 +20,10 @@ import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api/axiosInstance';
 import { toast } from 'react-toastify';
 import StorageIcon from '@mui/icons-material/Storage';
+import GLMappingModal from '../components/Budget/GLMappingModal';
+import BudgetStructureModal from '../components/Budget/BudgetStructureModal';
+import { BudgetVersionModal, CapexPlanModal, CapexActualModal } from '../components/Budget/VersionModals';
+
 
 const DataManagePage = () => {
   const { user } = useAuth();
@@ -55,17 +59,6 @@ const DataManagePage = () => {
   const [modalType, setModalType] = useState(''); // 'BUDGET', 'CAPEX_BG', 'CAPEX_ACTUAL'
   const [modalTitle, setModalTitle] = useState('');
 
-  // --- Search & Upload State inside Modal ---
-  const [searchTerm, setSearchTerm] = useState('');
-  const [fileToUpload, setFileToUpload] = useState(null);
-  const [versionName, setVersionName] = useState('');
-  const [isUploading, setIsUploading] = useState(false);
-  const fileInputRef = useRef(null);
-
-  // --- Rename State ---
-  const [editingId, setEditingId] = useState(null);
-  const [newName, setNewName] = useState('');
-
   // --- Fetch Data on Load ---
   const fetchAllVersions = async () => {
     try {
@@ -92,210 +85,128 @@ const DataManagePage = () => {
   const handleOpenModal = (type, title) => {
     setModalType(type);
     setModalTitle(title);
-    setSearchTerm('');
-    setFileToUpload(null);
-    setVersionName('');
     setOpen(true);
   };
 
-  const handleClose = () => setOpen(false);
-
-  const getActiveList = () => {
-    switch (modalType) {
-      case 'BUDGET': return budgetVersions;
-      case 'CAPEX_BG': return capexBgVersions;
-      case 'CAPEX_ACTUAL': return capexActualVersions;
-      default: return [];
-    }
+  const handleClose = () => {
+    setOpen(false);
   };
 
-  const activeList = getActiveList().filter(item =>
-    item.file_name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
 
-  // --- Upload Handlers ---
-  const handleFileSelect = (event) => {
-    const file = event.target.files[0];
-    if (file) {
-      setFileToUpload(file);
-      setVersionName(file.name); // Default to filename
-    }
+  const saveLocalConfig = (key, value) => {
+    const saved = localStorage.getItem('dm_lastSyncedConfig');
+    let config = saved ? JSON.parse(saved) : {};
+    config[key] = value;
+    localStorage.setItem('dm_lastSyncedConfig', JSON.stringify(config));
   };
 
-  const handleSaveUpload = async () => {
-    if (!fileToUpload) return;
-    setIsUploading(true);
+  const [loadingUpdate, setLoadingUpdate] = useState({ budget: false, capexBg: false, capexActual: false, dbActuals: false });
 
-    const formData = new FormData();
-    formData.append('file', fileToUpload);
-    formData.append('version_name', versionName); // Send custom name
-
-    let endpoint = '';
-    if (modalType === 'BUDGET') endpoint = '/budgets/import-budget';
-    else if (modalType === 'CAPEX_BG') endpoint = '/budgets/import-capex-budget';
-    else if (modalType === 'CAPEX_ACTUAL') endpoint = '/budgets/import-capex-actual';
-
+  const handleUpdateBudget = async () => {
+    if (!selectedBudget) {
+      if (window.confirm("คุณต้องการยกเลิกการเลือกไฟล์ Budget หรือไม่? (ข้อมูลจะถูกล้างออกจากระบบด้วย)")) {
+        try {
+          await api.post('/budgets/clear-budget');
+          saveLocalConfig('selectedBudget', '');
+          setSelectedBudget('');
+          toast.success("ยกเลิกการเลือกและล้างข้อมูล Budget สำเร็จ");
+        } catch (error) {
+          toast.error("ไม่สามารถล้างข้อมูลได้: " + (error.response?.data?.error || error.message));
+        }
+      }
+      return;
+    }
+    setLoadingUpdate(prev => ({ ...prev, budget: true }));
     try {
-      await api.post(endpoint, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-      toast.success("อัปโหลดไฟล์สำเร็จ!");
-      setFileToUpload(null);
-      setVersionName('');
-      await fetchAllVersions(); // Refresh list
+      await api.post(`/budgets/files-budget/${selectedBudget}/sync`);
+      saveLocalConfig('selectedBudget', selectedBudget);
+      toast.success("อัปเดต Budget สำเร็จ");
     } catch (error) {
-      console.error("Upload error:", error);
-      toast.error("อัปโหลดล้มเหลว: " + (error.response?.data?.error || error.message));
+      toast.error("อัปเดต Budget ล้มเหลว: " + (error.response?.data?.error || error.message));
     } finally {
-      setIsUploading(false);
+      setLoadingUpdate(prev => ({ ...prev, budget: false }));
     }
   };
 
-  // --- Delete Handler ---
-  const handleDelete = async (id) => {
-    if (!window.confirm("คุณต้องการลบไฟล์นี้ใช่หรือไม่?")) return;
-
-    let endpoint = '';
-    if (modalType === 'BUDGET') endpoint = `/budgets/files-budget/${id}`;
-    else if (modalType === 'CAPEX_BG') endpoint = `/budgets/files-capex-budget/${id}`;
-    else if (modalType === 'CAPEX_ACTUAL') endpoint = `/budgets/files-capex-actual/${id}`;
-
+  const handleUpdateCapexBg = async () => {
+    if (!selectedCapexBg) {
+      if (window.confirm("คุณต้องการยกเลิกการเลือกไฟล์ CAPEX Plan หรือไม่? (ข้อมูลจะถูกล้างออกจากระบบด้วย)")) {
+        try {
+          await api.post('/budgets/clear-capex-budget');
+          saveLocalConfig('selectedCapexBg', '');
+          setSelectedCapexBg('');
+          toast.success("ยกเลิกการเลือกและล้างข้อมูล CAPEX Plan สำเร็จ");
+        } catch (error) {
+          toast.error("ไม่สามารถล้างข้อมูลได้: " + (error.response?.data?.error || error.message));
+        }
+      }
+      return;
+    }
+    setLoadingUpdate(prev => ({ ...prev, capexBg: true }));
     try {
-      await api.delete(endpoint);
-      toast.success("ลบไฟล์สำเร็จ");
-      fetchAllVersions();
+      await api.post(`/budgets/files-capex-budget/${selectedCapexBg}/sync`);
+      saveLocalConfig('selectedCapexBg', selectedCapexBg);
+      toast.success("อัปเดต CAPEX Plan สำเร็จ");
     } catch (error) {
-      console.error("Delete failed", error);
-      toast.error("ลบไฟล์ไม่สำเร็จ");
+      toast.error("อัปเดต CAPEX Plan ล้มเหลว: " + (error.response?.data?.error || error.message));
+    } finally {
+      setLoadingUpdate(prev => ({ ...prev, capexBg: false }));
     }
   };
 
-  // --- Rename Handlers ---
-  const startRename = (id, currentName) => {
-    setEditingId(id);
-    setNewName(currentName);
+  const handleUpdateCapexActual = async () => {
+    if (!selectedCapexActual) {
+      if (window.confirm("คุณต้องการยกเลิกการเลือกไฟล์ CAPEX Actual หรือไม่? (ข้อมูลจะถูกล้างออกจากระบบด้วย)")) {
+        try {
+          await api.post('/budgets/clear-capex-actual');
+          saveLocalConfig('selectedCapexActual', '');
+          setSelectedCapexActual('');
+          toast.success("ยกเลิกการเลือกและล้างข้อมูล CAPEX Actual สำเร็จ");
+        } catch (error) {
+          toast.error("ไม่สามารถล้างข้อมูลได้: " + (error.response?.data?.error || error.message));
+        }
+      }
+      return;
+    }
+    setLoadingUpdate(prev => ({ ...prev, capexActual: true }));
+    try {
+      await api.post(`/budgets/files-capex-actual/${selectedCapexActual}/sync`);
+      saveLocalConfig('selectedCapexActual', selectedCapexActual);
+      toast.success("อัปเดต CAPEX Actual สำเร็จ");
+    } catch (error) {
+      toast.error("อัปเดต CAPEX Actual ล้มเหลว: " + (error.response?.data?.error || error.message));
+    } finally {
+      setLoadingUpdate(prev => ({ ...prev, capexActual: false }));
+    }
   };
 
   const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 
   const toggleMonth = (month) => {
     const monthIdx = MONTHS.indexOf(month);
-
-    // Check if the clicked month is already the end of the selection range
     if (selectedMonths.length > 0 && selectedMonths[selectedMonths.length - 1] === month) {
-      // Toggle off
       setSelectedMonths([]);
     } else {
-      // If selecting a new month, select all months from JAN to that month (Cumulative)
       const newSelected = MONTHS.slice(0, monthIdx + 1);
       setSelectedMonths(newSelected);
     }
   };
 
-  const saveRename = async (id) => {
-    let endpoint = '';
-    if (modalType === 'BUDGET') endpoint = `/budgets/files-budget/${id}`;
-    else if (modalType === 'CAPEX_BG') endpoint = `/budgets/files-capex-budget/${id}`;
-    else if (modalType === 'CAPEX_ACTUAL') endpoint = `/budgets/files-capex-actual/${id}`;
-
-    try {
-      await api.patch(endpoint, { new_name: newName });
-      toast.success("เปลี่ยนชื่อสำเร็จ");
-      setEditingId(null);
-      fetchAllVersions();
-    } catch (error) {
-      console.error("Rename failed", error);
-      toast.error("เปลี่ยนชื่อไม่สำเร็จ");
-    }
-  };
-
-  // --- Sync State with Persistence for Last Update ---
-  const [syncing, setSyncing] = useState(false);
-  const [lastUpdate, setLastUpdate] = useState(() => {
-    const saved = localStorage.getItem('dm_lastUpdate');
-    return saved ? new Date(saved) : new Date();
-  });
-
-  useEffect(() => {
-    localStorage.setItem('dm_lastUpdate', lastUpdate.toISOString());
-  }, [lastUpdate]);
-
-  const handleGlobalSync = async () => {
-    const tasks = [];
-
-    // Budget: If selected -> Sync, If empty -> Clear
-    if (selectedBudget) {
-      tasks.push({ endpoint: `/budgets/files-budget/${selectedBudget}/sync`, label: 'Budget (Update)' });
-    } else {
-      tasks.push({ endpoint: `/budgets/clear-budget`, label: 'Budget (Clear)' });
-    }
-
-    // Capex Plan: If selected -> Sync, If empty -> Clear
-    if (selectedCapexBg) {
-      tasks.push({ endpoint: `/budgets/files-capex-budget/${selectedCapexBg}/sync`, label: 'CAPEX Plan (Update)' });
-    } else {
-      tasks.push({ endpoint: `/budgets/clear-capex-budget`, label: 'CAPEX Plan (Clear)' });
-    }
-
-    // Capex Actual: If selected -> Sync, If empty -> Clear
-    if (selectedCapexActual) {
-      tasks.push({ endpoint: `/budgets/files-capex-actual/${selectedCapexActual}/sync`, label: 'CAPEX Actual (Update)' });
-    } else {
-      tasks.push({ endpoint: `/budgets/clear-capex-actual`, label: 'CAPEX Actual (Clear)' });
-    }
-
-    // Add Operational Actuals task if year and months are selected
-    if (actualYear && selectedMonths.length > 0) {
-      tasks.push({
-        endpoint: `/budgets/sync-actuals`,
-        data: { year: String(actualYear), months: selectedMonths },
-        label: `Actuals (${actualYear} ${selectedMonths[0]}-${selectedMonths[selectedMonths.length - 1]})`
-      });
-    }
-
-    if (tasks.length === 0) {
-      toast.warning("กรุณาเลือกรายการที่ต้องการ Sync อย่างน้อย 1 รายการ");
+  const handleUpdateDatabaseActuals = async () => {
+    if (!actualYear) {
+      toast.warning("กรุณาเลือกปีงบประมาณ");
       return;
     }
-
-    if (!window.confirm(`ระบบจะทำการลบข้อมูลเก่าและแทนที่ด้วยข้อมูลใหม่ (${tasks.length} รายการ) คุณแน่ใจหรือไม่?`)) return;
-
-    setSyncing(true);
-    let successCount = 0;
-
-    for (const task of tasks) {
-      try {
-        if (task.data) {
-          await api.post(task.endpoint, task.data);
-        } else {
-          await api.post(task.endpoint);
-        }
-        successCount++;
-        toast.info(`Synced ${task.label} แล้ว`);
-      } catch (error) {
-        console.error(`Sync ${task.label} failed:`, error);
-        toast.error(`Sync ${task.label} ล้มเหลว: ${error.response?.data?.error || error.message}`);
-      }
+    setLoadingUpdate(prev => ({ ...prev, dbActuals: true }));
+    try {
+      saveLocalConfig('actualYear', actualYear);
+      saveLocalConfig('selectedMonths', selectedMonths);
+      toast.success("อัปเดตการตั้งค่า Database Actuals สำเร็จ (ระบบ Sync เบื้องหลังทุก 5 นาที)");
+    } catch (error) {
+      toast.error("อัปเดตล้มเหลว");
+    } finally {
+      setLoadingUpdate(prev => ({ ...prev, dbActuals: false }));
     }
-
-    if (successCount === tasks.length) {
-      toast.success(`Sync สำเร็จครบทั้ง ${successCount} รายการ! 🎉`);
-    } else if (successCount > 0) {
-      toast.warning(`Sync สำเร็จ ${successCount} จาก ${tasks.length} รายการ`);
-    }
-
-    // Save success state to localStorage to persist "Last Synced Config"
-    const successConfig = {
-      selectedBudget,
-      selectedCapexBg,
-      selectedCapexActual,
-      actualYear,
-      selectedMonths
-    };
-    localStorage.setItem('dm_lastSyncedConfig', JSON.stringify(successConfig));
-
-    setLastUpdate(new Date());
-    setSyncing(false);
   };
 
   return (
@@ -316,38 +227,6 @@ const DataManagePage = () => {
           <Typography variant="h4" sx={{ fontWeight: 'bold', color: '#1a237e' }}>
             จัดการข้อมูล
           </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-            <SyncIcon fontSize="small" color="action" /> Last Global Sync: {lastUpdate.toLocaleString('en-GB')}
-          </Typography>
-        </Box>
-
-        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-          <Button
-            variant="contained"
-            onClick={handleGlobalSync}
-            disabled={syncing}
-            startIcon={syncing ? <CircularProgress size={20} color="inherit" /> : <SyncIcon />}
-            sx={{
-              height: '60px',
-              px: 4,
-              borderRadius: '12px',
-              fontSize: '1.1rem',
-              fontWeight: 'bold',
-              background: 'linear-gradient(45deg, #1a237e 30%, #283593 90%)',
-              boxShadow: '0 8px 25px rgba(26, 35, 126, 0.2)',
-              transition: 'all 0.3s ease',
-              '&:hover': {
-                background: 'linear-gradient(45deg, #283593 30%, #1a237e 90%)',
-                transform: 'translateY(-2px)',
-                boxShadow: '0 12px 30px rgba(26, 35, 126, 0.3)',
-              },
-              '&:active': {
-                transform: 'translateY(0)',
-              }
-            }}
-          >
-            {syncing ? 'กำลัง SYNC...' : 'Sync Data'}
-          </Button>
         </Box>
       </Box>
 
@@ -406,24 +285,34 @@ const DataManagePage = () => {
                     จัดการ Version
                   </Button>
                 </Box>
-                <Select
-                  size="small"
-                  value={selectedBudget}
-                  onChange={(e) => setSelectedBudget(e.target.value)}
-                  displayEmpty
-                  fullWidth
-                  sx={{
-                    borderRadius: '12px',
-                    bgcolor: '#fcfcfc',
-                    '& .MuiOutlinedInput-notchedOutline': { borderColor: '#e0e0e0' },
-                    '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#1a237e' }
-                  }}
-                >
-                  <MenuItem value=""><em>-- เลือกไฟล์งบประมาณ --</em></MenuItem>
-                  {budgetVersions.map((v) => (
-                    <MenuItem key={v.id} value={v.id}>{v.file_name}</MenuItem>
-                  ))}
-                </Select>
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  <Select
+                    size="small"
+                    value={selectedBudget}
+                    onChange={(e) => setSelectedBudget(e.target.value)}
+                    displayEmpty
+                    fullWidth
+                    sx={{
+                      borderRadius: '12px',
+                      bgcolor: '#fcfcfc',
+                      '& .MuiOutlinedInput-notchedOutline': { borderColor: '#e0e0e0' },
+                      '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#1a237e' }
+                    }}
+                  >
+                    <MenuItem value=""><em>-- เลือกไฟล์งบประมาณ --</em></MenuItem>
+                    {budgetVersions.map((v) => (
+                      <MenuItem key={v.id} value={v.id}>{v.file_name}</MenuItem>
+                    ))}
+                  </Select>
+                  <Button
+                    variant="contained"
+                    onClick={handleUpdateBudget}
+                    disabled={loadingUpdate.budget}
+                    sx={{ borderRadius: '12px', minWidth: '100px', fontWeight: 'bold' }}
+                  >
+                    {loadingUpdate.budget ? <CircularProgress size={20} color="inherit" /> : 'อัปเดต'}
+                  </Button>
+                </Box>
               </Box>
 
               <Divider sx={{ my: 4, borderStyle: 'dashed' }} />
@@ -448,23 +337,33 @@ const DataManagePage = () => {
                     จัดการ Version
                   </Button>
                 </Box>
-                <Select
-                  size="small"
-                  value={selectedCapexBg}
-                  onChange={(e) => setSelectedCapexBg(e.target.value)}
-                  displayEmpty
-                  fullWidth
-                  sx={{
-                    borderRadius: '12px',
-                    bgcolor: '#fcfcfc',
-                    '& .MuiOutlinedInput-notchedOutline': { borderColor: '#e0e0e0' }
-                  }}
-                >
-                  <MenuItem value=""><em>-- เลือก Capex Plan --</em></MenuItem>
-                  {capexBgVersions.map((v) => (
-                    <MenuItem key={v.id} value={v.id}>{v.file_name}</MenuItem>
-                  ))}
-                </Select>
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  <Select
+                    size="small"
+                    value={selectedCapexBg}
+                    onChange={(e) => setSelectedCapexBg(e.target.value)}
+                    displayEmpty
+                    fullWidth
+                    sx={{
+                      borderRadius: '12px',
+                      bgcolor: '#fcfcfc',
+                      '& .MuiOutlinedInput-notchedOutline': { borderColor: '#e0e0e0' }
+                    }}
+                  >
+                    <MenuItem value=""><em>-- เลือก Capex Plan --</em></MenuItem>
+                    {capexBgVersions.map((v) => (
+                      <MenuItem key={v.id} value={v.id}>{v.file_name}</MenuItem>
+                    ))}
+                  </Select>
+                  <Button
+                    variant="contained"
+                    onClick={handleUpdateCapexBg}
+                    disabled={loadingUpdate.capexBg}
+                    sx={{ borderRadius: '12px', minWidth: '100px', fontWeight: 'bold' }}
+                  >
+                    {loadingUpdate.capexBg ? <CircularProgress size={20} color="inherit" /> : 'อัปเดต'}
+                  </Button>
+                </Box>
               </Box>
 
               <Box sx={{ pl: 0 }}>
@@ -480,23 +379,33 @@ const DataManagePage = () => {
                     จัดการ Version
                   </Button>
                 </Box>
-                <Select
-                  size="small"
-                  value={selectedCapexActual}
-                  onChange={(e) => setSelectedCapexActual(e.target.value)}
-                  displayEmpty
-                  fullWidth
-                  sx={{
-                    borderRadius: '12px',
-                    bgcolor: '#fcfcfc',
-                    '& .MuiOutlinedInput-notchedOutline': { borderColor: '#e0e0e0' }
-                  }}
-                >
-                  <MenuItem value=""><em>-- เลือก Capex Actual --</em></MenuItem>
-                  {capexActualVersions.map((v) => (
-                    <MenuItem key={v.id} value={v.id}>{v.file_name}</MenuItem>
-                  ))}
-                </Select>
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  <Select
+                    size="small"
+                    value={selectedCapexActual}
+                    onChange={(e) => setSelectedCapexActual(e.target.value)}
+                    displayEmpty
+                    fullWidth
+                    sx={{
+                      borderRadius: '12px',
+                      bgcolor: '#fcfcfc',
+                      '& .MuiOutlinedInput-notchedOutline': { borderColor: '#e0e0e0' }
+                    }}
+                  >
+                    <MenuItem value=""><em>-- เลือก Capex Actual --</em></MenuItem>
+                    {capexActualVersions.map((v) => (
+                      <MenuItem key={v.id} value={v.id}>{v.file_name}</MenuItem>
+                    ))}
+                  </Select>
+                  <Button
+                    variant="contained"
+                    onClick={handleUpdateCapexActual}
+                    disabled={loadingUpdate.capexActual}
+                    sx={{ borderRadius: '12px', minWidth: '100px', fontWeight: 'bold' }}
+                  >
+                    {loadingUpdate.capexActual ? <CircularProgress size={20} color="inherit" /> : 'อัปเดต'}
+                  </Button>
+                </Box>
               </Box>
             </Box>
           </Paper>
@@ -609,162 +518,119 @@ const DataManagePage = () => {
                   );
                 })}
               </Grid>
+
+              <Button
+                variant="contained"
+                onClick={handleUpdateDatabaseActuals}
+                disabled={loadingUpdate.dbActuals}
+                fullWidth
+                sx={{ mt: 4, height: '45px', borderRadius: '12px', fontWeight: 'bold' }}
+              >
+                {loadingUpdate.dbActuals ? <CircularProgress size={20} color="inherit" /> : 'อัปเดตการตั้งค่า'}
+              </Button>
+
+              <Divider sx={{ my: 4, borderStyle: 'dashed' }} />
+
+              <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 3, display: 'flex', alignItems: 'center', gap: 1.5, color: '#1a237e', position: 'relative', zIndex: 1 }}>
+                <Avatar sx={{ bgcolor: '#e8eaf6', width: 32, height: 32 }}>
+                  <InsertDriveFileIcon sx={{ color: '#1a237e', fontSize: 20 }} />
+                </Avatar>
+                GL Mapping Config
+              </Typography>
+
+              <Box sx={{ position: 'relative', zIndex: 1 }}>
+                <Button
+                  variant="outlined"
+                  fullWidth
+                  onClick={() => handleOpenModal('MAP_GL', 'MANAGE GL MAPPING')}
+                  sx={{
+                    height: '45px',
+                    borderRadius: '12px',
+                    textTransform: 'none',
+                    fontSize: '0.85rem',
+                    fontWeight: 'bold',
+                    borderColor: '#1a237e',
+                    color: '#1a237e',
+                    '&:hover': {
+                      bgcolor: 'rgba(26, 35, 126, 0.04)',
+                      borderColor: '#283593'
+                    }
+                  }}
+                  startIcon={<EditIcon />}
+                >
+                  จัดการ GL Mapping
+                </Button>
+              </Box>
+
+              <Divider sx={{ my: 4, borderStyle: 'dashed' }} />
+
+              <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 3, display: 'flex', alignItems: 'center', gap: 1.5, color: '#1a237e', position: 'relative', zIndex: 1 }}>
+                <Avatar sx={{ bgcolor: '#e8eaf6', width: 32, height: 32 }}>
+                  <InsertDriveFileIcon sx={{ color: '#1a237e', fontSize: 20 }} />
+                </Avatar>
+                Filter Pane Config (Budget Structure)
+              </Typography>
+
+              <Box sx={{ position: 'relative', zIndex: 1 }}>
+                <Button
+                  variant="outlined"
+                  fullWidth
+                  onClick={() => handleOpenModal('BUDGET_STRUCTURE', 'MANAGE BUDGET STRUCTURE')}
+                  sx={{
+                    height: '45px',
+                    borderRadius: '12px',
+                    textTransform: 'none',
+                    fontSize: '0.85rem',
+                    fontWeight: 'bold',
+                    borderColor: '#1a237e',
+                    color: '#1a237e',
+                    '&:hover': {
+                      bgcolor: 'rgba(26, 35, 126, 0.04)',
+                      borderColor: '#1a237e'
+                    }
+                  }}
+                  startIcon={<EditIcon />}
+                >
+                  จัดการ Filter Pane
+                </Button>
+              </Box>
+
             </Box>
           </Paper>
         </Grid>
       </Grid>
 
-      {/* --- Modal (Dialog) --- */}
-      <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
-        <DialogTitle sx={{ bgcolor: '#4e73df', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 1 }}>
-          <Typography sx={{ fontWeight: 'bold', textTransform: 'uppercase' }}>{modalTitle}</Typography>
-          <IconButton onClick={handleClose} sx={{ color: 'white' }}><CloseIcon /></IconButton>
-        </DialogTitle>
-        <DialogContent sx={{ p: 4, bgcolor: '#f8f9fc' }}>
-          <Grid container spacing={4}>
+      {/* --- Specialized Management Modals --- */}
+      <BudgetVersionModal
+        open={open && modalType === 'BUDGET'}
+        onClose={handleClose}
+        items={budgetVersions}
+        onRefresh={fetchAllVersions}
+        activeId={selectedBudget}
+      />
+      <CapexPlanModal
+        open={open && modalType === 'CAPEX_BG'}
+        onClose={handleClose}
+        items={capexBgVersions}
+        onRefresh={fetchAllVersions}
+        activeId={selectedCapexBg}
+      />
+      <CapexActualModal
+        open={open && modalType === 'CAPEX_ACTUAL'}
+        onClose={handleClose}
+        items={capexActualVersions}
+        onRefresh={fetchAllVersions}
+        activeId={selectedCapexActual}
+      />
 
-            {/* Left: Available Versions List */}
-            <Grid item xs={12} md={6}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1 }}>AVAILABLE VERSIONS</Typography>
-              <TextField
-                fullWidth size="small" placeholder="search..." sx={{ mb: 1, bgcolor: 'white' }}
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                InputProps={{ endAdornment: <InputAdornment position="end"><SearchIcon color="primary" /></InputAdornment> }}
-              />
-              <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic', mb: 2, display: 'block' }}>
-                Total versions: {activeList.length}
-              </Typography>
+      {/* Legacy/Common Dialog removed and replaced by specialized modals above */}
 
-              <Paper sx={{ maxHeight: 300, overflow: 'auto', bgcolor: 'white' }}>
-                <List dense>
-                  {activeList.map((item) => (
-                    <React.Fragment key={item.id}>
-                      <ListItem sx={{ py: 1.5, px: 2 }}>
-                        {/* 1. Avatar */}
-                        <ListItemAvatar>
-                          <Avatar sx={{ bgcolor: '#e3f2fd', color: '#1976d2' }}>
-                            <InsertDriveFileIcon style={{ fontSize: 18 }} />
-                          </Avatar>
-                        </ListItemAvatar>
+      {/* --- GL Mapping Modal --- */}
+      <GLMappingModal open={modalType === 'MAP_GL' && open} onClose={handleClose} />
 
-                        {/* 2. Content Area (Text or Edit Input) */}
-                        <Box sx={{ flexGrow: 1, minWidth: 0, mr: 2 }}>
-                          {editingId === item.id ? (
-                            <TextField
-                              size="small"
-                              value={newName}
-                              onChange={(e) => setNewName(e.target.value)}
-                              autoFocus
-                              fullWidth
-                              variant="standard"
-                            />
-                          ) : (
-                            <>
-                              <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap title={item.file_name}>
-                                {item.file_name}
-                              </Typography>
-                              <Typography variant="caption" display="block" color="text.secondary" noWrap>
-                                {new Date(item.upload_at).toLocaleString()}
-                              </Typography>
-                            </>
-                          )}
-                        </Box>
+      {/* --- Budget Structure Modal --- */}
+      <BudgetStructureModal open={modalType === 'BUDGET_STRUCTURE' && open} onClose={handleClose} />
 
-                        {/* 3. Actions Area */}
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                          {editingId === item.id ? (
-                            <>
-                              <IconButton size="small" onClick={() => saveRename(item.id)} sx={{ color: 'success.main' }}>
-                                <SaveIcon fontSize="small" />
-                              </IconButton>
-                              <IconButton size="small" onClick={() => setEditingId(null)} color="default">
-                                <CancelIcon fontSize="small" />
-                              </IconButton>
-                            </>
-                          ) : (
-                            <>
-                              <IconButton size="small" onClick={() => startRename(item.id, item.file_name)} sx={{ color: 'primary.main' }}>
-                                <EditIcon fontSize="small" />
-                              </IconButton>
-                              <IconButton size="small" onClick={() => handleDelete(item.id)} sx={{ color: 'error.main' }}>
-                                <DeleteIcon fontSize="small" />
-                              </IconButton>
-                            </>
-                          )}
-                        </Box>
-                      </ListItem>
-                      <Divider component="li" />
-                    </React.Fragment>
-                  ))}
-                  {activeList.length === 0 && (
-                    <Box sx={{ p: 2, textAlign: 'center', color: '#999' }}>No versions found</Box>
-                  )}
-                </List>
-              </Paper>
-            </Grid>
-
-            {/* Right: Upload Area */}
-            <Grid item xs={12} md={6}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 2 }}>UPLOAD NEW VERSION</Typography>
-
-              {/* 1. Upload Box */}
-              {!fileToUpload ? (
-                <Box
-                  sx={{ border: '2px dashed #ccc', borderRadius: '15px', p: 4, textAlign: 'center', bgcolor: 'white', mb: 3, cursor: 'pointer' }}
-                  onClick={() => fileInputRef.current.click()}
-                >
-                  <input
-                    type="file"
-                    hidden
-                    ref={fileInputRef}
-                    onChange={handleFileSelect}
-                    accept=".xlsx,.csv"
-                  />
-                  <Typography variant="body2" color="text.secondary">Drag & drop your budget file here or click to browse</Typography>
-                  <Button variant="contained" startIcon={<CloudUploadIcon />} sx={{ mt: 2, borderRadius: '20px' }}>
-                    SELECT FILE
-                  </Button>
-                  <Typography variant="caption" display="block" sx={{ mt: 1 }} color="text.secondary">Supported file: .xlsx</Typography>
-                </Box>
-              ) : (
-                <Box sx={{ border: '1px solid #ccc', borderRadius: '15px', p: 3, bgcolor: 'white', mb: 3, textAlign: 'center' }}>
-                  <Typography variant="body1" sx={{ fontWeight: 'bold', mb: 1 }}>Selected File:</Typography>
-                  <Typography variant="body2" color="primary" sx={{ mb: 2 }}>{fileToUpload.name}</Typography>
-
-                  <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1, textAlign: 'left' }}>Version Name:</Typography>
-                  <TextField
-                    fullWidth
-                    size="small"
-                    value={versionName}
-                    onChange={(e) => setVersionName(e.target.value)}
-                    sx={{ mb: 2 }}
-                  />
-
-                  <Button
-                    variant="contained"
-                    color="success"
-                    sx={{ borderRadius: '20px', px: 4 }}
-                    onClick={handleSaveUpload}
-                    disabled={isUploading}
-                    startIcon={isUploading ? <CircularProgress size={20} color="inherit" /> : <SaveIcon />}
-                  >
-                    {isUploading ? "UPLOADING..." : "SAVE & UPLOAD"}
-                  </Button>
-
-                  <Button
-                    sx={{ ml: 2, color: 'text.secondary' }}
-                    onClick={() => setFileToUpload(null)}
-                  >
-                    CANCEL
-                  </Button>
-                </Box>
-              )}
-            </Grid>
-
-          </Grid>
-        </DialogContent>
-      </Dialog>
     </Box>
   );
 };

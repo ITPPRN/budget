@@ -17,6 +17,7 @@ import {
 } from '@mui/material';
 import FullscreenIcon from '@mui/icons-material/Fullscreen';
 import CloseIcon from '@mui/icons-material/Close';
+import DownloadIcon from '@mui/icons-material/Download';
 
 const months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
 
@@ -134,9 +135,14 @@ const BudgetTable = React.memo(({ loading, data, selectedCount }) => {
                         Budget Detail
                     </Typography>
                 </Box>
+                <Box sx={{ display: 'flex', gap: 1 }}>
                 <IconButton onClick={() => setOpenFullScreen(true)} size="small" sx={{ color: '#424242' }}>
                     <FullscreenIcon />
                 </IconButton>
+                <IconButton size="small" sx={{ color: '#424242' }}>
+                    <DownloadIcon sx={{ fontSize: 18 }} />
+                </IconButton>
+                </Box>
             </Box>
 
             <Box sx={{ flexGrow: 1, overflow: 'hidden', width: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>

@@ -23,7 +23,7 @@ const (
 	RealmName        CfgKey = "KC_REALM_NAME"
 	AdminUsername    CfgKey = "KC_ADMIN_USER"
 	AdminPassword    CfgKey = "KC_ADMIN_PASS"
-	// PublicKey        CfgKey = "KC_PUBLIC_KEY"
+	RabbitMQURL      CfgKey = "RABBITMQ_URL"
 )
 
 type Config struct {
@@ -32,6 +32,7 @@ type Config struct {
 	Postgres2 PostgresSql
 	Redis     Redis
 	KeyCloak  KeyCloak
+	RabbitMQ  RabbitMQ
 }
 
 type Fiber struct {
@@ -64,4 +65,8 @@ type KeyCloak struct {
 	AdminUsername string
 	AdminPassword string
 	// PublicKey     string
+}
+
+type RabbitMQ struct {
+	URL string
 }

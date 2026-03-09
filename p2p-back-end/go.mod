@@ -3,6 +3,7 @@ module p2p-back-end
 go 1.25.4
 
 require (
+	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/Nerzal/gocloak/v13 v13.9.0
 	github.com/go-redis/redis/v8 v8.11.5
 	github.com/gofiber/contrib/fiberzap/v2 v2.1.6
@@ -12,6 +13,8 @@ require (
 	github.com/infisical/go-sdk v0.5.100
 	github.com/joho/godotenv v1.5.1
 	github.com/lestrrat-go/jwx/v2 v2.1.6
+	github.com/rabbitmq/amqp091-go v1.10.0
+	github.com/robfig/cron/v3 v3.0.1
 	github.com/stretchr/testify v1.11.1
 	github.com/swaggo/swag v1.16.6
 	github.com/xuri/excelize/v2 v2.10.0
@@ -26,6 +29,7 @@ require (
 	github.com/go-sql-driver/mysql v1.8.1 // indirect
 	github.com/richardlehane/mscfb v1.0.4 // indirect
 	github.com/richardlehane/msoleps v1.0.4 // indirect
+	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/tiendc/go-deepcopy v1.7.1 // indirect
 	github.com/xuri/efp v0.0.1 // indirect
 	github.com/xuri/nfp v0.0.2-0.20250530014748-2ddeb826f9a9 // indirect

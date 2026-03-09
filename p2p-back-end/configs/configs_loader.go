@@ -85,6 +85,8 @@ func LoadConfigs(cfg *Config) {
 	cfg.KeyCloak.ClientSecret = setData(ClientSecret)
 	cfg.KeyCloak.RealmName = setData(RealmName)
 
+	cfg.RabbitMQ.URL = setData(RabbitMQURL)
+
 	printLog(cfg)
 }
 
@@ -109,7 +111,7 @@ func printLog(cfg *Config) {
 		RealmName:        cfg.KeyCloak.RealmName,
 		AdminUsername:    cfg.KeyCloak.AdminUsername,
 		AdminPassword:    cfg.KeyCloak.AdminPassword,
-		// PublicKey:        cfg.KeyCloak.PublicKey,
+		RabbitMQURL:      cfg.RabbitMQ.URL,
 	}
 
 	for key, value := range fields {

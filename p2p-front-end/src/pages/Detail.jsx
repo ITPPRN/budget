@@ -76,7 +76,7 @@ const DetailContent = () => {
     const fetchDetails = async () => {
       // Logic: If selection is empty -> Fetch ALL (send empty list to backend to optimize)
       const idsToFetch = selectedLeaves.size > 0
-        ? Array.from(selectedLeaves)
+        ? Array.from(selectedLeaves).map(id => id.split('|')[0]).filter(code => code !== "")
         : []; // Optimizing: Don't send 200+ IDs if not specifically filtered
 
       if (isMounted) {

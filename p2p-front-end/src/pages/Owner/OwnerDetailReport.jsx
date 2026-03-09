@@ -84,7 +84,7 @@ const OwnerDetailContent = () => {
 
         const fetchDetails = async () => {
             const idsToFetch = selectedLeaves.size > 0
-                ? Array.from(selectedLeaves)
+                ? Array.from(selectedLeaves).map(id => id.split('|')[0]).filter(code => code !== "")
                 : []; // Optimized: Empty list means 'All' to the backend
 
             if (isMounted) {

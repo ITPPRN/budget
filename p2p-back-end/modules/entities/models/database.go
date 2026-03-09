@@ -101,6 +101,54 @@ type ProductEntity struct {
 
 func (ProductEntity) TableName() string { return "product_entities" }
 
+// GlMappingEntity maps Entity GL to Conso GL (Derived from map_gl.txt)
+type GlMappingEntity struct {
+	ID          uuid.UUID `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
+	Entity      string    `gorm:"index:idx_gl_mapping_entity_gl;not null" json:"entity"`
+	EntityGL    string    `gorm:"index:idx_gl_mapping_entity_gl;not null" json:"entity_gl"`
+	ConsoGL     string    `gorm:"not null" json:"conso_gl"`
+	AccountName string    `json:"account_name"`
+	IsActive    bool      `gorm:"default:true" json:"is_active"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+func (GlMappingEntity) TableName() string {
+	return "gl_mapping_entities"
+}
+
+// BudgetStructureEntity represents the flat budget category structure (Filter Pane)
+type BudgetStructureEntity struct {
+	ID          uint   `gorm:"primaryKey;autoIncrement;column:id" json:"id"`
+	Group1      string `gorm:"column:group1;type:varchar(255)" json:"group1"`
+	Group2      string `gorm:"column:group2;type:varchar(255)" json:"group2"`
+	Group3      string `gorm:"column:group3;type:varchar(255)" json:"group3"`
+	ConsoGL     string `gorm:"column:conso_gl;type:varchar(100)" json:"conso_gl"`
+	AccountName string `gorm:"column:account_name;type:varchar(255)" json:"account_name"`
+}
+
+func (BudgetStructureEntity) TableName() string {
+	return "budget_structure_entities"
+}
+
+// GeneralLedgerEntriesClik represents the central sync table storing actual transactions
+type GeneralLedgerEntriesClik struct {
+	TransactionNo        string  `gorm:"primaryKey;column:transaction_no;type:varchar(255)"`
+	GLAccountNo          string  `gorm:"index;column:g_l_account_no;type:varchar(100)"`
+	GLAccountName        string  `gorm:"column:g_l_account_name;type:varchar(255)"`
+	PostingDate          string  `gorm:"index;column:posting_date;type:varchar(50)"`
+	DocumentNo           string  `gorm:"column:document_no;type:varchar(100)"`
+	Description          string  `gorm:"column:description;type:text"`
+	Amount               float64 `gorm:"column:amount;type:decimal(20,2)"`
+	Dim1                 string  `gorm:"column:dim_1_;type:varchar(100)"`
+	GlobalDimension1Code string  `gorm:"index;column:global_dimension_1_code;type:varchar(100)"`
+	GlobalDimension2Code string  `gorm:"index;column:global_dimension_2_code;type:varchar(100)"`
+}
+
+func (GeneralLedgerEntriesClik) TableName() string {
+	return "general_ledger_entries_clik"
+}
+
 type PurchaseRequestEntity struct {
 	gorm.Model
 	ID             uuid.UUID         `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
@@ -354,77 +402,69 @@ type CapexActualAmountEntity struct { // DETAIL
 
 func (CapexActualAmountEntity) TableName() string { return "capex_actual_amount_entities" }
 
-// 4. Actual Budget (Operational / P2P) - Aggregated from External Sources
+// 4. Central Actuals (Unified Source of Truth)
 type ActualFactEntity struct { // HEADER
 	gorm.Model
 	ID uuid.UUID `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
 
-	// No File Source ID as this comes from DB Sync
-
 	// Dimensions
-	Entity     string `gorm:"index:idx_actual_year_entity_branch_dept" json:"entity"`
-	Branch     string `gorm:"index:idx_actual_year_entity_branch_dept" json:"branch"`
-	Department string `gorm:"index:idx_actual_year_entity_branch_dept" json:"department"` // Mapped from Global_Dimension_1
-	NavCode    string `gorm:"index" json:"nav_code"`                                      // Original Code
-	Group      string `json:"group"`                                                      // Mapped via GL mapping
+	Entity     string `gorm:"index:idx_actual_composite" json:"entity"`
+	Branch     string `gorm:"index:idx_actual_composite" json:"branch"`
+	Department string `gorm:"index:idx_actual_composite" json:"department"` // Mapped from Global_Dimension_1 or mapping table
+	NavCode    string `gorm:"index" json:"nav_code"`                        // Original Code
+	Group      string `json:"group"`                                        // Optional: Mapped via GL mapping
 	EntityGL   string `json:"entity_gl"`
 	ConsoGL    string `json:"conso_gl"`
 	GLName     string `json:"gl_name"`
-	Year       string `gorm:"index:idx_actual_year_entity_branch_dept" json:"year"` // New Field for Sync by Year
+	VendorName string `json:"vendor_name"` // Mapped from Vendor_Name
+	Year       string `gorm:"index:idx_actual_composite" json:"year"`
 
 	// Summary
 	YearTotal decimal.Decimal `gorm:"type:decimal(18,2)" json:"year_total"`
 
 	// Amounts
 	ActualAmounts []ActualAmountEntity `gorm:"foreignKey:ActualFactID" json:"actual_amounts,omitempty"`
+
+	// Status
+	IsValid bool `gorm:"default:true" json:"is_valid"`
 }
 
 func (ActualFactEntity) TableName() string { return "actual_fact_entities" }
 
 type ActualAmountEntity struct { // DETAIL
 	gorm.Model
-	ID           uuid.UUID       `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
-	ActualFactID uuid.UUID       `gorm:"type:uuid;index" json:"actual_fact_id"`
-	Month        string          `json:"month"` // JAN, FEB
-	Amount       decimal.Decimal `gorm:"type:decimal(18,2)" json:"amount"`
+	ID           uuid.UUID         `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
+	ActualFactID uuid.UUID         `gorm:"type:uuid;index" json:"actual_fact_id"`
+	Month        string            `json:"month"` // JAN, FEB
+	Amount       decimal.Decimal   `gorm:"type:decimal(18,2)" json:"amount"`
+	ActualFact   *ActualFactEntity `gorm:"foreignKey:ActualFactID" json:"actual_fact"`
 }
 
 func (ActualAmountEntity) TableName() string { return "actual_amount_entities" }
 
-// 5. Owner Actual Fact (Separate Table for Auto-Sync)
-type OwnerActualFactEntity struct { // HEADER
+// ActualTransactionEntity stores detailed transaction records for reporting
+type ActualTransactionEntity struct {
 	gorm.Model
 	ID uuid.UUID `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
 
-	// Dimensions
-	Entity     string `gorm:"index:idx_owner_actual_composite;index:idx_owner_actual_year_entity" json:"entity"`
-	Branch     string `gorm:"index:idx_owner_actual_composite" json:"branch"`
-	Department string `gorm:"index:idx_owner_actual_composite" json:"department"` // Mapped
-	NavCode    string `json:"nav_code"`                                           // Original
-	EntityGL   string `json:"entity_gl"`
-	ConsoGL    string `json:"conso_gl"`
-	GLName     string `json:"gl_name"`
-	Year       string `gorm:"index:idx_owner_actual_composite;index:idx_owner_actual_year_entity" json:"year"`
+	// Source Details
+	Source      string          `gorm:"index" json:"source"`       // HMW, CLIK
+	PostingDate string          `gorm:"index" json:"posting_date"` // YYYY-MM-DD
+	DocNo       string          `json:"doc_no"`
+	Description string          `json:"description"`
+	Amount      decimal.Decimal `gorm:"type:decimal(20,2)" json:"amount"`
+	VendorName  string          `json:"vendor"`
 
-	// Summary
-	YearTotal decimal.Decimal `gorm:"type:decimal(18,2)" json:"year_total"`
+	// Dimensional Data (Mapped/Centralized)
+	Entity     string `gorm:"index" json:"entity"`
+	Branch     string `gorm:"index" json:"branch"`
+	Department string `gorm:"index" json:"department"`
+	EntityGL   string `gorm:"index" json:"entity_gl"`
+	ConsoGL    string `gorm:"index" json:"conso_gl"`
+	Year       string `gorm:"index" json:"year"`
 
-	// Amounts
-	OwnerActualAmounts []OwnerActualAmountEntity `gorm:"foreignKey:OwnerActualFactID" json:"owner_actual_amounts,omitempty"`
-
-	// Valid flag (Optional, for soft re-sync)
+	// Status
 	IsValid bool `gorm:"default:true" json:"is_valid"`
 }
 
-func (OwnerActualFactEntity) TableName() string { return "owner_actual_fact_entities" }
-
-type OwnerActualAmountEntity struct { // DETAIL
-	gorm.Model
-	ID                uuid.UUID              `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
-	OwnerActualFactID uuid.UUID              `gorm:"type:uuid;index" json:"owner_actual_fact_id"`
-	Month             string                 `json:"month"` // JAN, FEB
-	Amount            decimal.Decimal        `gorm:"type:decimal(18,2)" json:"amount"`
-	OwnerActualFact   *OwnerActualFactEntity `gorm:"foreignKey:OwnerActualFactID" json:"owner_actual_fact"`
-}
-
-func (OwnerActualAmountEntity) TableName() string { return "owner_actual_amount_entities" }
+func (ActualTransactionEntity) TableName() string { return "actual_transaction_entities" }

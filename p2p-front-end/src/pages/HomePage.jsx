@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Box, Grid, Typography, Button, Container, Select, MenuItem, FormControl, InputLabel, Stack, Paper } from '@mui/material';
+import { Box, Grid, Typography, Button, Container, Select, MenuItem, FormControl, InputLabel, Stack, Paper, OutlinedInput, Popover, InputAdornment } from '@mui/material';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api/axiosInstance';
-import { STATIC_FILTER_OPTIONS } from '../constants/budgetData';
+import { BudgetProvider, useBudget } from '../contexts/BudgetContext';
 import StatCard from '../components/Dashboard/StatCard';
 import { TotalBudgetCard, RemainingBudgetCard, DepartmentAlertCard } from '../components/Dashboard/BudgetStatsCard';
 import DepartmentTable from '../components/Dashboard/DepartmentTable';
@@ -13,14 +13,23 @@ import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
 import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
 import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
+import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
 import { useNavigate } from 'react-router-dom';
 import ErrorBoundary from '../components/ErrorBoundary';
+import FilterPane from '../components/Budget/FilterPane';
 
 const gridItemStyle = { display: 'flex', flexDirection: 'column' }; // Re-add if missing or define inline
 
-const HomePage = () => {
+const HomePageContent = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { filterOptions, isLoading: filterLoading, selectedLeaves } = useBudget();
+
+  const [anchorEl, setAnchorEl] = useState(null);
+  const openFilter = Boolean(anchorEl);
+
+  const handleOpenFilter = (event) => setAnchorEl(event.currentTarget);
+  const handleCloseFilter = () => setAnchorEl(null);
 
   const [isSyncing, setIsSyncing] = useState(false); // New state
 
@@ -114,6 +123,7 @@ const HomePage = () => {
         branches: selectedBranch ? [selectedBranch] : [],
         departments: contextDept ? [contextDept] : [], // Level 1: Master
         nav_codes: isChartFocus && focusNavCode ? [focusNavCode] : [], // Level 2: Sub-Dept (NavCode)
+        budget_gls: Array.from(selectedLeaves).map(id => id.split('|')[0]).filter(code => code !== ""),
         page: page + 1,
         limit: rowsPerPage,
         sort_by: orderBy,
@@ -178,7 +188,8 @@ const HomePage = () => {
   // Effect: Context Change (Global Filters, Pagination, Master Drill-Down)
   useEffect(() => {
     fetchDashboardData({ isChartFocus: false });
-  }, [selectedEntity, selectedBranch, selectedDepartment, page, rowsPerPage, orderBy, order]);
+  }, [selectedEntity, selectedBranch, selectedDepartment, selectedLeaves, page, rowsPerPage, orderBy, order]);
+
 
   // Effect: Sub-Dept Change (Chart Focus)
   useEffect(() => {
@@ -224,7 +235,6 @@ const HomePage = () => {
       <Box sx={{ mt: 4, mb: 4, px: 3, width: '100%' }}>
         {/* Header & Filters */}
         <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, justifyContent: 'space-between', alignItems: 'flex-start', mb: 3, gap: 2 }}>
-          {/* ... Box content same as before ... */}
           <Box>
             <Typography variant="h4" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
               Dashboard
@@ -235,9 +245,7 @@ const HomePage = () => {
           </Box>
 
           {/* Filter Controls */}
-          <Stack direction="row" spacing={2} sx={{ minWidth: 300, alignItems: 'center' }}>
-
-
+          <Stack direction="row" sx={{ minWidth: 300, alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
             <FormControl size="small" sx={{ minWidth: 200, bgcolor: 'white', borderRadius: 1 }}>
               <InputLabel>Entity (บริษัท)</InputLabel>
               <Select
@@ -271,6 +279,57 @@ const HomePage = () => {
                   <MenuItem key={branch.name} value={branch.name}>{branch.name}</MenuItem>
                 ))}
               </Select>
+            </FormControl>
+
+            <FormControl size="small" sx={{ minWidth: 250, flexGrow: 1, bgcolor: 'white', borderRadius: 1 }}>
+              <InputLabel shrink={selectedLeaves.size > 0 || openFilter}>
+                Account Filter
+              </InputLabel>
+              <OutlinedInput
+                notched={selectedLeaves.size > 0 || openFilter}
+                label="Account Filter"
+                readOnly
+                onClick={handleOpenFilter}
+                value={selectedLeaves.size > 0 ? `เลือกแล้ว ${selectedLeaves.size} รายการ` : ""}
+                placeholder={selectedLeaves.size === 0 && !openFilter ? " " : " "}
+                endAdornment={
+                  <InputAdornment position="end">
+                    <ArrowDropDownIcon color="action" />
+                  </InputAdornment>
+                }
+                sx={{
+                  height: '40px',
+                  bgcolor: 'white',
+                  cursor: 'pointer',
+                  '& input': {
+                    cursor: 'pointer',
+                  }
+                }}
+              />
+              <Popover
+                open={openFilter}
+                anchorEl={anchorEl}
+                onClose={handleCloseFilter}
+                anchorOrigin={{
+                  vertical: 'bottom',
+                  horizontal: 'left',
+                }}
+                transformOrigin={{
+                  vertical: 'top',
+                  horizontal: 'left',
+                }}
+                PaperProps={{
+                  sx: {
+                    width: anchorEl ? anchorEl.clientWidth : 350,
+                    height: 400,
+                    mt: 1,
+                    p: 0, // FilterPane already has internal padding
+                    overflow: 'hidden'
+                  }
+                }}
+              >
+                {openFilter && <FilterPane compact={true} />}
+              </Popover>
             </FormControl>
           </Stack>
         </Box>
@@ -334,6 +393,14 @@ const HomePage = () => {
         />
       </Box>
     </ErrorBoundary>
+  );
+};
+
+const HomePage = () => {
+  return (
+    <BudgetProvider>
+      <HomePageContent />
+    </BudgetProvider>
   );
 };
 

@@ -18,13 +18,23 @@ import (
 	_capexCon "p2p-back-end/modules/capex/controller"
 	_capexRe "p2p-back-end/modules/capex/repository"
 	_capexSer "p2p-back-end/modules/capex/service"
+	_conCon "p2p-back-end/modules/consumer/controller"
+	_conSer "p2p-back-end/modules/consumer/service"
+	"p2p-back-end/modules/entities/models"
+	_masterRe "p2p-back-end/modules/master/repository/local"
+	_masterSrcRe "p2p-back-end/modules/master/repository/source"
+	_masterSer "p2p-back-end/modules/master/service"
 	_deptRe "p2p-back-end/modules/organization/repository"
 	_deptSer "p2p-back-end/modules/organization/service"
 	_ownerCon "p2p-back-end/modules/owner/controller"
 	_ownerRe "p2p-back-end/modules/owner/repository"
 	_ownerSer "p2p-back-end/modules/owner/service"
+	_proRe "p2p-back-end/modules/producer/repository"
+	_proSer "p2p-back-end/modules/producer/service"
 	_authRe "p2p-back-end/modules/users/repository"
 	"p2p-back-end/pkg/middlewares"
+
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 func (s *server) Handlers() error {
@@ -61,50 +71,97 @@ func (s *server) Handlers() error {
 		s.App.Use(middlewares.NewLoggerMiddleWare())
 	}
 
-	// Organization / Department Module (Seeding)
+	// --- Messaging Setup (RabbitMQ) ---
+	if s.Cfg.RabbitMQ.URL != "" {
+		conn, err := amqp.Dial(s.Cfg.RabbitMQ.URL)
+		if err != nil {
+			logs.Errorf("Failed to connect to RabbitMQ: %v", err)
+		} else {
+			ch, err := conn.Channel()
+			if err != nil {
+				logs.Errorf("Failed to open a channel: %v", err)
+			} else {
+				s.MqChannel = ch
+				logs.Info("Successfully connected to RabbitMQ")
+			}
+		}
+	}
+
+	// Messaging Services
+	var eventProducer models.EvenProducer
+	if s.MqChannel != nil {
+		eventProducer = _proRe.NewEventProducer(s.MqChannel)
+		s.ProducerSrv = _proSer.NewProducerService(eventProducer)
+	}
+
+	// --- Service Initialization ---
+
+	// Master Module (Refactored from senior's code)
+	masterRepo := _masterRe.NewMasterRepositoryDB(s.Db)
+	// Assuming Postgres2 is the source DB for master data if configured, otherwise fallback to Db
+	sourceDb := s.Db
+	if s.Cfg.Postgres2.Host != "" {
+		// In a real scenario, this would be a separate connection.
+		// For now, we'll assume s.Db can access both or is the same for dev.
+	}
+	masterSrcRepo := _masterSrcRe.NewSourceMasterRepositoryDB(sourceDb)
+	s.MasterSrv = _masterSer.NewMasterService(masterRepo, masterSrcRepo, s.ProducerSrv)
+
+	// Organization / Department Module
 	deptRepo := _deptRe.NewDepartmentRepositoryDB(s.Db)
-	deptSrv := _deptSer.NewDepartmentService(deptRepo)
+	s.DeptSrv = _deptSer.NewDepartmentService(deptRepo)
 
 	// Owner Module
 	ownerRepo := _ownerRe.NewOwnerRepositoryDB(s.Db)
-	ownerSrv := _ownerSer.NewOwnerService(ownerRepo)
+	s.OwnerSrv = _ownerSer.NewOwnerService(ownerRepo)
 
-	// Chain Seeding & Auto-Sync (Sequential)
-	go func() {
-		logs.Info("System: Starting Department Data Seeding...")
-		if err := deptSrv.ManageDepartments(); err != nil {
-			logs.Error("Failed to Seed Departments: " + err.Error())
-			return // Stop if seeding fails
-		}
-		logs.Info("System: Department Data Seeding Completed Successfully")
-
-		// Run Auto-Sync AFTER Seeding
-		logs.Info("Details: Starting Auto-Sync Owner Actuals...")
-		if err := ownerSrv.AutoSyncOwnerActuals(); err != nil {
-			logs.Error("Failed to Auto-Sync Owner Actuals: " + err.Error())
-		} else {
-			logs.Info("Details: Auto-Sync Owner Actuals Completed Successfully")
-		}
-	}()
-
+	// Auth Module
 	userRepo := _authRe.NewUserRepositoryDB(s.Db)
-	authSrv := _authSer.NewAuthService(s.Keycloak, s.Cfg, userRepo, s.Redis)
-	_authCon.NewUserController(v1.Group("/auth"), authSrv, deptSrv)
+	s.AuthSrv = _authSer.NewAuthService(s.Keycloak, s.Cfg, userRepo, s.Redis)
 
 	// Budget Module
 	budgetRepo := _budgetRe.NewBudgetRepositoryDB(s.Db)
-	budgetSrv := _budgetSer.NewBudgetService(budgetRepo, deptSrv)
-	_budgetCon.NewBudgetController(v1.Group("/budgets"), budgetSrv)
+	s.BudgetSrv = _budgetSer.NewBudgetService(budgetRepo, s.DeptSrv)
 
 	// Capex Module
 	capexRepo := _capexRe.NewCapexRepositoryDB(s.Db)
-	capexSrv := _capexSer.NewCapexService(capexRepo)
-	_capexCon.NewCapexController(v1, capexSrv)
+	s.CapexSrv = _capexSer.NewCapexService(capexRepo)
 
-	// Create group with Middleware
+	// --- Start Background Tasks (Cron) ---
+	s.StartCronJob()
+
+	// --- Start RabbitMQ Consumer ---
+	if s.MqChannel != nil {
+		consumerSrv := _conSer.NewConsumerService(s.AuthSrv, s.MasterSrv)
+		consumerCtrl := _conCon.NewConsumerController(consumerSrv)
+		go func() {
+			msgs, err := s.MqChannel.Consume(
+				"p2p_queue", // Queue name (Should be unique for P2P)
+				"",          // consumer
+				false,       // auto-ack (We use manual Ack)
+				false,       // exclusive
+				false,       // no-local
+				false,       // no-wait
+				nil,         // args
+			)
+			if err != nil {
+				logs.Errorf("Failed to register a consumer: %v", err)
+				return
+			}
+			for d := range msgs {
+				consumerCtrl.HandleMessage(d)
+			}
+		}()
+	}
+
+	// --- Controller Registration ---
+	_authCon.NewUserController(v1.Group("/auth"), s.AuthSrv, s.DeptSrv)
+	_budgetCon.NewBudgetController(v1.Group("/budgets"), s.BudgetSrv)
+	_capexCon.NewCapexController(v1, s.CapexSrv)
+
 	ownerGroup := v1.Group("/owner")
 	ownerGroup.Use(middlewares.JwtAuthentication(nil))
-	_ownerCon.NewOwnerController(ownerGroup, ownerSrv)
+	_ownerCon.NewOwnerController(ownerGroup, s.OwnerSrv)
 
 	s.App.Use(func(c *fiber.Ctx) error {
 		return c.Status(fiber.ErrInternalServerError.Code).JSON(fiber.Map{

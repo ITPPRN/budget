@@ -2,12 +2,11 @@ package repository
 
 import (
 	"fmt"
-	"p2p-back-end/modules/entities/models"
 	"strings"
 	"sync"
 
-	"github.com/google/uuid"
-	"github.com/shopspring/decimal"
+	"p2p-back-end/modules/entities/models"
+
 	"gorm.io/gorm"
 )
 
@@ -97,7 +96,7 @@ func (r *ownerRepositoryDB) GetDashboardAggregates(filter map[string]interface{}
 		if val, ok := filter["departments"]; ok {
 			if strs := toStringSlice(val); len(strs) > 0 {
 				tn := tableName
-				if tn == "budget_fact_entities" || tn == "owner_actual_fact_entities" {
+				if tn == "budget_fact_entities" || tn == "actual_fact_entities" {
 					// Smart Filter: Check both Dept (Master) and NavCode (Sub)
 					tx = tx.Where(tn+".department IN ? OR "+tn+".nav_code IN ?", strs, strs)
 				} else {
@@ -110,7 +109,7 @@ func (r *ownerRepositoryDB) GetDashboardAggregates(filter map[string]interface{}
 		if val, ok := filter["allowed_departments"]; ok {
 			if strs := toStringSlice(val); len(strs) > 0 {
 				tn := tableName
-				if tn == "budget_fact_entities" || tn == "owner_actual_fact_entities" {
+				if tn == "budget_fact_entities" || tn == "actual_fact_entities" {
 					tx = tx.Where(tn+".department IN ? OR "+tn+".nav_code IN ?", strs, strs)
 				} else {
 					tx = tx.Where(tableName+".department IN ?", strs)
@@ -128,6 +127,41 @@ func (r *ownerRepositoryDB) GetDashboardAggregates(filter map[string]interface{}
 				}
 			}
 		}
+		if val, ok := filter["budget_gls"]; ok {
+			// Helper to convert interface to uint slice (JSON arrays of numbers come as float64)
+			var ids []uint
+			if uids, ok := val.([]uint); ok {
+				ids = uids
+			} else if faces, ok := val.([]interface{}); ok {
+				for _, f := range faces {
+					if nf, ok := f.(float64); ok {
+						ids = append(ids, uint(nf))
+					} else if ni, ok := f.(int); ok {
+						ids = append(ids, uint(ni))
+					}
+				}
+			}
+
+			if len(ids) > 0 {
+				var nodeCodes []string
+				// r.db is available from the outer repository scope
+				if err := r.db.Model(&models.BudgetStructureEntity{}).Where("id IN ?", ids).Pluck("node_code", &nodeCodes).Error; err == nil && len(nodeCodes) > 0 {
+					if tableName == "budget_fact_entities" || tableName == "actual_fact_entities" {
+						tx = tx.Where(tableName+".conso_gl IN ?", nodeCodes)
+					}
+				}
+			}
+		}
+
+		// Support direct conso_gl filtering (from Top Account Filter)
+		if val, ok := filter["conso_gls"]; ok {
+			if strs := toStringSlice(val); len(strs) > 0 {
+				if tableName == "budget_fact_entities" || tableName == "actual_fact_entities" {
+					tx = tx.Where(tableName+".conso_gl IN ?", strs)
+				}
+			}
+		}
+
 		return tx
 	}
 
@@ -171,9 +205,19 @@ func (r *ownerRepositoryDB) GetDashboardAggregates(filter map[string]interface{}
 
 	if val, ok := filter["departments"]; ok {
 		if strs := toStringSlice(val); len(strs) > 0 {
-			// If filtered by Department, we likely want to drill down to NavCode
-			groupBy = "nav_code"
-			selectCol = "nav_code as department"
+			// Phase 10: New click behavior. Only drill down to NavCode if "None" is selected
+			shouldDrillDown := false
+			for _, s := range strs {
+				if s == "None" {
+					shouldDrillDown = true
+					break
+				}
+			}
+
+			if shouldDrillDown {
+				groupBy = "nav_code"
+				selectCol = "nav_code as department"
+			}
 		}
 	}
 
@@ -212,8 +256,8 @@ func (r *ownerRepositoryDB) GetDashboardAggregates(filter map[string]interface{}
 		sem <- struct{}{}        // Acquire
 		defer func() { <-sem }() // Release
 		fmt.Println("[DEBUG] Start Actual Dept")
-		tx := r.db.Table("owner_actual_fact_entities").Select(selectCol + ", COALESCE(SUM(year_total), 0) as total")
-		tx = applyFilter(tx, "owner_actual_fact_entities")
+		tx := r.db.Table("actual_fact_entities").Select(selectCol + ", COALESCE(SUM(year_total), 0) as total")
+		tx = applyFilter(tx, "actual_fact_entities")
 		if groupBy == "nav_code" {
 			// tx = tx.Where("nav_code != ''")
 		}
@@ -247,19 +291,7 @@ func (r *ownerRepositoryDB) GetDashboardAggregates(filter map[string]interface{}
 	}()
 
 	// 4. Chart Aggregation (Actual)
-	// Owner Actuals structure might NOT have Amount Table if I just copied headers?
-	// Wait, my AutoSync INSERTED into `owner_actual_fact_entities` but DID NOT create `owner_actual_amount_entities`!
-	// My `OwnerActualFactEntity` struct has `YearTotal` but NO sub-table for amounts?!
-	// The `hmwQuery` in `AutoSync` only fills `owner_actual_fact_entities`.
-	// IT DOES NOT FILL AMOUNTS.
-	// So `Chart Data` (Monthly) will be MISSING if I try to join `owner_actual_amount_entities`.
-	// The `AutoSync` query logic aggregated by `Year`. It did NOT aggregate by Month.
-	// Wait, the SQL in `AutoSync` has `SUM("Credit_Amount")` group by `... TO_CHAR(..., 'YYYY')`.
-	// It loses specific month granularity!
-	//
-	// CRITICAL FIX: The Owner Dashboard needs MONTHLY data for the Chart.
-	// I must update `AutoSync` to insert into `Amount` table OR design `OwnerActualFact` to store 12 months array (denormalized)
-	// We now use Denormalized Columns in OwnerActualFactEntity
+	// 4. Chart Aggregation (Actual)
 	var actualMonthResults []struct {
 		Month string
 		Total float64
@@ -272,13 +304,13 @@ func (r *ownerRepositoryDB) GetDashboardAggregates(filter map[string]interface{}
 		fmt.Println("[DEBUG] Start Actual Chart")
 
 		// Join Fact + Amount
-		tx := r.db.Table("owner_actual_fact_entities").
-			Select("owner_actual_amount_entities.month, SUM(owner_actual_amount_entities.amount) as total").
-			Joins("JOIN owner_actual_amount_entities ON owner_actual_amount_entities.owner_actual_fact_id = owner_actual_fact_entities.id")
+		tx := r.db.Table("actual_fact_entities").
+			Select("actual_amount_entities.month, SUM(actual_amount_entities.amount) as total").
+			Joins("JOIN actual_amount_entities ON actual_amount_entities.owner_actual_fact_id = actual_fact_entities.id")
 
-		tx = applyFilter(tx, "owner_actual_fact_entities")
+		tx = applyFilter(tx, "actual_fact_entities")
 
-		if err := tx.Group("owner_actual_amount_entities.month").Scan(&actualMonthResults).Error; err != nil {
+		if err := tx.Group("actual_amount_entities.month").Scan(&actualMonthResults).Error; err != nil {
 			setError(err)
 		}
 		fmt.Println("[DEBUG] End Actual Chart")
@@ -338,12 +370,14 @@ func (r *ownerRepositoryDB) GetDashboardAggregates(filter map[string]interface{}
 		sem <- struct{}{}        // Acquire
 		defer func() { <-sem }() // Release
 		fmt.Println("[DEBUG] Start Top Expenses")
-		tx := r.db.Table("owner_actual_fact_entities").
-			Select("gl_name as name, CAST(SUM(year_total) AS FLOAT) as total").
-			Group("gl_name").
+		// Refactored to map GLs to Level 3 Names using budget_structure_entities
+		tx := r.db.Table("actual_fact_entities").
+			Select("COALESCE(budget_structure_entities.name, actual_fact_entities.gl_name) as name, CAST(SUM(actual_fact_entities.year_total) AS FLOAT) as total").
+			Joins("LEFT JOIN budget_structure_entities ON budget_structure_entities.node_code = actual_fact_entities.conso_gl AND budget_structure_entities.level = 3").
+			Group("COALESCE(budget_structure_entities.name, actual_fact_entities.gl_name)").
 			Order("total desc").
 			Limit(3)
-		tx = applyFilter(tx, "owner_actual_fact_entities")
+		tx = applyFilter(tx, "actual_fact_entities")
 		if err := tx.Scan(&topExps).Error; err != nil {
 			fmt.Printf("[WARN] Failed to fetch Top Expenses: %v\n", err)
 		}
@@ -492,9 +526,9 @@ func (r *ownerRepositoryDB) GetBudgetDetails(filter map[string]interface{}) ([]m
 	return results, err
 }
 
-func (r *ownerRepositoryDB) GetActualDetails(filter map[string]interface{}) ([]models.OwnerActualFactEntity, error) {
-	var results []models.OwnerActualFactEntity
-	query := r.db.Model(&models.OwnerActualFactEntity{}).Preload("OwnerActualAmounts")
+func (r *ownerRepositoryDB) GetActualDetails(filter map[string]interface{}) ([]models.ActualFactEntity, error) {
+	var results []models.ActualFactEntity
+	query := r.db.Model(&models.ActualFactEntity{}).Preload("ActualAmounts")
 
 	applyFilter := func(key string, dbCol string) {
 		if val, ok := filter[key]; ok {
@@ -552,374 +586,114 @@ func (r *ownerRepositoryDB) GetActualDetails(filter map[string]interface{}) ([]m
 }
 
 func (r *ownerRepositoryDB) GetActualTransactions(filter map[string]interface{}) (*models.PaginatedActualTransactionDTO, error) {
-	whereClause := "1=1"
-	var args []interface{}
-
-	// Pagination parameters
 	page := 1
 	limit := 10
-	if val, ok := filter["page"]; ok {
-		if v, ok := val.(float64); ok {
-			page = int(v)
-		} else if v, ok := val.(int); ok {
-			page = v
-		}
+	if p, ok := filter["page"].(float64); ok {
+		page = int(p)
 	}
-	if val, ok := filter["limit"]; ok {
-		if v, ok := val.(float64); ok {
-			limit = int(v)
-		} else if v, ok := val.(int); ok {
-			limit = v
-		}
+	if l, ok := filter["limit"].(float64); ok {
+		limit = int(l)
 	}
 	offset := (page - 1) * limit
 
-	entityCodeToNameMap := map[string][]string{
-		"HMW":  {"HONDA MALIWAN", "HMW", "Honda Maliwan"},
-		"ACG":  {"AUTOCORP HOLDING", "ACG", "Autocorp Holding"},
-		"CLIK": {"CLIK"},
-	}
-	branchCodeToNameMap := map[string][]string{
-		"HOF":      {"HEAD OFFICE", "AUTOCORP HEAD OFFICE", "HEADOFFICE", "HOF", "Head Office", "Headoffice"},
-		"BUR":      {"BURIRUM", "BUR", "Burirum"},
-		"KBI":      {"KRABI", "KBI", "Krabi"},
-		"MSR":      {"MINI_SURIN", "MSR", "Mini_Surin"},
-		"MKB":      {"MUEANG KRABI", "MKB", "Mueang Krabi"},
-		"NAK":      {"NAKA", "NAK", "Naka"},
-		"AVN":      {"NANGRONG", "AVN", "Nangrong"},
-		"PHC":      {"PHACHA", "PHC", "Phacha"},
-		"PRA":      {"PHUKET", "PRA", "Phuket"},
-		"SUR":      {"SURIN", "SUR", "Surin"},
-		"VEE":      {"VEERAWAT", "VEE", "Veerawat"},
-		"HQ":       {"AUTOCORP HEAD OFFICE", "HQ", "Autocorp Head Office"},
-		"Branch00": {"", "Branch00"},
-	}
-	for i := 1; i <= 15; i++ {
-		key := fmt.Sprintf("Branch%02d", i)
-		branchCodeToNameMap[key] = []string{fmt.Sprintf("BRANCH%02d", i), fmt.Sprintf("Branch%02d", i)}
+	query := r.db.Table("actual_transaction_entities").
+		Select(`
+			actual_transaction_entities.source,
+			actual_transaction_entities.posting_date,
+			actual_transaction_entities.doc_no as doc_no,
+			actual_transaction_entities.vendor_name as vendor,
+			actual_transaction_entities.description,
+			actual_transaction_entities.entity_gl as gl_account_no,
+			actual_transaction_entities.conso_gl as conso_gl,
+			mapping.account_name as gl_account_name,
+			actual_transaction_entities.amount,
+			actual_transaction_entities.department,
+			actual_transaction_entities.entity as company,
+			actual_transaction_entities.branch
+		`).
+		Joins("LEFT JOIN gl_mapping_entities mapping ON actual_transaction_entities.entity_gl = mapping.entity_gl AND actual_transaction_entities.entity = mapping.entity")
+
+	// Filter Helper
+	toStringSlice := func(val interface{}) []string {
+		if s, ok := val.([]string); ok {
+			return s
+		}
+		if s, ok := val.([]interface{}); ok {
+			var res []string
+			for _, v := range s {
+				if str, ok := v.(string); ok {
+					res = append(res, str)
+				}
+			}
+			return res
+		}
+		return nil
 	}
 
-	var hmwEntities []string
-	var clikEntities []string
+	// 1. Entities
 	if val, ok := filter["entities"]; ok {
-		var entities []string
-		if s, ok := val.([]string); ok {
-			entities = s
-		} else if s, ok := val.([]interface{}); ok {
-			for _, item := range s {
-				entities = append(entities, fmt.Sprintf("%v", item))
-			}
-		}
-		if len(entities) > 0 {
-			for _, e := range entities {
-				if names, ok := entityCodeToNameMap[e]; ok {
-					hmwEntities = append(hmwEntities, names...)
-					clikEntities = append(clikEntities, names...)
-				} else {
-					hmwEntities = append(hmwEntities, e)
-					clikEntities = append(clikEntities, e)
-				}
-			}
+		if s := toStringSlice(val); len(s) > 0 {
+			query = query.Where("actual_transaction_entities.entity IN ?", s)
 		}
 	}
 
-	var hmwBranches []string
-	var clikBranches []string
+	// 2. Branches
 	if val, ok := filter["branches"]; ok {
-		var branches []string
-		if s, ok := val.([]string); ok {
-			branches = s
-		} else if s, ok := val.([]interface{}); ok {
-			for _, item := range s {
-				branches = append(branches, fmt.Sprintf("%v", item))
-			}
-		}
-		if len(branches) > 0 {
-			for _, b := range branches {
-				if names, ok := branchCodeToNameMap[b]; ok {
-					hmwBranches = append(hmwBranches, names...)
-					clikBranches = append(clikBranches, names...)
-				} else {
-					hmwBranches = append(hmwBranches, b)
-					clikBranches = append(clikBranches, b)
-				}
-			}
+		if s := toStringSlice(val); len(s) > 0 {
+			query = query.Where("actual_transaction_entities.branch IN ?", s)
 		}
 	}
 
+	// 3. Departments
 	if val, ok := filter["departments"]; ok {
-		var depts []string
-		if s, ok := val.([]string); ok {
-			depts = s
-		} else if s, ok := val.([]interface{}); ok {
-			for _, item := range s {
-				depts = append(depts, fmt.Sprintf("%v", item))
-			}
-		}
-		if len(depts) > 0 {
-			var mappedCodes []string
-			r.db.Table("department_mapping_entities").
-				Joins("JOIN department_entities ON department_entities.id = department_mapping_entities.department_id").
-				Where("department_entities.code IN ?", depts).
-				Pluck("department_mapping_entities.nav_code", &mappedCodes)
-
-			depts = append(depts, mappedCodes...)
-
-			whereClause += " AND \"Global_Dimension_1_Code\" IN ?"
-			args = append(args, depts)
+		if s := toStringSlice(val); len(s) > 0 {
+			query = query.Where("actual_transaction_entities.department IN ?", s)
 		}
 	}
 
-	if val, ok := filter["allowed_departments"]; ok {
-		if strs, ok := val.([]string); ok && len(strs) > 0 {
-			whereClause += " AND \"Global_Dimension_1_Code\" IN ?"
-			args = append(args, strs)
-		} else if isRestricted, ok := filter["is_restricted"].(bool); ok && isRestricted {
-			whereClause += " AND 1=0"
-		}
-	}
-
-	if val, ok := filter["start_date"]; ok {
-		if s, ok := val.(string); ok && s != "" {
-			whereClause += " AND \"Posting_Date\"::DATE >= ?"
-			args = append(args, s)
-		}
-	}
-	if val, ok := filter["end_date"]; ok {
-		if s, ok := val.(string); ok && s != "" {
-			whereClause += " AND \"Posting_Date\"::DATE <= ?"
-			args = append(args, s)
-		}
-	}
-
-	var activeYears []string
-	r.db.Model(&models.OwnerActualFactEntity{}).Distinct("year").Pluck("year", &activeYears)
-	whereClause += " AND TO_CHAR(\"Posting_Date\"::DATE, 'YYYY') IN ?"
-	if len(activeYears) > 0 {
-		args = append(args, activeYears)
-	} else {
-		whereClause += " AND 1=0"
-	}
-
-	// Optimize GL Map Search (Don't query if array is empty or too large)
+	// 4. Conso GLs
 	if val, ok := filter["conso_gls"]; ok {
-		var consoGLs []string
-		if s, ok := val.([]string); ok {
-			consoGLs = s
-		} else if s, ok := val.([]interface{}); ok {
-			for _, item := range s {
-				consoGLs = append(consoGLs, fmt.Sprintf("%v", item))
-			}
-		}
-
-		if len(consoGLs) > 0 && len(consoGLs) < 200 {
-			var mappedEntityGLs []string
-			mappingQuery := r.db.Model(&models.BudgetFactEntity{}).
-				Where("conso_gl IN ?", consoGLs).
-				Distinct("entity_gl")
-
-			if len(hmwEntities) > 0 {
-				mappingQuery = mappingQuery.Where("entity IN ?", hmwEntities)
-			}
-			mappingQuery.Pluck("entity_gl", &mappedEntityGLs)
-
-			finalGLs := append(mappedEntityGLs, consoGLs...)
-
-			uniqueGLs := make(map[string]bool)
-			var list []string
-			for _, item := range finalGLs {
-				if _, value := uniqueGLs[item]; !value {
-					uniqueGLs[item] = true
-					list = append(list, item)
-				}
-			}
-
-			if len(list) > 0 {
-				whereClause += " AND \"G_L_Account_No\" IN ?"
-				args = append(args, list)
-			}
-		} else if len(consoGLs) >= 200 {
-			// Optimization: Skip mapping if list is huge
+		if s := toStringSlice(val); len(s) > 0 {
+			query = query.Where("actual_transaction_entities.conso_gl IN ?", s)
 		}
 	}
 
-	hmwSQL := r.db.Table("achhmw_gle_api").
-		Select(`
-			'HMW' as source,
-			TO_CHAR("Posting_Date"::DATE, 'YYYY-MM-DD') as posting_date,
-			"Document_No" as doc_no,
-			"Description" as description, 
-			"G_L_Account_No" as gl_account_no,
-			"G_L_Account_Name" as gl_account_name,
-			"Global_Dimension_1_Code" as department,
-			"Credit_Amount" as amount,
-			company,
-			branch
-		`).
-		Where(whereClause, args...)
-
-	if len(hmwEntities) > 0 {
-		hmwSQL = hmwSQL.Where("company IN ?", hmwEntities)
+	// 5. Date Range
+	if val, ok := filter["start_date"].(string); ok && val != "" {
+		query = query.Where("actual_transaction_entities.posting_date >= ?", val)
 	}
-	if len(hmwBranches) > 0 {
-		hmwSQL = hmwSQL.Where("branch IN ?", hmwBranches)
+	if val, ok := filter["end_date"].(string); ok && val != "" {
+		query = query.Where("actual_transaction_entities.posting_date <= ?", val)
 	}
 
-	clikSQL := r.db.Table("general_ledger_entries_clik").
-		Select(`
-			'CLIK' as source,
-			TO_CHAR("Posting_Date"::DATE, 'YYYY-MM-DD') as posting_date,
-			"Document_No" as doc_no, 
-			"Description" as description,
-			"G_L_Account_No" as gl_account_no,
-			"G_L_Account_Name" as gl_account_name,
-			"Global_Dimension_1_Code" as department,
-			"Credit_Amount" as amount,
-			'CLIK' as company,
-			"Global_Dimension_2_Code" as branch
-		`).
-		Where(whereClause, args...)
+	// 6. Year
+	if val, ok := filter["year"].(string); ok && val != "" {
+		query = query.Where("actual_transaction_entities.year = ?", val)
+	}
 
-	if len(hmwEntities) > 0 {
-		hasClik := false
-		for _, e := range hmwEntities {
-			if e == "CLIK" {
-				hasClik = true
-				break
-			}
-		}
-		if !hasClik {
-			clikSQL = clikSQL.Where("1=0")
+	// 7. Permissions (allowed_departments)
+	if val, ok := filter["allowed_departments"]; ok {
+		if s := toStringSlice(val); len(s) > 0 {
+			query = query.Where("actual_transaction_entities.department IN ?", s)
+		} else if isRestricted, ok := filter["is_restricted"].(bool); ok && isRestricted {
+			query = query.Where("1=0")
 		}
 	}
-	if len(clikBranches) > 0 {
-		clikSQL = clikSQL.Where("\"Global_Dimension_2_Code\" IN ?", clikBranches)
-	}
 
-	// Calculate Count First
-	var totalCount int64
-	var countHMW, countCLIK int64
-
-	hmwCountQuery := r.db.Table("achhmw_gle_api").Where(whereClause, args...)
-	if len(hmwEntities) > 0 {
-		hmwCountQuery = hmwCountQuery.Where("company IN ?", hmwEntities)
-	}
-	if len(hmwBranches) > 0 {
-		hmwCountQuery = hmwCountQuery.Where("branch IN ?", hmwBranches)
-	}
-
-	clikCountQuery := r.db.Table("general_ledger_entries_clik").Where(whereClause, args...)
-	if len(hmwEntities) > 0 {
-		hasClik := false
-		for _, e := range hmwEntities {
-			if e == "CLIK" {
-				hasClik = true
-				break
-			}
-		}
-		if !hasClik {
-			clikCountQuery = clikCountQuery.Where("1=0")
-		}
-	}
-	if len(clikBranches) > 0 {
-		clikCountQuery = clikCountQuery.Where("\"Global_Dimension_2_Code\" IN ?", clikBranches)
-	}
-
-	type countResult struct {
-		count int64
-		err   error
-	}
-	hmwChan := make(chan countResult, 1)
-	clikChan := make(chan countResult, 1)
-
-	go func() {
-		var c int64
-		err := hmwCountQuery.Count(&c).Error
-		hmwChan <- countResult{c, err}
-	}()
-
-	go func() {
-		var c int64
-		err := clikCountQuery.Count(&c).Error
-		clikChan <- countResult{c, err}
-	}()
-
-	resHMW := <-hmwChan
-	if resHMW.err != nil {
-		return nil, resHMW.err
-	}
-	resCLIK := <-clikChan
-	if resCLIK.err != nil {
-		return nil, resCLIK.err
-	}
-
-	countHMW = resHMW.count
-	countCLIK = resCLIK.count
-	totalCount = countHMW + countCLIK
-
-	var pagedData []models.ActualTransactionDTO
-
-	hmwSQL_sorted := hmwSQL.Order("posting_date ASC").Limit(limit + offset)
-	clikSQL_sorted := clikSQL.Order("posting_date ASC").Limit(limit + offset)
-
-	err := r.db.Raw(`
-		SELECT * FROM (
-			SELECT * FROM (?) AS hmw_sub
-			UNION ALL
-			SELECT * FROM (?) AS clik_sub
-		) AS u
-		ORDER BY posting_date ASC
-		LIMIT ? OFFSET ?
-	`, hmwSQL_sorted, clikSQL_sorted, limit, offset).Scan(&pagedData).Error
-
-	if err != nil {
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
 		return nil, err
 	}
 
-	dbToDisplayEntity := map[string]string{
-		"HONDA MALIWAN":    "HMW",
-		"AUTOCORP HOLDING": "ACG",
-		"CLIK":             "CLIK",
-	}
-
-	dbToDisplayBranch := map[string]string{
-		"BURIRUM":              "BUR",
-		"HEAD OFFICE":          "HOF",
-		"KRABI":                "KBI",
-		"MINI_SURIN":           "MSR",
-		"MUEANG KRABI":         "MKB",
-		"NAKA":                 "NAK",
-		"NANGRONG":             "AVN",
-		"PHACHA":               "PHC",
-		"PHUKET":               "PRA",
-		"SURIN":                "SUR",
-		"VEERAWAT":             "VEE",
-		"AUTOCORP HEAD OFFICE": "HQ",
-	}
-
-	for i := range pagedData {
-		v := &pagedData[i]
-
-		compUpper := strings.ToUpper(strings.TrimSpace(v.Company))
-		if abbr, ok := dbToDisplayEntity[compUpper]; ok {
-			v.Company = abbr
-		} else if compUpper == "" && v.Source == "CLIK" {
-			v.Company = "CLIK"
-		}
-
-		branchUpper := strings.ToUpper(strings.TrimSpace(v.Branch))
-		if abbr, ok := dbToDisplayBranch[branchUpper]; ok {
-			v.Branch = abbr
-		} else {
-			if branchUpper == "" {
-				v.Branch = "Branch00"
-			}
-		}
+	var results []models.ActualTransactionDTO
+	if err := query.Order("actual_transaction_entities.posting_date DESC, actual_transaction_entities.doc_no DESC").
+		Limit(limit).Offset(offset).Scan(&results).Error; err != nil {
+		return nil, err
 	}
 
 	return &models.PaginatedActualTransactionDTO{
-		Data:       pagedData,
-		TotalCount: totalCount,
+		Data:       results,
+		TotalCount: total,
 		Page:       page,
 		Limit:      limit,
 	}, nil
@@ -950,7 +724,7 @@ func (r *ownerRepositoryDB) GetOwnerFilterLists(filter map[string]interface{}) (
 		return nil, err
 	}
 	var actualEntities []string
-	if err := applyRestriction(r.db.Model(&models.OwnerActualFactEntity{})).Distinct("entity").Pluck("entity", &actualEntities).Error; err != nil {
+	if err := applyRestriction(r.db.Model(&models.ActualFactEntity{})).Distinct("entity").Pluck("entity", &actualEntities).Error; err != nil {
 		return nil, err
 	}
 	// Merge Unique
@@ -973,7 +747,7 @@ func (r *ownerRepositoryDB) GetOwnerFilterLists(filter map[string]interface{}) (
 		return nil, err
 	}
 	var actualBranches []string
-	if err := applyRestriction(r.db.Model(&models.OwnerActualFactEntity{})).Distinct("branch").Pluck("branch", &actualBranches).Error; err != nil {
+	if err := applyRestriction(r.db.Model(&models.ActualFactEntity{})).Distinct("branch").Pluck("branch", &actualBranches).Error; err != nil {
 		return nil, err
 	}
 	branchMap := make(map[string]bool)
@@ -996,7 +770,7 @@ func (r *ownerRepositoryDB) GetOwnerFilterLists(filter map[string]interface{}) (
 		return nil, err
 	}
 	var actualYears []string
-	if err := applyRestriction(r.db.Model(&models.OwnerActualFactEntity{})).Distinct("year").Pluck("year", &actualYears).Error; err != nil {
+	if err := applyRestriction(r.db.Model(&models.ActualFactEntity{})).Distinct("year").Pluck("year", &actualYears).Error; err != nil {
 		return nil, err
 	}
 	yearMap := make(map[string]bool)
@@ -1019,186 +793,12 @@ func (r *ownerRepositoryDB) GetOwnerFilterLists(filter map[string]interface{}) (
 	return lists, nil
 }
 
-// AutoSyncOwnerActuals trancates and re-populates OwnerActualFactEntity
 func (r *ownerRepositoryDB) GetUserPermissions(userID string) ([]models.UserPermissionEntity, error) {
 	var perms []models.UserPermissionEntity
 	err := r.db.Where("user_id = ? AND is_active = true", userID).Find(&perms).Error
 	return perms, err
 }
 
-func (r *ownerRepositoryDB) AutoSyncOwnerActuals() error {
-	// 1. Truncate Tables
-	if err := r.db.Exec("TRUNCATE TABLE owner_actual_amount_entities, owner_actual_fact_entities RESTART IDENTITY CASCADE").Error; err != nil {
-		return fmt.Errorf("failed to truncate owner actuals: %w", err)
-	}
-
-	// 2. Fetch Source Data (One Pass)
-	type SourceRow struct {
-		Entity     string          `gorm:"column:entity"`
-		Branch     string          `gorm:"column:branch"`
-		Department string          `gorm:"column:department"`
-		NavCode    string          `gorm:"column:navcode"`
-		EntityGL   string          `gorm:"column:entitygl"`
-		GLName     string          `gorm:"column:glname"`
-		Year       string          `gorm:"column:year"`
-		Month      string          `gorm:"column:month"`
-		Amount     decimal.Decimal `gorm:"column:amount"`
-	}
-
-	var rows []SourceRow
-	sourceQuery := `
-		SELECT 
-			COALESCE(NULLIF(src.company, ''), 'HMW') as Entity,
-			src.branch as Branch,
-			COALESCE(d.code, NULLIF(src."Global_Dimension_1_Code", ''), 'OTHERS') as Department,
-			NULLIF(src."Global_Dimension_1_Code", '') as NavCode,
-			src."G_L_Account_No" as EntityGL,
-			src."G_L_Account_Name" as GLName,
-			TO_CHAR(src."Posting_Date"::DATE, 'YYYY') as Year,
-			UPPER(TO_CHAR(src."Posting_Date"::DATE, 'MON')) as Month,
-			SUM(src."Credit_Amount") as Amount
-		FROM achhmw_gle_api src
-        LEFT JOIN (SELECT DISTINCT ON (nav_code, entity) * FROM department_mapping_entities) m ON m.nav_code = src."Global_Dimension_1_Code" AND m.entity = COALESCE(NULLIF(src.company, ''), 'HMW')
-        LEFT JOIN department_entities d ON d.id = m.department_id
-		GROUP BY 1, 2, 3, 4, 5, 6, 7, 8
-
-		UNION ALL
-
-		SELECT 
-			'CLIK' as Entity,
-			src."Global_Dimension_2_Code" as Branch,
-			COALESCE(d.code, NULLIF(src."Global_Dimension_1_Code", ''), 'OTHERS') as Department,
-			NULLIF(src."Global_Dimension_1_Code", '') as NavCode,
-			src."G_L_Account_No" as EntityGL,
-			src."G_L_Account_Name" as GLName,
-			TO_CHAR(src."Posting_Date"::DATE, 'YYYY') as Year,
-			UPPER(TO_CHAR(src."Posting_Date"::DATE, 'MON')) as Month,
-			SUM(src."Credit_Amount") as Amount
-		FROM general_ledger_entries_clik src
-        LEFT JOIN (SELECT DISTINCT ON (nav_code, entity) * FROM department_mapping_entities) m ON m.nav_code = src."Global_Dimension_1_Code" AND m.entity = 'CLIK'
-        LEFT JOIN department_entities d ON d.id = m.department_id
-		GROUP BY 1, 2, 3, 4, 5, 6, 7, 8
-	`
-
-	if err := r.db.Raw(sourceQuery).Scan(&rows).Error; err != nil {
-		return fmt.Errorf("failed to fetch source data: %w", err)
-	}
-
-	if len(rows) == 0 {
-		return nil
-	}
-
-	// 3. Process in Memory
-	// Map to track unique Query Facts (Entity+Branch+Dept+NavCode+GL+Year)
-	factMap := make(map[string]*models.OwnerActualFactEntity)
-	var facts []*models.OwnerActualFactEntity
-	var amounts []models.OwnerActualAmountEntity
-
-	// Mapping Dicts
-	entityMapping := map[string]string{
-		"AUTOCORP HOLDING": "ACG",
-		"HONDA MALIWAN":    "HMW",
-	}
-	branchMapping := map[string]string{
-		"AUTOCORP HEAD OFFICE": "HQ",
-		"BURIRUM":              "BUR",
-		"HEAD OFFICE":          "HOF",
-		"HEADOFFICE":           "HOF",
-		"KRABI":                "KBI",
-		"MINI_SURIN":           "MSR",
-		"MUEANG KRABI":         "MKB",
-		"NAKA":                 "NAK",
-		"NANGRONG":             "AVN",
-		"PHACHA":               "PHC",
-		"PHUKET":               "PRA",
-		"SURIN":                "SUR",
-	}
-
-	for _, row := range rows {
-		// --- MAPPING LOGIC ---
-		// 1. Entity Mapping
-		entUpper := strings.ToUpper(strings.TrimSpace(row.Entity))
-		if mappedEnt, ok := entityMapping[entUpper]; ok {
-			row.Entity = mappedEnt
-		} else if row.Entity == "CLIK" {
-			// Stay CLIK
-		}
-
-		// 2. Branch Mapping
-		brUpper := strings.ToUpper(strings.TrimSpace(row.Branch))
-		if mappedBr, ok := branchMapping[brUpper]; ok {
-			row.Branch = mappedBr
-		} else {
-			// CLIK Special Case: BRANCH01 -> Branch01
-			if brUpper == "" {
-				row.Branch = "Branch00"
-			} else if strings.HasPrefix(brUpper, "BRANCH") {
-				// Convert BRANCHXX to BranchXX
-				row.Branch = strings.Title(strings.ToLower(brUpper))
-			}
-		}
-
-		// 3. GL Mapping (Entity GL -> Conso GL)
-		consoGL := row.EntityGL // Default to original if no mapping found
-		if entityGls, ok := models.GlobalGLMapping[row.Entity]; ok {
-			if mappedConso, ok := entityGls[row.EntityGL]; ok {
-				consoGL = mappedConso
-			}
-		}
-
-		// Key for Fact Uniqueness - INCLUDE NavCode and ConsoGL
-		// Use Pipes to separate
-		key := fmt.Sprintf("%s|%s|%s|%s|%s|%s", row.Entity, row.Branch, row.Department, row.NavCode, consoGL, row.Year)
-
-		if _, exists := factMap[key]; !exists {
-			newID := uuid.New()
-			newFact := &models.OwnerActualFactEntity{
-				ID:         newID,
-				Entity:     row.Entity,
-				Branch:     row.Branch,
-				Department: row.Department,
-				NavCode:    row.NavCode, // Save
-				EntityGL:   row.EntityGL,
-				ConsoGL:    consoGL,
-				GLName:     row.GLName,
-				Year:       row.Year,
-				YearTotal:  decimal.Zero,
-				IsValid:    true,
-			}
-			factMap[key] = newFact
-			facts = append(facts, newFact)
-		}
-
-		// Update Fact Total
-		fact := factMap[key]
-		fact.YearTotal = fact.YearTotal.Add(row.Amount)
-
-		// Create Amount Record
-		amounts = append(amounts, models.OwnerActualAmountEntity{
-			ID:                uuid.New(),
-			OwnerActualFactID: fact.ID,
-			Month:             row.Month, // Expected JAN, FEB...
-			Amount:            row.Amount,
-		})
-	}
-
-	// 4. Batch Insert Facts
-	// GORM's CreateInBatches fits well here
-	if len(facts) > 0 {
-		if err := r.db.CreateInBatches(facts, 1000).Error; err != nil {
-			return fmt.Errorf("failed to insert facts: %w", err)
-		}
-	}
-
-	// 5. Batch Insert Amounts
-	if len(amounts) > 0 {
-		if err := r.db.CreateInBatches(amounts, 1000).Error; err != nil {
-			return fmt.Errorf("failed to insert amounts: %w", err)
-		}
-	}
-
-	return nil
-}
 func (r *ownerRepositoryDB) GetNavCodesByMasterDepts(masterCodes []string) ([]string, error) {
 	var navCodes []string
 	err := r.db.Table("department_mapping_entities").

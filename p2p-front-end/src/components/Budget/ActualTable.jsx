@@ -21,6 +21,7 @@ import {
 import FullscreenIcon from '@mui/icons-material/Fullscreen';
 import CloseIcon from '@mui/icons-material/Close';
 import FilterListIcon from '@mui/icons-material/FilterList';
+import DownloadIcon from '@mui/icons-material/Download';
 
 const ActualTable = React.memo(({
     loading,
@@ -164,12 +165,17 @@ const ActualTable = React.memo(({
                     </Typography>
                 </Box>
                 <Box>
-                    <IconButton onClick={handleFilterClick} size="small" sx={{ color: '#424242', mr: 1 }}>
+                    <Box sx={{ display: 'flex', gap: 1 }}>
+                    <IconButton onClick={handleFilterClick} size="small" sx={{ color: '#424242'}}>
                         <FilterListIcon />
                     </IconButton>
                     <IconButton onClick={() => setOpenFullScreen(true)} size="small" sx={{ color: '#424242' }}>
                         <FullscreenIcon />
                     </IconButton>
+                    <IconButton size="small" sx={{ color: '#424242' }}>
+                    <DownloadIcon sx={{ fontSize: 18 }} />
+                </IconButton>
+                </Box>
                 </Box>
             </Box>
 

@@ -55,6 +55,22 @@ func NewBudgetController(router fiber.Router, budgetSrv models.BudgetService) {
 	router.Post("/details", controller.getBudgetDetails)
 	router.Post("/dashboard-summary", controller.getDashboardSummary) // New
 	router.Get("/debug-date", controller.getDebugDate)                // Debug
+
+	// GL Mapping APIs
+	router.Get("/gl-mappings", controller.listGLMappings)
+	router.Get("/gl-mappings/:id", controller.getGLMapping)
+	router.Post("/gl-mappings", controller.createGLMapping)
+	router.Put("/gl-mappings/:id", controller.updateGLMapping)
+	router.Delete("/gl-mappings/:id", controller.deleteGLMapping)
+	router.Post("/gl-mappings/import", controller.importGLMapping)
+
+	// Budget Structure API
+	router.Get("/budget-structure", controller.getBudgetStructureTree)
+	router.Get("/budget-structure-list", controller.listBudgetStructure)
+	router.Get("/budget-structure-list/:id", controller.getBudgetStructure)
+	router.Post("/budget-structure", controller.createBudgetStructure)
+	router.Put("/budget-structure/:id", controller.updateBudgetStructure)
+	router.Delete("/budget-structure/:id", controller.deleteBudgetStructure)
 }
 
 func (c *budgetController) getDebugDate(ctx *fiber.Ctx) error {
@@ -359,4 +375,137 @@ func (c *budgetController) deleteActuals(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return ctx.JSON(fiber.Map{"message": "Actuals deleted successfully", "year": year})
+}
+
+// ---------------------------------------------------------------------
+// GL Mapping Handlers
+// ---------------------------------------------------------------------
+
+func (c *budgetController) listGLMappings(ctx *fiber.Ctx) error {
+	mappings, err := c.budgetSrv.ListGLMappings()
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	return ctx.JSON(mappings)
+}
+
+func (c *budgetController) getGLMapping(ctx *fiber.Ctx) error {
+	id := ctx.Params("id")
+	mapping, err := c.budgetSrv.GetGLMappingByID(id)
+	if err != nil {
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Mapping not found"})
+	}
+	return ctx.JSON(mapping)
+}
+
+func (c *budgetController) createGLMapping(ctx *fiber.Ctx) error {
+	var body models.GlMappingEntity
+	if err := ctx.BodyParser(&body); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
+	}
+	if err := c.budgetSrv.CreateGLMapping(&body); err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	return ctx.JSON(body)
+}
+
+func (c *budgetController) updateGLMapping(ctx *fiber.Ctx) error {
+	var body models.GlMappingEntity
+	if err := ctx.BodyParser(&body); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
+	}
+	// ensure ID is correct from param if needed, but assuming body has it.
+	if err := c.budgetSrv.UpdateGLMapping(&body); err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	return ctx.JSON(body)
+}
+
+func (c *budgetController) deleteGLMapping(ctx *fiber.Ctx) error {
+	id := ctx.Params("id")
+	if err := c.budgetSrv.DeleteGLMapping(id); err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	return ctx.JSON(fiber.Map{"status": "success"})
+}
+
+func (c *budgetController) importGLMapping(ctx *fiber.Ctx) error {
+	file, err := ctx.FormFile("file")
+	if err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to get file"})
+	}
+
+	err = c.budgetSrv.ImportGLMapping(file)
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"message": "GL Mapping imported successfully"})
+}
+
+func (c *budgetController) getBudgetStructureTree(ctx *fiber.Ctx) error {
+	tree, err := c.budgetSrv.GetBudgetStructureTree()
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	return ctx.JSON(tree)
+}
+
+func (c *budgetController) listBudgetStructure(ctx *fiber.Ctx) error {
+	list, err := c.budgetSrv.ListBudgetStructure()
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	return ctx.JSON(list)
+}
+
+func (c *budgetController) getBudgetStructure(ctx *fiber.Ctx) error {
+	id, err := ctx.ParamsInt("id")
+	if err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid ID format"})
+	}
+	entity, err := c.budgetSrv.GetBudgetStructureByID(uint(id))
+	if err != nil {
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Structure node not found"})
+	}
+	return ctx.JSON(entity)
+}
+
+func (c *budgetController) createBudgetStructure(ctx *fiber.Ctx) error {
+	var body models.BudgetStructureEntity
+	if err := ctx.BodyParser(&body); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
+	}
+	if err := c.budgetSrv.CreateBudgetStructure(&body); err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	return ctx.JSON(body)
+}
+
+func (c *budgetController) updateBudgetStructure(ctx *fiber.Ctx) error {
+	var body models.BudgetStructureEntity
+	if err := ctx.BodyParser(&body); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
+	}
+	id, err := ctx.ParamsInt("id")
+	if err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid ID format"})
+	}
+	body.ID = uint(id)
+
+	if err := c.budgetSrv.UpdateBudgetStructure(&body); err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	return ctx.JSON(body)
+}
+
+func (c *budgetController) deleteBudgetStructure(ctx *fiber.Ctx) error {
+	id, err := ctx.ParamsInt("id")
+	if err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid ID format"})
+	}
+	if err := c.budgetSrv.DeleteBudgetStructure(uint(id)); err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	return ctx.JSON(fiber.Map{"status": "success"})
 }

@@ -4,13 +4,10 @@ import (
 	"fmt"
 	"p2p-back-end/modules/entities/models"
 	"strings"
-	"sync"
 )
 
 type ownerService struct {
-	repo      models.OwnerRepository
-	syncMutex sync.Mutex
-	isSyncing bool
+	repo models.OwnerRepository
 }
 
 func NewOwnerService(repo models.OwnerRepository) models.OwnerService {
@@ -27,7 +24,7 @@ func (s *ownerService) GetActualTransactions(user *models.UserInfo, filter map[s
 	return s.repo.GetActualTransactions(filter)
 }
 
-func (s *ownerService) GetActualDetails(user *models.UserInfo, filter map[string]interface{}) ([]models.OwnerActualFactEntity, error) {
+func (s *ownerService) GetActualDetails(user *models.UserInfo, filter map[string]interface{}) ([]models.ActualFactEntity, error) {
 	filter = s.injectPermissions(user, filter)
 	return s.repo.GetActualDetails(filter)
 }
@@ -108,26 +105,6 @@ func (s *ownerService) GetOrganizationStructure(user *models.UserInfo) ([]models
 func (s *ownerService) GetOwnerFilterLists(user *models.UserInfo) (*models.OwnerFilterListsDTO, error) {
 	filter := s.injectPermissions(user, nil)
 	return s.repo.GetOwnerFilterLists(filter)
-}
-
-func (s *ownerService) AutoSyncOwnerActuals() error {
-	s.syncMutex.Lock()
-	if s.isSyncing {
-		s.syncMutex.Unlock()
-		fmt.Println("[DEBUG] Owner Actuals Sync skipped: already in progress")
-		return nil
-	}
-	s.isSyncing = true
-	s.syncMutex.Unlock()
-
-	defer func() {
-		s.syncMutex.Lock()
-		s.isSyncing = false
-		s.syncMutex.Unlock()
-	}()
-
-	fmt.Println("[DEBUG] Starting Owner Actuals Sync...")
-	return s.repo.AutoSyncOwnerActuals()
 }
 
 func (s *ownerService) injectPermissions(user *models.UserInfo, filter map[string]interface{}) map[string]interface{} {

@@ -18,7 +18,6 @@ func NewOwnerController(r fiber.Router, service models.OwnerService) {
 	r.Get("/organization-structure", controller.GetOrganizationStructure)
 	r.Get("/filter-lists", controller.GetOwnerFilterLists)
 	r.Post("/actual-transactions", controller.GetActualTransactions)
-	r.Post("/sync-actuals", controller.AutoSyncOwnerActuals)
 }
 
 // GetDashboardSummary
@@ -82,13 +81,4 @@ func (c *ownerController) GetActualTransactions(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return ctx.JSON(txs)
-}
-
-// AutoSyncOwnerActuals
-// POST /api/v1/owner/sync-actuals
-func (c *ownerController) AutoSyncOwnerActuals(ctx *fiber.Ctx) error {
-	if err := c.ownerService.AutoSyncOwnerActuals(); err != nil {
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	}
-	return ctx.JSON(fiber.Map{"message": "Owner Actuals Synced Successfully"})
 }

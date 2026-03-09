@@ -8,7 +8,8 @@ import {
     Collapse,
     List,
     IconButton,
-    Typography
+    Typography,
+    Box
 } from '@mui/material';
 import ExpandLess from '@mui/icons-material/ExpandLess';
 import ExpandMore from '@mui/icons-material/ExpandMore';
@@ -35,7 +36,7 @@ const FilterNode = React.memo(({ node }) => {
     const hasChildren = node.children && node.children.length > 0;
 
     return (
-        <>
+        <Box sx={{ position: 'relative' }}>
             <ListItem
                 disablePadding
                 secondaryAction={
@@ -45,10 +46,39 @@ const FilterNode = React.memo(({ node }) => {
                         </IconButton>
                     ) : null
                 }
-                sx={{ pl: (node.level - 1) * 2 }} // Indent based on level
+                sx={{
+                    pl: Math.max(0, ((node.level || 1) - 1) * 3),
+                    backgroundColor: node.level === 1 ? 'rgba(0,0,0,0.02)' : 'transparent',
+                    borderBottom: node.level === 1 ? '1px solid rgba(0,0,0,0.05)' : 'none',
+                }}
             >
-                <ListItemButton dense onClick={hasChildren ? handleExpandClick : handleCheckboxClick}>
-                    <ListItemIcon sx={{ minWidth: 32 }}>
+                {/* Vertical hierarchy line */}
+                {node.level > 1 && (
+                    <Box sx={{
+                        position: 'absolute',
+                        left: (node.level - 2) * 24 + 16,
+                        top: 0,
+                        bottom: 0,
+                        width: '1px',
+                        backgroundColor: 'rgba(0,0,0,0.1)',
+                        zIndex: 0
+                    }} />
+                )}
+
+                <ListItemButton
+                    dense
+                    onClick={hasChildren ? handleExpandClick : handleCheckboxClick}
+                    sx={{
+                        py: 0.25,
+                        borderRadius: 1,
+                        my: 0.1,
+                        ml: node.level > 1 ? 0.5 : 0,
+                        '&:hover': {
+                            backgroundColor: 'rgba(0,0,0,0.03)'
+                        }
+                    }}
+                >
+                    <ListItemIcon sx={{ minWidth: 32, zIndex: 1 }}>
                         <Checkbox
                             edge="start"
                             checked={checked}
@@ -61,8 +91,15 @@ const FilterNode = React.memo(({ node }) => {
                     </ListItemIcon>
                     <ListItemText
                         primary={
-                            <Typography variant="body2" sx={{ fontWeight: open ? 'bold' : 'normal' }}>
-                                {node.name}
+                            <Typography
+                                variant="body2"
+                                sx={{
+                                    fontWeight: hasChildren ? 600 : 400,
+                                    fontSize: node.level === 1 ? '0.875rem' : '0.8125rem',
+                                    color: node.level === 4 ? 'text.secondary' : 'text.primary',
+                                }}
+                            >
+                                {node.name || 'Unknown'}
                             </Typography>
                         }
                     />
@@ -81,7 +118,7 @@ const FilterNode = React.memo(({ node }) => {
                     </List>
                 </Collapse>
             )}
-        </>
+        </Box>
     );
 });
 

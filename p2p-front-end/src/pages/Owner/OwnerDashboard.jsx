@@ -87,7 +87,7 @@ const RemainingBudgetCard = ({ value }) => (
     >
         <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 1.5, position: 'relative', zIndex: 1, color: 'rgba(255,255,255,0.8)' }}>
             <LinkIcon sx={{ fontSize: 20 }} />
-            <Typography variant="body2" sx={{ fontWeight: 800, letterSpacing: '0.02em', textTransform: 'uppercase',color: 'white' }}>
+            <Typography variant="body2" sx={{ fontWeight: 800, letterSpacing: '0.02em', textTransform: 'uppercase', color: 'white' }}>
                 Remaining Budget
             </Typography>
         </Stack>
@@ -153,6 +153,7 @@ const OwnerDashboard = () => {
     const [selectedBranch, setSelectedBranch] = useState('');
     const [selectedDept, setSelectedDept] = useState('');
     const [selectedYear, setSelectedYear] = useState('');
+    const [selectedAccount, setSelectedAccount] = useState(''); // New State
 
     const [summary, setSummary] = useState({
         totalBudget: 0,
@@ -168,6 +169,7 @@ const OwnerDashboard = () => {
     // Filter Options State (Cascading)
     const [orgStructure, setOrgStructure] = useState([]);
     const [filterYears, setFilterYears] = useState([]);
+    const [accountFilters, setAccountFilters] = useState([]); // Storage from GetBudgetFilterOptions
 
     // Derived Branches based on Entity Selection
     const availableBranches = React.useMemo(() => {
@@ -191,16 +193,40 @@ const OwnerDashboard = () => {
         return Array.from(depts).sort();
     }, [orgStructure]);
 
+    // Derived Accounts for the dropdown based on selected departments
+    const availableAccounts = React.useMemo(() => {
+        if (!Array.isArray(accountFilters)) return [];
+        let filtered = accountFilters;
+        if (selectedDept && selectedDept !== 'All') {
+            filtered = filtered.filter(f => f.department === selectedDept || f.nav_code === selectedDept);
+        }
+        // Extract unique Level 3 Names based on current filter or all if none selected
+        const accounts = new Set();
+        // Since budget filter options returns raw GLs, we just want unique GL names or we need to wait for Phase 11 for the full tree
+        // The user asked to "Connect Filter Account dropdown to API". The Owner API has a `/owner/budget-filters` endpoint yielding BudgetFactEntities.
+        filtered.forEach(f => {
+            if (f.gl_name) accounts.add(f.gl_name); // Or whatever we group by. Let's use gl_name for now to match the payload requirement
+        });
+        return Array.from(accounts).sort();
+    }, [accountFilters, selectedDept]);
+
     // 2. Fetch Dashboard Data
     const fetchDashboardData = async () => {
         if (!selectedYear) return;
         setDataLoading(true);
         try {
+            // Find the conso_gls matching the selected account name
+            let targetGls = [];
+            if (selectedAccount && selectedAccount !== 'All') {
+                targetGls = accountFilters.filter(f => f.gl_name === selectedAccount).map(f => f.conso_gl);
+            }
+
             const payload = {
                 year: selectedYear,
                 entities: selectedCompany && selectedCompany !== 'All' ? [selectedCompany] : [],
                 branches: selectedBranch && selectedBranch !== 'All' ? [selectedBranch] : [],
-                departments: selectedDept && selectedDept !== 'All' ? [selectedDept] : []
+                departments: selectedDept && selectedDept !== 'All' ? [selectedDept] : [],
+                conso_gls: targetGls // Pass to backend
             };
 
 
@@ -247,9 +273,10 @@ const OwnerDashboard = () => {
             // Step 2: Fetch Filters Parallelized (Promise.all)
             try {
                 console.log("3. Fetching Filters (Parallel)...");
-                const [structRes, listRes] = await Promise.all([
+                const [structRes, listRes, accountRes] = await Promise.all([
                     api.get('/owner/organization-structure'),
-                    api.get('/owner/filter-lists')
+                    api.get('/owner/filter-lists'),
+                    api.get('/owner/budget-filters') // Fetching the GL options
                 ]);
 
                 const structData = structRes.data || [];
@@ -258,6 +285,8 @@ const OwnerDashboard = () => {
                 const years = listRes.data.years || [];
                 setFilterYears(years);
                 console.log("4. Filters Fetched. Years:", years);
+
+                setAccountFilters(accountRes.data || []);
 
                 // Smart Default logic
                 if (!selectedYear && years.length > 0) {
@@ -302,7 +331,7 @@ const OwnerDashboard = () => {
             console.log("Triggering Fetch Dashboard (Filter Changed)");
             fetchDashboardData();
         }
-    }, [selectedYear, selectedCompany, selectedBranch, selectedDept]);
+    }, [selectedYear, selectedCompany, selectedBranch, selectedDept, selectedAccount]);
 
 
     const usagePercent = summary.totalBudget > 0
@@ -413,6 +442,21 @@ const OwnerDashboard = () => {
                                         <MenuItem value=""><em>All Departments</em></MenuItem>
                                         {allDepartments.map((deptName) => (
                                             <MenuItem key={deptName} value={deptName}>{deptName}</MenuItem>
+                                        ))}
+                                    </Select>
+                                </FormControl>
+
+                                {/* Account Name Filter */}
+                                <FormControl size="small" sx={{ minWidth: 200, bgcolor: 'white', borderRadius: 1 }}>
+                                    <InputLabel>Account (หมวดหมู่)</InputLabel>
+                                    <Select
+                                        value={selectedAccount}
+                                        label="Account (หมวดหมู่)"
+                                        onChange={(e) => setSelectedAccount(e.target.value)}
+                                    >
+                                        <MenuItem value=""><em>All Accounts</em></MenuItem>
+                                        {availableAccounts.map((accountName) => (
+                                            <MenuItem key={accountName} value={accountName}>{accountName}</MenuItem>
                                         ))}
                                     </Select>
                                 </FormControl>
@@ -571,7 +615,7 @@ const OwnerDashboard = () => {
                                                 <FilterAltIcon sx={{ fontSize: 18 }} />
                                             </IconButton>
                                             <IconButton size="small" sx={{ bgcolor: '#4d6eff', color: 'white', '&:hover': { bgcolor: '#3d59cc' } }}>
-                                                <MoreHorizIcon sx={{ fontSize: 18 }} />
+                                                <DownloadIcon sx={{ fontSize: 18 }} />
                                             </IconButton>
                                         </Box>
                                     </Stack>
@@ -618,7 +662,7 @@ const OwnerDashboard = () => {
                                             {isTopExpenseExpanded ? <ChevronRightIcon sx={{ fontSize: 20 }} /> : <ChevronLeftIcon sx={{ fontSize: 20 }} />}
                                         </IconButton>
                                         <IconButton size="small" sx={{ bgcolor: '#4d6eff', color: 'white', '&:hover': { bgcolor: '#3d59cc' } }}>
-                                            <MoreHorizIcon sx={{ fontSize: 20 }} />
+                                            <DownloadIcon sx={{ fontSize: 20 }} />
                                         </IconButton>
                                     </Stack>
                                     <Box sx={{ flexGrow: 1, width: '100%', position: 'relative', minHeight: 280, display: 'flex', gap: 2 }}>

@@ -4,8 +4,8 @@ import SearchIcon from '@mui/icons-material/Search';
 import { useBudget } from '../../contexts/BudgetContext';
 import FilterNode from './FilterNode';
 
-const FilterPane = () => {
-    const { filterOptions, selectedLeaves, clearSelection } = useBudget();
+const FilterPane = ({ compact = false }) => {
+    const { filterOptions, selectedLeaves, clearSelection, isLoading } = useBudget();
     const [searchTerm, setSearchTerm] = React.useState('');
 
     // Recursive Filter Logic
@@ -22,21 +22,9 @@ const FilterPane = () => {
                 const filteredChildren = node.children ? filterNodes(node.children) : [];
 
                 if (nameMatch || filteredChildren.length > 0) {
-                    // If matches or has matching children, keep it.
-                    // If name matches, we technically could show all children, but 
-                    // usually showing just the matching trail is cleaner. 
-                    // Let's decide: If name matches, show all children? 
-                    // For now: Show minimal path. matches OR children match.
-                    // Actually, if I search "Admin", I want to see content of Admin.
-                    // So if nameMatch, maybe keep original children? 
-                    // Let's stick to strict filter for now: only show things that match or contain matches.
-
-                    // Re-construct node with filtered children
                     acc.push({
                         ...node,
                         children: nameMatch ? node.children : filteredChildren
-                        // Logic above: If I match, keep my original children (showing everything inside). 
-                        // If I don't match, keep me only if I have matching descendants.
                     });
                 }
 
@@ -54,11 +42,22 @@ const FilterPane = () => {
             flexDirection: 'column',
             height: '100%'
         }}>
-            <Paper sx={{ p: 2, height: '100%', display: 'flex', flexDirection: 'column', borderRadius: 2, overflow: 'hidden' }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, flexShrink: 0 }}>
-                    <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    Filter Pane
-                    </Typography>
+            <Paper sx={{
+                p: compact ? 1 : 2,
+                height: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                borderRadius: compact ? 0 : 2,
+                overflow: 'hidden',
+                boxShadow: compact ? 'none' : 1
+            }}>
+                {/* Header: In compact mode, hide "Filter Pane" text, but keep Clear button */}
+                <Box sx={{ display: 'flex', justifyContent: compact ? 'flex-end' : 'space-between', alignItems: 'center', mb: compact ? 1 : 2, flexShrink: 0 }}>
+                    {!compact && (
+                        <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            Filter Pane
+                        </Typography>
+                    )}
                     <Button
                         variant="outlined"
                         color="error"
@@ -70,8 +69,8 @@ const FilterPane = () => {
                     </Button>
                 </Box>
 
-                {/* Search Input */}
-                <Box sx={{ mb: 2 }}>
+                {/* Search Input (Always visible) */}
+                <Box sx={{ mb: compact ? 1 : 2 }}>
                     <TextField
                         fullWidth
                         size="small"
@@ -89,20 +88,26 @@ const FilterPane = () => {
                     />
                 </Box>
 
-                <Divider sx={{ mb: 2 }} />
+                <Divider sx={{ mb: compact ? 1 : 2 }} />
 
-                <Box sx={{ flexGrow: 1, overflowY: 'auto' }}>
-                    <List component="nav" dense>
-                        {filteredTree.map(node => (
-                            <FilterNode key={node.id} node={node} />
-                        ))}
-                    </List>
-                    {filteredTree.length === 0 && (
-                        <Typography color="text.secondary" align="center" sx={{ mt: 4 }}>
-                            No results found
-                        </Typography>
-                    )}
-                </Box>
+                {isLoading ? (
+                    <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+                        <Typography color="text.secondary">Loading filters...</Typography>
+                    </Box>
+                ) : (
+                    <Box sx={{ flexGrow: 1, overflowY: 'auto' }}>
+                        <List component="nav" dense disablePadding={compact}>
+                            {filteredTree.map(node => (
+                                <FilterNode key={node.id} node={node} />
+                            ))}
+                        </List>
+                        {filteredTree.length === 0 && (
+                            <Typography color="text.secondary" align="center" sx={{ mt: 4 }}>
+                                No results found
+                            </Typography>
+                        )}
+                    </Box>
+                )}
             </Paper>
         </Box>
     );

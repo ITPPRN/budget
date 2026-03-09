@@ -7,12 +7,15 @@ import (
 	"strings"
 	"time"
 
+	"sort"
+
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 	"github.com/xuri/excelize/v2"
 	"gorm.io/datatypes"
 
 	"p2p-back-end/modules/entities/models"
+	"p2p-back-end/pkg/utils"
 )
 
 type budgetService struct {
@@ -244,34 +247,279 @@ func (s *budgetService) ClearCapexActual() error {
 }
 
 // ---------------------------------------------------------------------
+// GL Mapping Methods
+// ---------------------------------------------------------------------
+
+func (s *budgetService) ListGLMappings() ([]models.GlMappingEntity, error) {
+	mappings, err := s.repo.ListGLMappings()
+	if err != nil {
+		return nil, err
+	}
+
+	sort.Slice(mappings, func(i, j int) bool {
+		// Sort by Entity, then GL Name or Code? Let's use AccountName as primary
+		if mappings[i].Entity != mappings[j].Entity {
+			return utils.NaturalLess(mappings[i].Entity, mappings[j].Entity)
+		}
+		return utils.NaturalLess(mappings[i].AccountName, mappings[j].AccountName)
+	})
+
+	return mappings, nil
+}
+
+func (s *budgetService) GetGLMappingByID(id string) (*models.GlMappingEntity, error) {
+	return s.repo.GetGLMappingByID(id)
+}
+
+func (s *budgetService) CreateGLMapping(mapping *models.GlMappingEntity) error {
+	mapping.ID = uuid.New()
+	mapping.Entity = strings.ToUpper(strings.TrimSpace(mapping.Entity))
+	return s.repo.CreateGLMapping(mapping)
+}
+
+func (s *budgetService) UpdateGLMapping(mapping *models.GlMappingEntity) error {
+	mapping.Entity = strings.ToUpper(strings.TrimSpace(mapping.Entity))
+	return s.repo.UpdateGLMapping(mapping)
+}
+
+func (s *budgetService) DeleteGLMapping(id string) error {
+	return s.repo.DeleteGLMapping(id)
+}
+
+func (s *budgetService) GetBudgetStructureTree() (interface{}, error) {
+	entities, err := s.repo.GetBudgetStructure()
+	if err != nil {
+		return nil, err
+	}
+
+	// Build Tree from flat data (Group1 -> Group2 -> Group3 -> Leaf(ConsoGL))
+	type TreeNode struct {
+		ID       string      `json:"id"`
+		Name     string      `json:"name"`
+		Level    int         `json:"level"`
+		Children []*TreeNode `json:"children,omitempty"`
+	}
+
+	// Helper to find child by name to prevent duplicates
+	findChild := func(parent *TreeNode, name string) *TreeNode {
+		for _, child := range parent.Children {
+			if child.Name == name {
+				return child
+			}
+		}
+		return nil
+	}
+
+	var roots []*TreeNode
+
+	for _, e := range entities {
+		// Level 1: Group 1
+		g1 := findChild(&TreeNode{Children: roots}, e.Group1)
+		if g1 == nil {
+			g1 = &TreeNode{ID: "G1|" + e.Group1, Name: e.Group1, Level: 1, Children: []*TreeNode{}}
+			roots = append(roots, g1)
+		}
+
+		// Level 2: Group 2
+		g2 := findChild(g1, e.Group2)
+		if g2 == nil {
+			// ID includes parent ID for uniqueness
+			g2 = &TreeNode{ID: g1.ID + "|G2|" + e.Group2, Name: e.Group2, Level: 2, Children: []*TreeNode{}}
+			g1.Children = append(g1.Children, g2)
+		}
+
+		// Level 3: Group 3
+		g3 := findChild(g2, e.Group3)
+		if g3 == nil {
+			// ID includes parent path for uniqueness
+			g3 = &TreeNode{ID: g2.ID + "|G3|" + e.Group3, Name: e.Group3, Level: 3, Children: []*TreeNode{}}
+			g2.Children = append(g2.Children, g3)
+		}
+
+		// Leaf: ConsoGL + Account Name
+		leafID := fmt.Sprintf("%s|%d", e.ConsoGL, e.ID)
+		leafName := fmt.Sprintf("%s - %s", e.ConsoGL, e.AccountName)
+		leaf := &TreeNode{ID: leafID, Name: leafName, Level: 4}
+		g3.Children = append(g3.Children, leaf)
+	}
+
+	// Recursive sort helper
+	var sortTree func([]*TreeNode)
+	sortTree = func(nodes []*TreeNode) {
+		sort.Slice(nodes, func(i, j int) bool {
+			return utils.NaturalLess(nodes[i].Name, nodes[j].Name)
+		})
+		for _, node := range nodes {
+			if len(node.Children) > 0 {
+				sortTree(node.Children)
+			}
+		}
+	}
+
+	sortTree(roots)
+
+	return roots, nil
+}
+
+func (s *budgetService) ListBudgetStructure() ([]models.BudgetStructureEntity, error) {
+	entities, err := s.repo.GetBudgetStructure()
+	if err != nil {
+		return nil, err
+	}
+
+	sort.Slice(entities, func(i, j int) bool {
+		return entities[i].ID < entities[j].ID
+	})
+
+	return entities, nil
+}
+
+func (s *budgetService) GetBudgetStructureByID(id uint) (*models.BudgetStructureEntity, error) {
+	return s.repo.GetBudgetStructureByID(id)
+}
+
+func (s *budgetService) CreateBudgetStructure(entity *models.BudgetStructureEntity) error {
+	return s.repo.CreateBudgetStructure(entity)
+}
+
+func (s *budgetService) UpdateBudgetStructure(entity *models.BudgetStructureEntity) error {
+	return s.repo.UpdateBudgetStructure(entity)
+}
+
+func (s *budgetService) DeleteBudgetStructure(id uint) error {
+	return s.repo.DeleteBudgetStructure(id)
+}
+func (s *budgetService) ImportGLMapping(fileHeader *multipart.FileHeader) error {
+	file, err := fileHeader.Open()
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	ext := strings.ToLower(fileHeader.Filename[strings.LastIndex(fileHeader.Filename, ".")+1:])
+	if ext != "xlsx" {
+		return fmt.Errorf("only .xlsx files are supported")
+	}
+
+	f, err := excelize.OpenReader(file)
+	if err != nil {
+		return fmt.Errorf("failed to read excel file: %v", err)
+	}
+	defer f.Close()
+
+	// 1. Use the first visible sheet
+	sheets := f.GetSheetList()
+	if len(sheets) == 0 {
+		return fmt.Errorf("excel file has no sheets")
+	}
+	sheetName := sheets[0]
+
+	rows, err := f.GetRows(sheetName)
+	if err != nil {
+		return fmt.Errorf("failed to read rows from sheet '%s': %v", sheetName, err)
+	}
+
+	if len(rows) < 1 {
+		return fmt.Errorf("excel file is empty")
+	}
+
+	// 2. Validate Header (Row 1)
+	header := rows[0]
+	requiredHeaders := []string{"Entity", "Entity GL", "Conso GL", "Account Name"}
+	if len(header) != len(requiredHeaders) {
+		return fmt.Errorf("invalid column count: expected %d columns (Entity, Entity GL, Conso GL, Account Name)", len(requiredHeaders))
+	}
+
+	for i, h := range requiredHeaders {
+		if strings.TrimSpace(header[i]) != h {
+			return fmt.Errorf("invalid column at position %d: expected '%s', got '%s'", i+1, h, header[i])
+		}
+	}
+
+	// 3. Process Data Rows (starting from index 1)
+	importCount := 0
+	skipCount := 0
+
+	for i := 1; i < len(rows); i++ {
+		row := rows[i]
+		if len(row) == 0 {
+			continue
+		}
+
+		// Pad row to ensure we don't crash if Account Name is missing in raw row slice
+		padded := make([]string, 4)
+		copy(padded, row)
+
+		entity := strings.ToUpper(strings.TrimSpace(padded[0]))
+		entityGL := strings.TrimSpace(padded[1])
+		consoGL := strings.TrimSpace(padded[2])
+		accountName := strings.TrimSpace(padded[3])
+
+		if entity == "" || entityGL == "" || consoGL == "" {
+			continue // Skip incomplete major fields
+		}
+
+		// 4. Exact duplicate check (Check all 4 fields)
+		exists, err := s.repo.CheckExactGLMapping(entity, entityGL, consoGL, accountName)
+		if err == nil && exists {
+			skipCount++
+			continue // Skip perfect duplicate
+		}
+
+		mapping := models.GlMappingEntity{
+			ID:          uuid.New(),
+			Entity:      entity,
+			EntityGL:    entityGL,
+			ConsoGL:     consoGL,
+			AccountName: accountName,
+			IsActive:    true,
+		}
+
+		if err := s.repo.CreateGLMapping(&mapping); err != nil {
+			return fmt.Errorf("failed to create mapping at row %d: %v", i+1, err)
+		}
+		importCount++
+	}
+
+	fmt.Printf("[Import GL Mapping] Imported: %d, Skipped (Duplicate): %d\n", importCount, skipCount)
+	return nil
+}
+
+// ---------------------------------------------------------------------
 // 4. Sync Actuals (P2P / Operational)
 // ---------------------------------------------------------------------
 
 func (s *budgetService) SyncActuals(year string, months []string) error {
 	fmt.Printf("[DEBUG] SyncActuals: Start DB Sync (Optimized) for Year %s, Months %v...\n", year, months)
 
-	// 2. Fetch Aggregated Data (Source)
-	// We optimize by aggregating in DB (GROUP BY ...)
-	hmwAgg, err := s.repo.GetAggregatedHMW(year, months)
+	// 1. Fetch Mapping Metadata (GL Whitening)
+	mappings, err := s.repo.ListGLMappings()
 	if err != nil {
-		return fmt.Errorf("failed to fetch HMW aggregated data: %v", err)
+		return err
 	}
-	fmt.Printf("[DEBUG] SyncActuals: HMW Rows Fetched: %d\n", len(hmwAgg))
+	mappingMap := make(map[string]models.GlMappingEntity)
+	for _, m := range mappings {
+		if m.IsActive {
+			mappingMap[m.EntityGL] = m
+		}
+	}
 
-	clikAgg, err := s.repo.GetAggregatedCLIK(year, months)
+	// 2. Fetch Raw Granular Transactions
+	hmwRows, err := s.repo.GetRawTransactionsHMW(year, months)
 	if err != nil {
-		return fmt.Errorf("failed to fetch CLIK aggregated data: %v", err)
+		return fmt.Errorf("HMW Fetch Error: %v", err)
 	}
-	fmt.Printf("[DEBUG] SyncActuals: CLIK Rows Fetched: %d\n", len(clikAgg))
-	fmt.Printf("[DEBUG] SyncActuals: Fetched %d HMW rows, %d CLIK rows (Aggregated)\n", len(hmwAgg), len(clikAgg))
+	clikRows, err := s.repo.GetRawTransactionsCLIK(year, months)
+	if err != nil {
+		return fmt.Errorf("CLIK Fetch Error: %v", err)
+	}
 
 	// 3. Merge HMW + CLIK
-	// Use Map to merge duplicates across sources (if any, though unlikely given distinct tables)
-	// Key: Entity|Branch|Dept|NavCode|EntityGL|ConsoGL|Month
 	type AggKey struct {
-		Entity, Branch, Dept, NavCode, EntityGL, ConsoGL, GLName, Month string
+		Entity, Branch, Dept, NavCode, EntityGL, ConsoGL, GLName, VendorName, Month string
 	}
 	mergedMap := make(map[AggKey]decimal.Decimal)
+	var transactions []models.ActualTransactionEntity
 
 	// --- MAPPING LOGIC START ---
 	// User Requirement: Map Source Names -> Codes for Database Storage
@@ -341,141 +589,134 @@ func (s *budgetService) SyncActuals(year string, months []string) error {
 		return strings.TrimSpace(rawVal)
 	}
 
-	processAgg := func(rows []models.ActualAggregatedDTO) {
+	// Month conversion helper (01 -> JAN)
+	monthMap := map[string]string{
+		"01": "JAN", "02": "FEB", "03": "MAR", "04": "APR", "05": "MAY", "06": "JUN",
+		"07": "JUL", "08": "AUG", "09": "SEP", "10": "OCT", "11": "NOV", "12": "DEC",
+	}
+
+	processRows := func(rows []models.ActualTransactionDTO) {
 		for _, row := range rows {
-			// Apply Mapping
+			// Strict GL Whitelist
+			mapping, ok := mappingMap[row.GLAccountNo]
+			if !ok {
+				continue
+			}
+
+			// Map Entity & Branch to Code
 			company := mapToCode(row.Company, entityNameMap)
 			branch := mapToCode(row.Branch, branchNameMap)
 
-			// 3. GL Mapping (Entity GL -> Conso GL)
-			consoGL := row.GLAccountNo // Default to original
-			if entityGls, ok := models.GlobalGLMapping[company]; ok {
-				if mappedConso, ok := entityGls[row.GLAccountNo]; ok {
-					consoGL = mappedConso
-				}
-			}
-
-			// Map Department to Master
-			originalDept := row.Department // Store original code
+			// Map Department
 			deptCode := row.Department
-
-			// Normalize for Lookup (Upper Case + Trim)
 			lookupDept := normalize(row.Department)
 			if masterDept, err := s.depSrv.GetMasterDepartment(lookupDept, company); err == nil && masterDept != nil {
 				deptCode = masterDept.Code
-			} else {
-				// If mapping fails, keep as original (Actual is Main)
-				// Previously we might have fallen back to None if Service forced it.
-				// Now we ensure we respect the original code if no master found.
 			}
 
-			k := AggKey{
-				Entity: company, Branch: branch, Dept: deptCode, NavCode: originalDept,
-				EntityGL: row.GLAccountNo, ConsoGL: consoGL, GLName: row.GLAccountName, Month: row.Month,
-			}
-			mergedMap[k] = mergedMap[k].Add(row.TotalAmount)
-		}
-	}
+			// 1. Transaction Table (Centralized Detail)
+			transactions = append(transactions, models.ActualTransactionEntity{
+				ID:          uuid.New(),
+				Source:      row.Source,
+				PostingDate: row.PostingDate,
+				DocNo:       row.DocNo,
+				Description: row.Description,
+				Amount:      row.Amount,
+				VendorName:  row.Vendor,
+				Entity:      company,
+				Branch:      branch,
+				Department:  deptCode,
+				EntityGL:    row.GLAccountNo,
+				ConsoGL:     mapping.ConsoGL,
+				Year:        year,
+			})
 
-	processAgg(hmwAgg)
-	processAgg(clikAgg)
-
-	// 4. Transform to Entities (Header + Details)
-	type HeaderKey struct {
-		Entity, Branch, Dept, NavCode, EntityGL, ConsoGL, GLName string
-	}
-	headerMap := make(map[HeaderKey][]models.ActualAmountEntity)
-
-	for k, amt := range mergedMap {
-		hk := HeaderKey{k.Entity, k.Branch, k.Dept, k.NavCode, k.EntityGL, k.ConsoGL, k.GLName}
-		headerMap[hk] = append(headerMap[hk], models.ActualAmountEntity{
-			ID:     uuid.New(),
-			Month:  k.Month,
-			Amount: amt,
-		})
-	}
-
-	// --- GL + Group MAPPING LOGIC START ---
-	// Fetch distinct mappings from Budget Facts (Source of Truth for GL Structure)
-	// We need: (Department, ConsoGL) -> (Group, EntityGL)
-	// If Department matches, use that specific mapping.
-	// If not, maybe fallback to just ConsoGL -> (Group, EntityGL)? Usually GL structure is consistent across depts?
-	// Let's assume consistent by ConsoGL first, but support Dept override if data exists.
-
-	type GLMapValue struct {
-		Group    string
-		EntityGL string
-	}
-	// Map: ConsoGL -> Value
-	glProfileMap := make(map[string]GLMapValue)
-
-	// Let's add the repo method call. I will add `GetGLMapping` to repo interface later/now.
-	// For now, let's define the interface method requirement or use existing.
-	// We don't have a direct method. Let's create `GetGLMapping` in repo first.
-	// Wait, I can't easily add to interface without changing many files.
-	// I'll use `GetBudgetFilterOptions` which already returns unique Group/Dept/EntityGL/ConsoGL/GLName.
-	// It returns `[]models.BudgetFactEntity`.
-
-	mappingFacts, err := s.repo.GetBudgetFilterOptions()
-	if err == nil {
-		for _, m := range mappingFacts {
-			if m.ConsoGL != "" {
-				// We prioritize mapping. If multiple groups for same GL?
-				// Usually 1 GL = 1 Category.
-				glProfileMap[m.ConsoGL] = GLMapValue{Group: m.Group, EntityGL: m.EntityGL}
+			// 2. Aggregate for Fact Table (Monthly Summary)
+			if len(row.PostingDate) >= 7 {
+				monCode := row.PostingDate[5:7]
+				if mon, ok := monthMap[monCode]; ok {
+					k := AggKey{
+						Entity: company, Branch: branch, Dept: deptCode, NavCode: row.Department,
+						EntityGL: row.GLAccountNo, ConsoGL: mapping.ConsoGL, GLName: mapping.AccountName,
+						VendorName: row.Vendor, Month: mon,
+					}
+					mergedMap[k] = mergedMap[k].Add(row.Amount)
+				}
 			}
 		}
-		fmt.Printf("[DEBUG] SyncActuals: Built GL Mapping for %d GL Codes\n", len(glProfileMap))
-	} else {
-		fmt.Printf("[WARN] SyncActuals: Failed to load GL Mapping: %v\n", err)
 	}
 
-	var headers []models.ActualFactEntity
-	for k, amounts := range headerMap {
-		headerID := uuid.New()
-		for i := range amounts {
-			amounts[i].ActualFactID = headerID
-		}
-		total := decimal.Zero
-		for _, a := range amounts {
-			total = total.Add(a.Amount)
-		}
+	processRows(hmwRows)
+	processRows(clikRows)
 
-		// Apply Mapping
-		var grp string
-		if val, ok := glProfileMap[k.ConsoGL]; ok {
-			grp = val.Group
-		}
-		// Fallback: If no map, maybe use empty or "Unmapped"
-
-		headers = append(headers, models.ActualFactEntity{
-			ID:            headerID,
-			Entity:        k.Entity,
-			Branch:        k.Branch,
-			Department:    k.Dept,
-			NavCode:       k.NavCode, // Save Original
-			ConsoGL:       k.ConsoGL,
-			GLName:        k.GLName,
-			Group:         grp,        // Mapped By ConsoGL Matches
-			EntityGL:      k.EntityGL, // Real Original
-			YearTotal:     total,
-			ActualAmounts: amounts,
-			Year:          year, // ✅ Populate Year
-		})
-	}
-
-	fmt.Printf("[DEBUG] SyncActuals: Merged into %d headers\n", len(headers))
-
-	// 5. Save (Transaction)
+	// 4. Persistence with Transaction
 	return s.repo.WithTrx(func(trxRepo models.BudgetRepository) error {
-		// ✅ Delete ALL Existing Actuals (Clean Slate - Simple Logic)
-		// This ensures what you see is what you just synced. No mixing years.
-		if err := trxRepo.DeleteAllActualFacts(); err != nil {
+		// Clear existing data for the year
+		if err := trxRepo.DeleteActualFactsByYear(year); err != nil {
 			return err
 		}
-		// Batch Insert in Chunks
-		chunkSize := 100 // Safe for deep structures
+		if err := trxRepo.DeleteActualTransactionsByYear(year); err != nil {
+			return err
+		}
+
+		// Save Transactions
+		if err := trxRepo.CreateActualTransactions(transactions); err != nil {
+			return err
+		}
+
+		// Save Facts/Aggregates
+		mappingFacts, _ := trxRepo.GetBudgetFilterOptions()
+		glProfileMap := make(map[string]string)
+		for _, m := range mappingFacts {
+			if m.ConsoGL != "" {
+				glProfileMap[m.ConsoGL] = m.Group
+			}
+		}
+
+		type HeaderKey struct {
+			Entity, Branch, Dept, NavCode, EntityGL, ConsoGL, GLName, VendorName string
+		}
+		headerMap := make(map[HeaderKey][]models.ActualAmountEntity)
+
+		for k, amt := range mergedMap {
+			hk := HeaderKey{k.Entity, k.Branch, k.Dept, k.NavCode, k.EntityGL, k.ConsoGL, k.GLName, k.VendorName}
+			headerMap[hk] = append(headerMap[hk], models.ActualAmountEntity{
+				ID:     uuid.New(),
+				Month:  k.Month,
+				Amount: amt,
+			})
+		}
+
+		var headers []models.ActualFactEntity
+		for k, amounts := range headerMap {
+			headerID := uuid.New()
+			for i := range amounts {
+				amounts[i].ActualFactID = headerID
+			}
+			total := decimal.Zero
+			for _, a := range amounts {
+				total = total.Add(a.Amount)
+			}
+			headers = append(headers, models.ActualFactEntity{
+				ID:            headerID,
+				Entity:        k.Entity,
+				Branch:        k.Branch,
+				Department:    k.Dept,
+				NavCode:       k.NavCode,
+				EntityGL:      k.EntityGL,
+				ConsoGL:       k.ConsoGL,
+				GLName:        k.GLName,
+				VendorName:    k.VendorName,
+				Group:         glProfileMap[k.ConsoGL],
+				Year:          year,
+				YearTotal:     total,
+				ActualAmounts: amounts,
+			})
+		}
+
 		if len(headers) > 0 {
+			// Bulk create entries in smaller chunks
+			const chunkSize = 100
 			for i := 0; i < len(headers); i += chunkSize {
 				end := i + chunkSize
 				if end > len(headers) {
@@ -940,7 +1181,7 @@ func (s *budgetService) GetFilterOptions() ([]models.FilterOptionDTO, error) {
 
 	for grpName, deptMap := range tree {
 		grpNode := models.FilterOptionDTO{
-			ID:       grpName,
+			ID:       "L1_" + grpName,
 			Name:     grpName,
 			Level:    1,
 			Children: []models.FilterOptionDTO{},
@@ -948,7 +1189,7 @@ func (s *budgetService) GetFilterOptions() ([]models.FilterOptionDTO, error) {
 
 		for deptName, glMap := range deptMap {
 			deptNode := models.FilterOptionDTO{
-				ID:       deptName,
+				ID:       "L2_" + grpName + "_" + deptName, // Include parent name for absolute uniqueness
 				Name:     deptName,
 				Level:    2,
 				Children: []models.FilterOptionDTO{},
@@ -956,7 +1197,7 @@ func (s *budgetService) GetFilterOptions() ([]models.FilterOptionDTO, error) {
 
 			for glName, leaves := range glMap {
 				glNode := models.FilterOptionDTO{
-					ID:       glName,
+					ID:       "L3_" + grpName + "_" + deptName + "_" + glName, // Include ancestors for absolute uniqueness
 					Name:     glName,
 					Level:    3,
 					Children: []models.FilterOptionDTO{},
@@ -969,17 +1210,11 @@ func (s *budgetService) GetFilterOptions() ([]models.FilterOptionDTO, error) {
 						displayName = fmt.Sprintf("%s-%s", leaf.Code, leaf.Name)
 					}
 
+					uniqueSuffix := "L4_" + glNode.ID + "_" + leaf.Name
 					leafNode := models.FilterOptionDTO{
-						ID:    leaf.Code, // Or composite? Usage depends on Frontend.
+						ID:    fmt.Sprintf("%s|%s", leaf.Code, uniqueSuffix),
 						Name:  displayName,
 						Level: 4,
-					}
-					// If ID matches ConsoGL (Code), selecting it works for existing logic?
-					// Frontend uses ID to filter. If ID is "Code", we need to make sure filter logic handles it.
-					// Or we can use Name as ID if that's what we want to display.
-					// Let's use Code as ID for precision if available.
-					if leafNode.ID == "" {
-						leafNode.ID = leafNode.Name
 					}
 
 					glNode.Children = append(glNode.Children, leafNode)
@@ -991,6 +1226,21 @@ func (s *budgetService) GetFilterOptions() ([]models.FilterOptionDTO, error) {
 		}
 		rootNodes = append(rootNodes, grpNode)
 	}
+
+	// Recursive sort helper for DTO
+	var sortDTO func([]models.FilterOptionDTO)
+	sortDTO = func(nodes []models.FilterOptionDTO) {
+		sort.Slice(nodes, func(i, j int) bool {
+			return utils.NaturalLess(nodes[i].Name, nodes[j].Name)
+		})
+		for k, node := range nodes {
+			if len(node.Children) > 0 {
+				sortDTO(nodes[k].Children)
+			}
+		}
+	}
+
+	sortDTO(rootNodes)
 
 	return rootNodes, nil
 }
@@ -1045,21 +1295,32 @@ func (s *budgetService) GetOrganizationStructure() ([]models.OrganizationDTO, er
 	for entity, branchesMap := range structure {
 		var branchDTOs []models.BranchDTO
 		for branch, depts := range branchesMap {
-			// Sort Departments
-			// sort.Strings(depts) // Optional
 			branchDTOs = append(branchDTOs, models.BranchDTO{
 				Name:        branch,
 				Departments: depts,
 			})
 		}
-		// Sort Branches (Optional but good for UI)
-		// ...
-
 		result = append(result, models.OrganizationDTO{
 			Entity:   entity,
 			Branches: branchDTOs,
 		})
 	}
+
+	// Final Sort
+	sort.Slice(result, func(i, j int) bool {
+		return utils.NaturalLess(result[i].Entity, result[j].Entity)
+	})
+	for i := range result {
+		sort.Slice(result[i].Branches, func(j, k int) bool {
+			return utils.NaturalLess(result[i].Branches[j].Name, result[i].Branches[k].Name)
+		})
+		for j := range result[i].Branches {
+			sort.Slice(result[i].Branches[j].Departments, func(k, l int) bool {
+				return utils.NaturalLess(result[i].Branches[j].Departments[k], result[i].Branches[j].Departments[l])
+			})
+		}
+	}
+
 	return result, nil
 }
 

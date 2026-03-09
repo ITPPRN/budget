@@ -58,6 +58,14 @@ func NewBadRequestError(message string) error {
 	}
 }
 
+func NewDataSyncError(message string) error {
+	return AppError{
+		Code:    fiber.ErrInternalServerError.Code,
+		Status:  "DataSyncError",
+		Message: message,
+	}
+}
+
 func IsErrForeignKeyViolated(err error) bool {
 	return strings.Contains(err.Error(), "violates foreign key")
 }

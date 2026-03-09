@@ -9,6 +9,7 @@ import (
 	"p2p-back-end/configs"
 	"p2p-back-end/logs"
 	"p2p-back-end/modules/entities/models"
+	"p2p-back-end/pkg/databases/seeders"
 	"p2p-back-end/pkg/utils"
 )
 
@@ -56,18 +57,35 @@ func NewPostgresConnection(cfg *configs.Config) (*gorm.DB, error) {
 		&models.CapexActualFactEntity{},
 		&models.CapexActualAmountEntity{}, // New Detail Table
 
-		// Actual (Operational / P2P)
+		// Actual (Operational / P2P) - Centralized
 		&models.ActualFactEntity{},
-		&models.ActualAmountEntity{}, // New Detail Table
+		&models.ActualAmountEntity{}, // Detail Table
 
-		// Owner (Denormalized)
-		&models.OwnerActualFactEntity{},
-		&models.OwnerActualAmountEntity{}, // New Detail Table
+		// GL Mapping (Whitelisting & Consolidation)
+		&models.GlMappingEntity{},
+
+		// Budget Structure Hierarchy
+		&models.BudgetStructureEntity{},
+
+		// Centralized Transaction Table
+		&models.ActualTransactionEntity{},
+		&models.GeneralLedgerEntriesClik{},
 	)
 
 	if err != nil {
-		logs.Error("Failed to migrate database: ", zap.Error(err))
+		logs.Error("Migration Error: ", zap.Error(err))
 		return nil, err
+	}
+
+	// 3. Seed GL Mappings (Whitelist)
+	if err := seeders.SeedGLMappings(db); err != nil {
+		logs.Error("Failed to seed GL mappings: ", zap.Error(err))
+		// Continue even if seeding fails (log error)
+	}
+
+	// 4. Seed Budget Structure
+	if err := seeders.SeedBudgetStructure(db); err != nil {
+		logs.Error("Failed to seed budget structure: ", zap.Error(err))
 	}
 
 	logs.Info("Database connected and migrated successfully with Base Practice 🐘")

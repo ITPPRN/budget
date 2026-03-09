@@ -117,6 +117,80 @@ func (r *budgetRepositoryDB) ListFileBudgets() ([]models.FileBudgetEntity, error
 	return files, err
 }
 
+func (r *budgetRepositoryDB) ListGLMappings() ([]models.GlMappingEntity, error) {
+	var mappings []models.GlMappingEntity
+	err := r.db.Where("is_active = true").Find(&mappings).Error
+	return mappings, err
+}
+
+func (r *budgetRepositoryDB) GetGLMappingByID(id string) (*models.GlMappingEntity, error) {
+	var mapping models.GlMappingEntity
+	if err := r.db.First(&mapping, "id = ?", id).Error; err != nil {
+		return nil, err
+	}
+	return &mapping, nil
+}
+
+func (r *budgetRepositoryDB) CreateGLMapping(mapping *models.GlMappingEntity) error {
+	return r.db.Create(mapping).Error
+}
+
+func (r *budgetRepositoryDB) UpdateGLMapping(mapping *models.GlMappingEntity) error {
+	return r.db.Save(mapping).Error
+}
+
+func (r *budgetRepositoryDB) DeleteGLMapping(id string) error {
+	return r.db.Delete(&models.GlMappingEntity{}, "id = ?", id).Error
+}
+
+func (r *budgetRepositoryDB) GetGLInfo(entity string, entityGL string, target *models.GlMappingEntity) error {
+	return r.db.Where("entity = ? AND entity_gl = ?", entity, entityGL).First(target).Error
+}
+
+func (r *budgetRepositoryDB) CheckExactGLMapping(entity, entityGL, consoGL, accountName string) (bool, error) {
+	var count int64
+	err := r.db.Model(&models.GlMappingEntity{}).
+		Where("entity = ? AND entity_gl = ? AND conso_gl = ? AND account_name = ?", entity, entityGL, consoGL, accountName).
+		Count(&count).Error
+	return count > 0, err
+}
+
+func (r *budgetRepositoryDB) GetBudgetStructure() ([]models.BudgetStructureEntity, error) {
+	var entities []models.BudgetStructureEntity
+	if err := r.db.Order("group1 ASC, group2 ASC, group3 ASC").Find(&entities).Error; err != nil {
+		return nil, err
+	}
+	return entities, nil
+}
+
+func (r *budgetRepositoryDB) GetBudgetStructureByID(id uint) (*models.BudgetStructureEntity, error) {
+	var entity models.BudgetStructureEntity
+	if err := r.db.First(&entity, id).Error; err != nil {
+		return nil, err
+	}
+	return &entity, nil
+}
+
+func (r *budgetRepositoryDB) CreateBudgetStructure(entity *models.BudgetStructureEntity) error {
+	return r.db.Create(entity).Error
+}
+
+func (r *budgetRepositoryDB) InsertBudgetStructures(entities []models.BudgetStructureEntity) error {
+	return r.db.Create(&entities).Error
+}
+
+func (r *budgetRepositoryDB) UpdateBudgetStructure(entity *models.BudgetStructureEntity) error {
+	return r.db.Save(entity).Error
+}
+
+func (r *budgetRepositoryDB) DeleteBudgetStructure(id uint) error {
+	return r.db.Delete(&models.BudgetStructureEntity{}, id).Error
+}
+
+func (r *budgetRepositoryDB) DeleteAllBudgetStructures() error {
+	return r.db.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&models.BudgetStructureEntity{}).Error
+}
+
 func (r *budgetRepositoryDB) ListFileCapexBudgets() ([]models.FileCapexBudgetEntity, error) {
 	var files []models.FileCapexBudgetEntity
 	err := r.db.Order("upload_at desc").Find(&files).Error
@@ -455,16 +529,17 @@ func (r *budgetRepositoryDB) GetAggregatedHMW(year string, months []string) ([]m
 			"Global_Dimension_1_Code" as department, 
 			"G_L_Account_No" as gl_account_no, 
 			"G_L_Account_Name" as gl_account_name, 
+			"Vendor_Name" as vendor_name,
 			UPPER(TO_CHAR("Posting_Date"::DATE, 'MON')) as month, 
-			SUM("Credit_Amount") as total_amount
+			SUM("Amount") as total_amount
 		`).
-		Where("LEFT(\"Posting_Date\", 4) = ?", year)
+		Where("TO_CHAR(\"Posting_Date\"::DATE, 'YYYY') = ?", year)
 
 	if len(months) > 0 {
 		query = query.Where("UPPER(TO_CHAR(\"Posting_Date\"::DATE, 'MON')) IN ?", months)
 	}
 
-	err := query.Group(`company, branch, "Global_Dimension_1_Code", "G_L_Account_No", "G_L_Account_Name", UPPER(TO_CHAR("Posting_Date"::DATE, 'MON'))`).
+	err := query.Group(`company, branch, "Global_Dimension_1_Code", "G_L_Account_No", "G_L_Account_Name", "Vendor_Name", UPPER(TO_CHAR("Posting_Date"::DATE, 'MON'))`).
 		Scan(&results).Error
 	return results, err
 }
@@ -485,16 +560,17 @@ func (r *budgetRepositoryDB) GetAggregatedCLIK(year string, months []string) ([]
 			"Global_Dimension_1_Code" as department, 
 			"G_L_Account_No" as gl_account_no, 
 			"G_L_Account_Name" as gl_account_name, 
+			"Vendor_Name" as vendor_name,
 			UPPER(TO_CHAR("Posting_Date"::DATE, 'MON')) as month, 
-			SUM("Credit_Amount") as total_amount
+			SUM("Amount") as total_amount
 		`).
-		Where("LEFT(\"Posting_Date\", 4) = ?", year)
+		Where("TO_CHAR(\"Posting_Date\"::DATE, 'YYYY') = ?", year)
 
 	if len(months) > 0 {
 		query = query.Where("UPPER(TO_CHAR(\"Posting_Date\"::DATE, 'MON')) IN ?", months)
 	}
 
-	err := query.Group(`"Global_Dimension_2_Code", "Global_Dimension_1_Code", "G_L_Account_No", "G_L_Account_Name", UPPER(TO_CHAR("Posting_Date"::DATE, 'MON'))`).
+	err := query.Group(`"Global_Dimension_2_Code", "Global_Dimension_1_Code", "G_L_Account_No", "G_L_Account_Name", "Vendor_Name", UPPER(TO_CHAR("Posting_Date"::DATE, 'MON'))`).
 		Scan(&results).Error
 	return results, err
 }
@@ -510,217 +586,65 @@ func (r *budgetRepositoryDB) GetAllClikGle() ([]models.ClikGleEntity, error) {
 // 7. การรวมข้อมูลสำหรับ Dashboard (Dashboard Aggregation - Optimized)
 // ---------------------------------------------------------------------
 func (r *budgetRepositoryDB) GetActualTransactions(filter map[string]interface{}) (*models.PaginatedActualTransactionDTO, error) {
-	// Filtering Logic
-	whereClause := "1=1"
-	var args []interface{}
+	fmt.Printf("[DEBUG] GetActualTransactions (Centralized): %+v\n", filter)
 
-	// ความต้องการผู้ใช้: Map ชื่อต้นทาง (Source Names) -> รหัส (Codes) สำหรับเก็บลงฐานข้อมูล
-	// เราต้อง Map ย้อนกลับ (Code -> Source Name) เพื่อกรองตารางต้นทางโดยตรง
-	// แผนผัง Entity (Code -> Source Name)
-	// อัปเดต: ผู้ใช้ยืนยันว่า Source ใช้ตัวพิมพ์ใหญ่ผสมเล็ก (Title Case) เช่น "Honda Maliwan"
-	entityCodeToNameMap := map[string][]string{
-		"HMW":  {"HONDA MALIWAN", "HMW", "Honda Maliwan"},
-		"ACG":  {"AUTOCORP HOLDING", "ACG", "Autocorp Holding"},
-		"CLIK": {"CLIK"},
-	}
+	query := r.db.Table("actual_transaction_entities").
+		Select(`
+			actual_transaction_entities.source,
+			actual_transaction_entities.posting_date,
+			actual_transaction_entities.doc_no as doc_no,
+			actual_transaction_entities.vendor_name as vendor,
+			actual_transaction_entities.description,
+			actual_transaction_entities.entity_gl as gl_account_no,
+			actual_transaction_entities.conso_gl as conso_gl,
+			mapping.account_name as gl_account_name,
+			actual_transaction_entities.amount,
+			actual_transaction_entities.department,
+			actual_transaction_entities.entity as company,
+			actual_transaction_entities.branch
+		`).
+		Joins("LEFT JOIN gl_mapping_entities mapping ON actual_transaction_entities.entity_gl = mapping.entity_gl AND actual_transaction_entities.entity = mapping.entity")
 
-	fmt.Printf("[DEBUG] GetActualTransactions Check Filter: %+v\n", filter)
-
-	// แผนผัง Branch (Code -> Source Name(s)) - HMW/ACG/CLIK รวมกัน
-	// หมายเหตุ: รหัส Branch ใน UI (HOF, VEE, ฯลฯ) อาจ Map ไปยังชื่อต้นทางหลายชื่อ หรือชื่อเดียวกัน
-	// เราต้องใช้ตัวช่วยเพื่อหาชื่อต้นทางทั้งหมดจากรหัสที่ได้รับ
-	// เนื่องจาก Logic ตอน Sync คือ: Normalize(Source) -> Map[Source] -> Code
-	// เราต้องการ: Code -> [รายการชื่อต้นทางที่ Map มาหา Code นี้]
-	// การดูแลสองที่มันยุ่งยาก แต่อนาคตควรทำเป็นตารางกลาง
-	// ตอนนี้ยอมให้ใช้ทั้ง Code และชื่อทั่วไป
-	// หรือดีกว่านั้น: ใน `achhmw_gle_api`, branch น่าจะเป็นชื่อต้นทาง (เช่น "HEAD OFFICE")
-	// ใน `actual_fact_entities` มันคือ "HOF"
-	// ถ้า User กรอง "HOF" เราต้องไปค้นหา "HEAD OFFICE" ในต้นทาง
-
-	// Hardcoded Reverse Map อ้างอิงจาก budget_service.go
-	// อัปเดต: เพิ่มแบบ Title Case ตามที่ User ส่งรูปมาให้ดู
-	branchCodeToNameMap := map[string][]string{
-		"HOF":      {"HEAD OFFICE", "AUTOCORP HEAD OFFICE", "HEADOFFICE", "HOF", "Head Office", "Headoffice"},
-		"BUR":      {"BURIRUM", "BUR", "Burirum"},
-		"KBI":      {"KRABI", "KBI", "Krabi"},
-		"MSR":      {"MINI_SURIN", "MSR", "Mini_Surin"},
-		"MKB":      {"MUEANG KRABI", "MKB", "Mueang Krabi"},
-		"NAK":      {"NAKA", "NAK", "Naka"},
-		"AVN":      {"NANGRONG", "AVN", "Nangrong"},
-		"PHC":      {"PHACHA", "PHC", "Phacha"},
-		"PRA":      {"PHUKET", "PRA", "Phuket"},
-		"SUR":      {"SURIN", "SUR", "Surin"},
-		"VEE":      {"VEERAWAT", "VEE", "Veerawat"},
-		"HQ":       {"AUTOCORP HEAD OFFICE", "HQ", "Autocorp Head Office"},
-		"Branch00": {"", "Branch00"},
-		// Add Branch01..15 if needed
-	}
-	// Add Branch01-15 loop
-	for i := 1; i <= 15; i++ {
-		key := fmt.Sprintf("Branch%02d", i)
-		branchCodeToNameMap[key] = []string{fmt.Sprintf("BRANCH%02d", i), fmt.Sprintf("Branch%02d", i)}
-	}
-
-	// ตัวกรอง Entity
-	var hmwEntities []string
-	var clikEntities []string
-	var selectedEntities []string // เก็บ UI Code ที่เลือกไว้เพื่อไปกรอง actual_fact_entities
+	// 2. Filters (Only apply if not empty)
 	if val, ok := filter["entities"]; ok {
-		var entities []string
-		if s, ok := val.([]string); ok {
-			entities = s
-		} else if s, ok := val.([]interface{}); ok {
-			for _, item := range s {
-				entities = append(entities, fmt.Sprintf("%v", item))
-			}
-		}
-
-		if len(entities) > 0 {
-			selectedEntities = entities // เก็บ UI Code ที่เลือกไว้
-			// แปลง UI Codes (HMW, ACG) ไปเป็นชื่อต้นทาง (Source Names)
-			for _, e := range entities {
-				if names, ok := entityCodeToNameMap[e]; ok {
-					hmwEntities = append(hmwEntities, names...)
-					clikEntities = append(clikEntities, names...) // CLIK อาจจะใช้ Logic เดียวกัน หรือใช้ 'CLIK' เฉยๆ
-				} else {
-					// Fallback: Use the code itself
-					hmwEntities = append(hmwEntities, e)
-					clikEntities = append(clikEntities, e)
-				}
-			}
+		if s, ok := val.([]string); ok && len(s) > 0 {
+			query = query.Where("actual_transaction_entities.entity IN ?", s)
+		} else if s, ok := val.([]interface{}); ok && len(s) > 0 {
+			query = query.Where("actual_transaction_entities.entity IN ?", s)
 		}
 	}
-
-	// ตัวกรอง Branch
-	var hmwBranches []string
-	var clikBranches []string
 	if val, ok := filter["branches"]; ok {
-		var branches []string
-		if s, ok := val.([]string); ok {
-			branches = s
-		} else if s, ok := val.([]interface{}); ok {
-			for _, item := range s {
-				branches = append(branches, fmt.Sprintf("%v", item))
-			}
-		}
-
-		if len(branches) > 0 {
-			for _, b := range branches {
-				if names, ok := branchCodeToNameMap[b]; ok {
-					hmwBranches = append(hmwBranches, names...)
-					clikBranches = append(clikBranches, names...)
-				} else {
-					hmwBranches = append(hmwBranches, b)
-					clikBranches = append(clikBranches, b)
-				}
-			}
+		if s, ok := val.([]string); ok && len(s) > 0 {
+			query = query.Where("actual_transaction_entities.branch IN ?", s)
+		} else if s, ok := val.([]interface{}); ok && len(s) > 0 {
+			query = query.Where("actual_transaction_entities.branch IN ?", s)
 		}
 	}
-
-	// กรองโดย GL Account No (จำเป็นสำหรับการ Drill Down)
-	// ความต้องการผู้ใช้: Map Conso GL (Filter) -> Entity GL (Source)
-	if val, ok := filter["conso_gls"]; ok {
-		var consoGLs []string
-		if s, ok := val.([]string); ok {
-			consoGLs = s
-		} else if s, ok := val.([]interface{}); ok {
-			for _, item := range s {
-				consoGLs = append(consoGLs, fmt.Sprintf("%v", item))
-			}
-		}
-
-		if len(consoGLs) > 0 && len(consoGLs) < 200 {
-			// ขั้นตอนที่ 1: หา Entity GLs ที่ตรงกันจากตาราง Mapping
-			// ใช้ BUDGET FACTS เป็นแหล่งข้อมูลหลัก (Source of Truth) สำหรับการ Mapping
-			var mappedEntityGLs []string
-			mappingQuery := r.db.Model(&models.BudgetFactEntity{}).
-				Where("conso_gl IN ?", consoGLs).
-				Distinct("entity_gl")
-
-			if len(selectedEntities) > 0 {
-				mappingQuery = mappingQuery.Where("entity IN ?", selectedEntities)
-			}
-
-			mappingQuery.Pluck("entity_gl", &mappedEntityGLs)
-			// fmt.Printf("[DEBUG] GL Mapping (Budget): Conso %v -> EntityGLs %v\n", consoGLs, mappedEntityGLs)
-
-			// รวม mapped + original
-			finalGLs := append(mappedEntityGLs, consoGLs...)
-
-			// Remove duplicates
-			uniqueGLs := make(map[string]bool)
-			var list []string
-			for _, item := range finalGLs {
-				if _, value := uniqueGLs[item]; !value {
-					uniqueGLs[item] = true
-					list = append(list, item)
-				}
-			}
-
-			// ขั้นตอนที่ 2: ใช้รายการที่รวมแล้วไปกรองตารางต้นทาง
-			if len(list) > 0 {
-				whereClause += " AND \"G_L_Account_No\" IN ?"
-				args = append(args, list)
-			}
-		} else if len(consoGLs) >= 200 {
-			// หากส่งมาเยอะเกินไป (เช่น ส่งมาทั้งหมด) ให้ถือว่าไม่กรอง GL เพื่อความเร็ว
-			// ไม่ต้องเพิ่ม WHERE G_L_Account_No เข้าไป
-		}
-	}
-
-	// Date Filtering
-	if val, ok := filter["start_date"]; ok {
-		if startDate, ok := val.(string); ok && startDate != "" {
-			whereClause += " AND \"Posting_Date\" >= ?"
-			args = append(args, startDate)
-		}
-	}
-	if val, ok := filter["end_date"]; ok {
-		if endDate, ok := val.(string); ok && endDate != "" {
-			whereClause += " AND \"Posting_Date\" <= ?"
-			args = append(args, endDate)
-		}
-	}
-
-	// Department Filtering (New)
 	if val, ok := filter["departments"]; ok {
-		var depts []string
-		if s, ok := val.([]string); ok {
-			depts = s
-		} else if s, ok := val.([]interface{}); ok {
-			for _, item := range s {
-				depts = append(depts, fmt.Sprintf("%v", item))
-			}
-		}
-		if len(depts) > 0 {
-			// Both HMW and CLIK use "Global_Dimension_1_Code" for Department
-			whereClause += " AND \"Global_Dimension_1_Code\" IN ?"
-			args = append(args, depts)
+		if s, ok := val.([]string); ok && len(s) > 0 {
+			query = query.Where("actual_transaction_entities.department IN ?", s)
+		} else if s, ok := val.([]interface{}); ok && len(s) > 0 {
+			query = query.Where("actual_transaction_entities.department IN ?", s)
 		}
 	}
-
-	// ✅ อัปเดต Logic การกรอง:
-	// แสดงเฉพาะ Transaction ของปีที่ "Sync" แล้วเท่านั้น (Active ใน actual_fact_entities)
-	var activeYears []string
-	r.db.Model(&models.ActualFactEntity{}).Distinct("year").Pluck("year", &activeYears)
-	fmt.Printf("[DEBUG] Active Years in Facts: %v\n", activeYears)
-
-	// ✅ Optimized Year Filter using ranges (for Index support)
-	if len(activeYears) > 0 {
-		var yearClauses []string
-		for _, y := range activeYears {
-			yearClauses = append(yearClauses, fmt.Sprintf("(\"Posting_Date\" >= '%s-01-01' AND \"Posting_Date\" <= '%s-12-31')", y, y))
+	if val, ok := filter["conso_gls"]; ok {
+		if s, ok := val.([]string); ok && len(s) > 0 {
+			query = query.Where("actual_transaction_entities.conso_gl IN ?", s)
+		} else if s, ok := val.([]interface{}); ok && len(s) > 0 {
+			query = query.Where("actual_transaction_entities.conso_gl IN ?", s)
 		}
-		whereClause += " AND (" + strings.Join(yearClauses, " OR ") + ")"
-	} else {
-		whereClause += " AND 1=0"
+	}
+	if val, ok := filter["start_date"].(string); ok && val != "" {
+		query = query.Where("actual_transaction_entities.posting_date >= ?", val)
+	}
+	if val, ok := filter["end_date"].(string); ok && val != "" {
+		query = query.Where("actual_transaction_entities.posting_date <= ?", val)
+	}
+	if val, ok := filter["year"].(string); ok && val != "" {
+		query = query.Where("actual_transaction_entities.year = ?", val)
 	}
 
-	fmt.Printf("[DEBUG] WhereClause: %s\n", whereClause)
-	fmt.Printf("[DEBUG] Args: %v\n", args)
-
-	// No applyLimit for the queries so we can get accurate count
-	// Pagination parameters
+	// 3. Pagination
 	page := 0
 	limit := 10
 	if p, ok := filter["page"].(float64); ok {
@@ -731,149 +655,27 @@ func (r *budgetRepositoryDB) GetActualTransactions(filter map[string]interface{}
 	}
 	offset := page * limit
 
-	// Construct the Union query as a raw SQL string or using GORM's Table
-	// We'll use a subquery approach for accurate total count and sorting
-	hmwSQL := r.db.Table("achhmw_gle_api").
-		Select(`
-			'HMW' as source,
-			TO_CHAR("Posting_Date"::DATE, 'YYYY-MM-DD') as posting_date,
-			"Document_No" as doc_no,
-			"Description" as description, 
-			"G_L_Account_No" as gl_account_no,
-			"G_L_Account_Name" as gl_account_name,
-			"Global_Dimension_1_Code" as department,
-			"Credit_Amount" as amount,
-			company,
-			branch
-		`).
-		Where(whereClause, args...)
-
-	if len(hmwEntities) > 0 {
-		hmwSQL = hmwSQL.Where("company IN ?", hmwEntities)
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		fmt.Printf("[ERROR] GetActualTransactions Count: %v\n", err)
+		return nil, err
 	}
-	if len(hmwBranches) > 0 {
-		hmwSQL = hmwSQL.Where("branch IN ?", hmwBranches)
-	}
+	fmt.Printf("[DEBUG] GetActualTransactions Total Found: %d\n", total)
 
-	clikSQL := r.db.Table("general_ledger_entries_clik").
-		Select(`
-			'CLIK' as source,
-			TO_CHAR("Posting_Date"::DATE, 'YYYY-MM-DD') as posting_date,
-			"Document_No" as doc_no, 
-			"Description" as description,
-			"G_L_Account_No" as gl_account_no,
-			"G_L_Account_Name" as gl_account_name,
-			"Global_Dimension_1_Code" as department,
-			"Credit_Amount" as amount,
-			'CLIK' as company,
-			"Global_Dimension_2_Code" as branch
-		`).
-		Where(whereClause, args...)
-
-	if len(hmwEntities) > 0 {
-		hasClik := false
-		for _, e := range hmwEntities {
-			if e == "CLIK" {
-				hasClik = true
-				break
-			}
-		}
-		if !hasClik {
-			clikSQL = clikSQL.Where("1=0")
-		}
-	}
-	if len(clikBranches) > 0 {
-		clikSQL = clikSQL.Where("\"Global_Dimension_2_Code\" IN ?", clikBranches)
-	}
-
-	// 1. Get Total Count (Simpler and faster)
-	var totalCount int64
-	var countHMW, countCLIK int64
-
-	// Construct dedicated count queries without the expensive Select(...) part
-	hmwCountQuery := r.db.Table("achhmw_gle_api").Where(whereClause, args...)
-	if len(hmwEntities) > 0 {
-		hmwCountQuery = hmwCountQuery.Where("company IN ?", hmwEntities)
-	}
-	if len(hmwBranches) > 0 {
-		hmwCountQuery = hmwCountQuery.Where("branch IN ?", hmwBranches)
-	}
-
-	clikCountQuery := r.db.Table("general_ledger_entries_clik").Where(whereClause, args...)
-	if len(hmwEntities) > 0 {
-		hasClik := false
-		for _, e := range hmwEntities {
-			if e == "CLIK" {
-				hasClik = true
-				break
-			}
-		}
-		if !hasClik {
-			clikCountQuery = clikCountQuery.Where("1=0")
-		}
-	}
-	if len(clikBranches) > 0 {
-		clikCountQuery = clikCountQuery.Where("\"Global_Dimension_2_Code\" IN ?", clikBranches)
-	}
-
-	// Use channels to wait for result
-	type countResult struct {
-		count int64
-		err   error
-	}
-	hmwChan := make(chan countResult, 1)
-	clikChan := make(chan countResult, 1)
-
-	go func() {
-		var c int64
-		err := hmwCountQuery.Count(&c).Error
-		hmwChan <- countResult{c, err}
-	}()
-
-	go func() {
-		var c int64
-		err := clikCountQuery.Count(&c).Error
-		clikChan <- countResult{c, err}
-	}()
-
-	resHMW := <-hmwChan
-	if resHMW.err != nil {
-		return nil, resHMW.err
-	}
-	resCLIK := <-clikChan
-	if resCLIK.err != nil {
-		return nil, resCLIK.err
-	}
-
-	countHMW = resHMW.count
-	countCLIK = resCLIK.count
-	totalCount = countHMW + countCLIK
-
-	// 2. Get Paginated Data (Double-Sort Optimization)
-	var pagedData []models.ActualTransactionDTO
-
-	// Apply ORDER BY and LIMIT to EACH branch first.
-	// This makes the Union extremely fast because it only combines a few rows.
-	hmwSQL_sorted := hmwSQL.Order("posting_date ASC").Limit(limit + offset)
-	clikSQL_sorted := clikSQL.Order("posting_date ASC").Limit(limit + offset)
-
-	err := r.db.Raw(`
-		SELECT * FROM (
-			SELECT * FROM (?) AS hmw_sub
-			UNION ALL
-			SELECT * FROM (?) AS clik_sub
-		) AS u
-		ORDER BY posting_date ASC
-		LIMIT ? OFFSET ?
-	`, hmwSQL_sorted, clikSQL_sorted, limit, offset).Scan(&pagedData).Error
-
-	if err != nil {
+	var results []models.ActualTransactionDTO
+	if err := query.Order("actual_transaction_entities.posting_date DESC, actual_transaction_entities.doc_no DESC").
+		Limit(limit).Offset(offset).Scan(&results).Error; err != nil {
+		fmt.Printf("[ERROR] GetActualTransactions Scan: %v\n", err)
 		return nil, err
 	}
 
+	if len(results) > 0 {
+		fmt.Printf("[DEBUG] GetActualTransactions Sample: %+v\n", results[0])
+	}
+
 	return &models.PaginatedActualTransactionDTO{
-		Data:       pagedData,
-		TotalCount: totalCount,
+		Data:       results,
+		TotalCount: total,
 		Page:       page,
 		Limit:      limit,
 	}, nil
@@ -926,6 +728,12 @@ func (r *budgetRepositoryDB) GetDashboardAggregates(filter map[string]interface{
 				tx = tx.Where(tableName+".nav_code IN ?", strs)
 			}
 		}
+		// Added: Budget GLs Filter (For Filter Pane tree selection)
+		if val, ok := filter["budget_gls"]; ok {
+			if strs := toStringSlice(val); len(strs) > 0 {
+				tx = tx.Where(tableName+".conso_gl IN ?", strs)
+			}
+		}
 		// Added: Year Filter (Only for Actuals, Budget ignores year)
 		if val, ok := filter["year"]; ok {
 			if s, ok := val.(string); ok && s != "" {
@@ -961,9 +769,19 @@ func (r *budgetRepositoryDB) GetDashboardAggregates(filter map[string]interface{
 
 	if val, ok := filter["departments"]; ok {
 		if strs := toStringSlice(val); len(strs) > 0 {
-			// If filtered by Department, we likely want to drill down to NavCode
-			groupBy = "nav_code"
-			selectCol = "nav_code as department"
+			// Phase 10: New click behavior. Only drill down to NavCode if "None" is selected
+			shouldDrillDown := false
+			for _, s := range strs {
+				if s == "None" {
+					shouldDrillDown = true
+					break
+				}
+			}
+
+			if shouldDrillDown {
+				groupBy = "nav_code"
+				selectCol = "nav_code as department"
+			}
 		}
 	}
 
@@ -1185,8 +1003,76 @@ func (r *budgetRepositoryDB) GetRawDate() (string, error) {
 	}
 
 	// Try CLIK if HMW empty
-	if err := r.db.Table("acclik_gle_api").Select("\"Posting_Date\"").Limit(1).Scan(&rawDate).Error; err != nil {
+	if err := r.db.Table("general_ledger_entries_clik").Select("\"Posting_Date\"").Limit(1).Scan(&rawDate).Error; err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("CLIK Date: %s", rawDate), nil
+}
+
+func (r *budgetRepositoryDB) GetRawTransactionsHMW(year string, months []string) ([]models.ActualTransactionDTO, error) {
+	var results []models.ActualTransactionDTO
+	query := r.db.Table("achhmw_gle_api").
+		Select(`
+			'HMW' as source,
+			TO_CHAR("Posting_Date"::DATE, 'YYYY-MM-DD') as posting_date,
+			"Document_No" as doc_no,
+			"Description" as description, 
+			"G_L_Account_No" as gl_account_no,
+			"G_L_Account_Name" as gl_account_name,
+			"Global_Dimension_1_Code" as department,
+			"Amount" as amount,
+			"Vendor_Name" as vendor,
+			company,
+			branch
+		`).
+		Where("TO_CHAR(\"Posting_Date\"::DATE, 'YYYY') = ?", year)
+
+	if len(months) > 0 {
+		query = query.Where("UPPER(TO_CHAR(\"Posting_Date\"::DATE, 'MON')) IN ?", months)
+	}
+
+	err := query.Scan(&results).Error
+	return results, err
+}
+
+func (r *budgetRepositoryDB) GetRawTransactionsCLIK(year string, months []string) ([]models.ActualTransactionDTO, error) {
+	var results []models.ActualTransactionDTO
+	query := r.db.Table("general_ledger_entries_clik").
+		Select(`
+			'CLIK' as source,
+			TO_CHAR("Posting_Date"::DATE, 'YYYY-MM-DD') as posting_date,
+			"Document_No" as doc_no, 
+			"Description" as description,
+			"G_L_Account_No" as gl_account_no,
+			"G_L_Account_Name" as gl_account_name,
+			"Global_Dimension_1_Code" as department,
+			"Amount" as amount,
+			"Vendor_Name" as vendor,
+			'CLIK' as company,
+			"Global_Dimension_2_Code" as branch
+		`).
+		Where("TO_CHAR(\"Posting_Date\"::DATE, 'YYYY') = ?", year)
+
+	if len(months) > 0 {
+		query = query.Where("UPPER(TO_CHAR(\"Posting_Date\"::DATE, 'MON')) IN ?", months)
+	}
+
+	err := query.Scan(&results).Error
+	return results, err
+}
+
+func (r *budgetRepositoryDB) CreateActualTransactions(txs []models.ActualTransactionEntity) error {
+	if len(txs) == 0 {
+		return nil
+	}
+	// Bulk insert with 500 records per batch for performance
+	return r.db.CreateInBatches(txs, 500).Error
+}
+
+func (r *budgetRepositoryDB) DeleteAllActualTransactions() error {
+	return r.db.Exec("TRUNCATE TABLE actual_transaction_entities").Error
+}
+
+func (r *budgetRepositoryDB) DeleteActualTransactionsByYear(year string) error {
+	return r.db.Where("year = ?", year).Delete(&models.ActualTransactionEntity{}).Error
 }

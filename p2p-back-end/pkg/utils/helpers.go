@@ -73,3 +73,43 @@ func GetSafeString(claims map[string]interface{}, key string) string {
 	}
 	return ""
 }
+
+// NaturalLess compares strings numerically where possible (e.g. "ADM1" < "ADM10")
+func NaturalLess(s1, s2 string) bool {
+	i, j := 0, 0
+	for i < len(s1) && j < len(s2) {
+		r1, r2 := s1[i], s2[j]
+
+		// If both are digits, compare as numbers
+		if isDigit(r1) && isDigit(r2) {
+			num1, nextI := parseNum(s1, i)
+			num2, nextJ := parseNum(s2, j)
+			if num1 != num2 {
+				return num1 < num2
+			}
+			i, j = nextI, nextJ
+			continue
+		}
+
+		if r1 != r2 {
+			return r1 < r2
+		}
+		i++
+		j++
+	}
+	return len(s1) < len(s2)
+}
+
+func isDigit(b byte) bool {
+	return b >= '0' && b <= '9'
+}
+
+func parseNum(s string, start int) (int, int) {
+	end := start
+	val := 0
+	for end < len(s) && isDigit(s[end]) {
+		val = val*10 + int(s[end]-'0')
+		end++
+	}
+	return val, end
+}
