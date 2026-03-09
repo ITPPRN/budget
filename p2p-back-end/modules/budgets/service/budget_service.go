@@ -1511,6 +1511,10 @@ func (s *budgetService) GetRawDate() (string, error) {
 	return s.repo.GetRawDate()
 }
 
+func (s *budgetService) GetActualYears() ([]string, error) {
+	return s.repo.GetActualYears()
+}
+
 func extractYear(s string) string {
 	// Simple scan for 4 digits starting with 20
 	// e.g. "Budget 2025" or "FY2025"

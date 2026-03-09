@@ -25,6 +25,28 @@ func (r *budgetRepositoryDB) WithTrx(trxHandle func(repo models.BudgetRepository
 	})
 }
 
+// toStringSlice safely converts interface{} (from JSON filter map) to []string
+func toStringSlice(val interface{}) []string {
+	if strs, ok := val.([]string); ok {
+		return strs
+	}
+	if interfaces, ok := val.([]interface{}); ok {
+		var strs []string
+		for _, item := range interfaces {
+			if s, ok := item.(string); ok {
+				strs = append(strs, s)
+			} else if item != nil {
+				strs = append(strs, fmt.Sprintf("%v", item))
+			}
+		}
+		return strs
+	}
+	if s, ok := val.(string); ok && s != "" {
+		return []string{s}
+	}
+	return nil
+}
+
 // ---------------------------------------------------------
 // ฟังก์ชันสร้างไฟล์ (File Create Methods)
 // ---------------------------------------------------------
@@ -295,6 +317,14 @@ func (r *budgetRepositoryDB) GetBudgetDetails(filter map[string]interface{}) ([]
 		Amount  float64
 	}
 
+	if val, ok := filter["months"]; ok {
+		mstrs := toStringSlice(val)
+		if len(mstrs) > 0 {
+			query = query.Joins("JOIN budget_amount_entities ba2 ON ba2.budget_fact_id = budget_fact_entities.id").
+				Where("ba2.month IN ?", mstrs)
+		}
+	}
+
 	var flatData []flatResult
 	err := query.
 		Joins("JOIN budget_amount_entities ba ON ba.budget_fact_id = budget_fact_entities.id AND ba.deleted_at IS NULL").
@@ -361,6 +391,22 @@ func (r *budgetRepositoryDB) GetActualDetails(filter map[string]interface{}) ([]
 	applyFilter("conso_gls", "conso_gl")
 	applyFilter("entities", "entity")
 	applyFilter("branches", "branch")
+
+	if val, ok := filter["year"].(string); ok && val != "" {
+		query = query.Where("year = ?", val)
+	}
+
+	if val, ok := filter["months"]; ok {
+		mstrs := toStringSlice(val)
+		if len(mstrs) > 0 {
+			// Filter the fact records that have at least one of these months
+			// Note: This might still show 0 if we don't filter the Preloaded Amounts
+			// But for aggregation purposes on frontend, it's a good start.
+			query = query.Joins("JOIN actual_amount_entities ON actual_amount_entities.actual_fact_id = actual_fact_entities.id").
+				Where("actual_amount_entities.month IN ?", mstrs).
+				Group("actual_fact_entities.id")
+		}
+	}
 
 	// เรียงลำดับข้อมูล
 	err := query.Order("department, conso_gl, gl_name").Find(&results).Error
@@ -588,7 +634,7 @@ func (r *budgetRepositoryDB) GetAllClikGle() ([]models.ClikGleEntity, error) {
 func (r *budgetRepositoryDB) GetActualTransactions(filter map[string]interface{}) (*models.PaginatedActualTransactionDTO, error) {
 	fmt.Printf("[DEBUG] GetActualTransactions (Centralized): %+v\n", filter)
 
-	query := r.db.Table("actual_transaction_entities").
+	query := r.db.Model(&models.ActualTransactionEntity{}).
 		Select(`
 			actual_transaction_entities.source,
 			actual_transaction_entities.posting_date,
@@ -632,6 +678,12 @@ func (r *budgetRepositoryDB) GetActualTransactions(filter map[string]interface{}
 			query = query.Where("actual_transaction_entities.conso_gl IN ?", s)
 		} else if s, ok := val.([]interface{}); ok && len(s) > 0 {
 			query = query.Where("actual_transaction_entities.conso_gl IN ?", s)
+		}
+	}
+	if val, ok := filter["months"]; ok {
+		mstrs := toStringSlice(val)
+		if len(mstrs) > 0 {
+			query = query.Where("UPPER(TO_CHAR(actual_transaction_entities.posting_date::DATE, 'MON')) IN ?", mstrs)
 		}
 	}
 	if val, ok := filter["start_date"].(string); ok && val != "" {
@@ -750,23 +802,6 @@ func (r *budgetRepositoryDB) GetDashboardAggregates(filter map[string]interface{
 	groupBy := "department"
 	selectCol := "department"
 
-	// Helper to safely convert interface{} to []string
-	toStringSlice := func(val interface{}) []string {
-		if strs, ok := val.([]string); ok {
-			return strs
-		}
-		if interfaces, ok := val.([]interface{}); ok {
-			var strs []string
-			for _, i := range interfaces {
-				if s, ok := i.(string); ok {
-					strs = append(strs, s)
-				}
-			}
-			return strs
-		}
-		return nil
-	}
-
 	if val, ok := filter["departments"]; ok {
 		if strs := toStringSlice(val); len(strs) > 0 {
 			// Phase 10: New click behavior. Only drill down to NavCode if "None" is selected
@@ -792,7 +827,7 @@ func (r *budgetRepositoryDB) GetDashboardAggregates(filter map[string]interface{
 		Total      float64
 	}
 	var budgetDept []DeptResult
-	tx1 := r.db.Table("budget_fact_entities").Select(selectCol + ", SUM(year_total) as total")
+	tx1 := r.db.Model(&models.BudgetFactEntity{}).Select(selectCol + ", SUM(year_total) as total")
 	tx1 = applyFilter(tx1, "budget_fact_entities")
 	if err := tx1.Group(groupBy).Scan(&budgetDept).Error; err != nil {
 		return nil, err
@@ -801,16 +836,25 @@ func (r *budgetRepositoryDB) GetDashboardAggregates(filter map[string]interface{
 	// Actual
 	// Actual
 	var actualDept []DeptResult
-	tx2 := r.db.Table("actual_fact_entities").Select(selectCol + ", SUM(year_total) as total")
+	tx2 := r.db.Model(&models.ActualFactEntity{})
+
+	// If months filter is provided, we must sum from the amount table instead of using year_total
+	if val, ok := filter["months"]; ok {
+		mstrs := toStringSlice(val)
+		if len(mstrs) > 0 {
+			tx2 = tx2.Select(selectCol+", SUM(actual_amount_entities.amount) as total").
+				Joins("JOIN actual_amount_entities ON actual_amount_entities.actual_fact_id = actual_fact_entities.id").
+				Where("actual_amount_entities.month IN ?", mstrs)
+		} else {
+			tx2 = tx2.Select(selectCol + ", SUM(year_total) as total")
+		}
+	} else {
+		tx2 = tx2.Select(selectCol + ", SUM(year_total) as total")
+	}
+
 	tx2 = applyFilter(tx2, "actual_fact_entities")
 
-	// Debug: Count Actual Records before aggregation
-	var count int64
-	r.db.Model(&models.ActualFactEntity{}).Count(&count)
-	fmt.Printf("[DEBUG] GetDashboardAggregates: ActualFactEntity Count = %d\n", count)
-
 	if err := tx2.Group(groupBy).Scan(&actualDept).Error; err != nil {
-		// Log error but maybe continue? No, return error
 		return nil, err
 	}
 
@@ -956,6 +1000,14 @@ func (r *budgetRepositoryDB) GetDashboardAggregates(filter map[string]interface{
 	tx4 := r.db.Table("actual_amount_entities").
 		Select("actual_amount_entities.month, SUM(actual_amount_entities.amount) as total").
 		Joins("JOIN actual_fact_entities ON actual_amount_entities.actual_fact_id = actual_fact_entities.id")
+
+	if val, ok := filter["months"]; ok {
+		mstrs := toStringSlice(val)
+		if len(mstrs) > 0 {
+			tx4 = tx4.Where("actual_amount_entities.month IN ?", mstrs)
+		}
+	}
+
 	tx4 = applyFilter(tx4, "actual_fact_entities")
 	if err := tx4.Group("actual_amount_entities.month").Scan(&actualMonth).Error; err != nil {
 		return nil, err
@@ -1070,9 +1122,18 @@ func (r *budgetRepositoryDB) CreateActualTransactions(txs []models.ActualTransac
 }
 
 func (r *budgetRepositoryDB) DeleteAllActualTransactions() error {
-	return r.db.Exec("TRUNCATE TABLE actual_transaction_entities").Error
+	return r.db.Unscoped().Where("1=1").Delete(&models.ActualTransactionEntity{}).Error
 }
 
 func (r *budgetRepositoryDB) DeleteActualTransactionsByYear(year string) error {
-	return r.db.Where("year = ?", year).Delete(&models.ActualTransactionEntity{}).Error
+	return r.db.Unscoped().Where("year = ?", year).Delete(&models.ActualTransactionEntity{}).Error
+}
+
+func (r *budgetRepositoryDB) GetActualYears() ([]string, error) {
+	var years []string
+	err := r.db.Model(&models.ActualTransactionEntity{}).
+		Distinct().
+		Order("year DESC").
+		Pluck("year", &years).Error
+	return years, err
 }

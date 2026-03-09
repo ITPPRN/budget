@@ -85,6 +85,11 @@ const DetailContent = () => {
       }
 
       try {
+        // Get the synced Actuals configuration from localStorage
+        const syncConfig = JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}');
+        const actualYear = syncConfig.actualYear || new Date().getFullYear();
+        const selectedMonths = syncConfig.selectedMonths || [];
+
         const payload = {
           conso_gls: idsToFetch,
           start_date: actualDateFilter.startDate,
@@ -92,6 +97,8 @@ const DetailContent = () => {
           entities: selectedEntity ? [selectedEntity] : [],
           branches: selectedBranch ? [selectedBranch] : [],
           departments: selectedDepartment ? [selectedDepartment] : [],
+          year: String(actualYear),
+          months: selectedMonths,
           page: actualPage,
           limit: actualRowsPerPage
         };

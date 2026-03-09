@@ -54,6 +54,7 @@ func NewBudgetController(router fiber.Router, budgetSrv models.BudgetService) {
 	router.Get("/organization-structure", controller.getOrganizationStructure)
 	router.Post("/details", controller.getBudgetDetails)
 	router.Post("/dashboard-summary", controller.getDashboardSummary) // New
+	router.Get("/actual-years", controller.getActualYears)            // New: Distinct Years
 	router.Get("/debug-date", controller.getDebugDate)                // Debug
 
 	// GL Mapping APIs
@@ -111,6 +112,14 @@ func (c *budgetController) getDashboardSummary(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return ctx.JSON(summary)
+}
+
+func (c *budgetController) getActualYears(ctx *fiber.Ctx) error {
+	years, err := c.budgetSrv.GetActualYears()
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	return ctx.JSON(years)
 }
 
 func (c *budgetController) getFilterOptions(ctx *fiber.Ctx) error {

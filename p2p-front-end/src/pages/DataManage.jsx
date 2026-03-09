@@ -49,8 +49,10 @@ const DataManagePage = () => {
   const [selectedCapexActual, setSelectedCapexActual] = useState(() => loadSavedState('selectedCapexActual', ''));
 
   // --- New State for Operational Actuals ---
-  const [actualYear, setActualYear] = useState(() => loadSavedState('actualYear', new Date().getFullYear()));
+  ;
+  const [actualYear, setActualYear] = useState(() => loadSavedState('actualYear', ''));
   const [selectedMonths, setSelectedMonths] = useState(() => loadSavedState('selectedMonths', []));
+  const [actualYears, setActualYears] = useState([]);
 
   // Note: We NO LONGER save to localStorage on every change (useEffect). 
   // We only save when the user successfully SYNCS.
@@ -62,15 +64,18 @@ const DataManagePage = () => {
   // --- Fetch Data on Load ---
   const fetchAllVersions = async () => {
     try {
-      const [resBudget, resCapexBg, resCapexAct] = await Promise.all([
+      ;
+      const [resBudget, resCapexBg, resCapexAct, resYears] = await Promise.all([
         api.get('/budgets/files-budget'),
         api.get('/budgets/files-capex-budget'),
         api.get('/budgets/files-capex-actual'),
+        api.get('/budgets/actual-years'),
       ]);
 
       setBudgetVersions(resBudget.data || []);
       setCapexBgVersions(resCapexBg.data || []);
       setCapexActualVersions(resCapexAct.data || []);
+      setActualYears(resYears.data || []);
     } catch (error) {
       console.error("Failed to fetch versions:", error);
       toast.error("ไม่สามารถดึงข้อมูล Version ได้");
@@ -199,13 +204,24 @@ const DataManagePage = () => {
     }
     setLoadingUpdate(prev => ({ ...prev, dbActuals: true }));
     try {
+      // Phase 31 Update: 
+      // We no longer trigger a heavy Manual Sync on every click.
+      // Instead, we just Save the Filter Config. 
+      // The Dashboard and Reports will use these filters to query the "Central Table" (Table กลาง)
+      // which is kept up-to-date by the Backend Cron Job (every 5 mins).
+
       saveLocalConfig('actualYear', actualYear);
       saveLocalConfig('selectedMonths', selectedMonths);
-      toast.success("อัปเดตการตั้งค่า Database Actuals สำเร็จ (ระบบ Sync เบื้องหลังทุก 5 นาที)");
+
+      toast.success("บันทึกการตั้งค่าตัวกรอง Actuals สำเร็จ");
     } catch (error) {
-      toast.error("อัปเดตล้มเหลว");
+      console.error("Save Config Error:", error);
+      toast.error("บันทึกการตั้งค่าล้มเหลว");
     } finally {
-      setLoadingUpdate(prev => ({ ...prev, dbActuals: false }));
+      // Small artificial delay to show state change
+      setTimeout(() => {
+        setLoadingUpdate(prev => ({ ...prev, dbActuals: false }));
+      }, 300);
     }
   };
 
@@ -449,11 +465,13 @@ const DataManagePage = () => {
               <Typography variant="subtitle2" sx={{ fontWeight: 'bold', color: 'text.secondary', mb: 1.5, fontSize: '0.75rem', letterSpacing: '0.05rem' }}>
                 SELECT FISCAL YEAR
               </Typography>
+              ;
               <Select
                 size="small"
                 value={actualYear}
                 onChange={(e) => setActualYear(e.target.value)}
                 fullWidth
+                displayEmpty
                 sx={{
                   borderRadius: '12px',
                   mb: 4,
@@ -462,8 +480,8 @@ const DataManagePage = () => {
                   '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#1a237e' }
                 }}
               >
-                {/* ใช้ dynamicYears แทนการระบุปีตรงๆ */}
-                {Array.from({ length: 5 }, (_, i) => (new Date().getFullYear() + 2) - i).map(year => (
+                <MenuItem value=""><em>-- เลือกปี --</em></MenuItem>
+                {actualYears.map(year => (
                   <MenuItem key={year} value={year}>{year}</MenuItem>
                 ))}
               </Select>

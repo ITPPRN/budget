@@ -166,6 +166,7 @@ type BudgetRepository interface {
 	InsertBudgetStructures(entities []BudgetStructureEntity) error
 	DeleteAllBudgetStructures() error
 	CheckExactGLMapping(entity, entityGL, consoGL, accountName string) (bool, error)
+	GetActualYears() ([]string, error)
 }
 
 type BudgetService interface {
@@ -208,6 +209,7 @@ type BudgetService interface {
 	GetDashboardSummary(filter map[string]interface{}) (*DashboardSummaryDTO, error)
 	GetActualTransactions(filter map[string]interface{}) (*PaginatedActualTransactionDTO, error)
 	GetRawDate() (string, error)
+	GetActualYears() ([]string, error)
 }
 
 // --- Capex ---

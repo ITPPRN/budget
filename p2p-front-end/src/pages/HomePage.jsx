@@ -118,12 +118,19 @@ const HomePageContent = () => {
 
     setLoading(true);
     try {
+      // Get the synced Actuals configuration from localStorage
+      const syncConfig = JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}');
+      const actualYear = syncConfig.actualYear || new Date().getFullYear();
+      const selectedMonths = syncConfig.selectedMonths || [];
+
       const payload = {
         entities: selectedEntity ? [selectedEntity] : [],
         branches: selectedBranch ? [selectedBranch] : [],
         departments: contextDept ? [contextDept] : [], // Level 1: Master
         nav_codes: isChartFocus && focusNavCode ? [focusNavCode] : [], // Level 2: Sub-Dept (NavCode)
         budget_gls: Array.from(selectedLeaves).map(id => id.split('|')[0]).filter(code => code !== ""),
+        year: String(actualYear),
+        months: selectedMonths,
         page: page + 1,
         limit: rowsPerPage,
         sort_by: orderBy,
