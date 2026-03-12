@@ -238,15 +238,30 @@ const HomePageContent = () => {
     console.log("Clicked:", deptName);
 
     if (!selectedDepartment) {
-      // Level 1: Drill Down to Master -> Sub List
+      // 1. Root Level (Top Spenders) -> Drill Down
       setSelectedDepartment(deptName);
       setPage(0);
     } else {
-      // Level 2: Select Sub-Item for Graph
-      if (selectedSubDept === deptName) {
-        setSelectedSubDept(''); // Deselect (Revert to Master Aggregation)
+      // 2. Currently inside a drill-down view
+      if (selectedDepartment === "None") {
+        // Special logic for "None": 
+        if (selectedSubDept === deptName) {
+          // Click same sub-item again -> CLEAR and JUMP BACK to root table
+          setSelectedSubDept('');
+          setSelectedDepartment(''); 
+          setPage(0);
+        } else {
+          // Click first time or click different sub-item -> Select it for graph but STAY in view
+          setSelectedSubDept(deptName);
+        }
+      } else if (selectedDepartment === deptName) {
+        // Toggle logic for normal departments: clicking the same row again returns to root list
+        setSelectedDepartment('');
+        setSelectedSubDept('');
+        setPage(0);
       } else {
-        setSelectedSubDept(deptName);
+        // Toggle highlight for sub-items (if any)
+        setSelectedSubDept(prev => prev === deptName ? '' : deptName);
       }
     }
   };

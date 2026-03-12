@@ -41,7 +41,7 @@ const DepartmentTable = ({ data, count, page, rowsPerPage, onPageChange, onRowsP
         <Paper sx={{ p: 2, height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    {selectedDept && (
+                    {selectedDept === 'None' && (
                         <IconButton size="small" onClick={onBack} sx={{ bgcolor: '#f5f5f5' }}>
                             <ArrowBackIcon fontSize="small" />
                         </IconButton>
