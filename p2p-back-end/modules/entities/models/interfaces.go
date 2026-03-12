@@ -105,115 +105,31 @@ type ConsumerService interface {
 	ProcessPositionChange(body []byte) error
 }
 
-// --- Budget ---
+// --- Clean Architecture Domains (Budgets) ---
 
-type BudgetRepository interface {
-	WithTrx(trxHandle func(repo BudgetRepository) error) error
+// 1. PL Budget Domain
+type PLBudgetRepository interface {
+	WithTrx(trxHandle func(repo PLBudgetRepository) error) error
 	CreateFileBudget(file *FileBudgetEntity) error
-	CreateFileCapexBudget(file *FileCapexBudgetEntity) error
-	CreateFileCapexActual(file *FileCapexActualEntity) error
 	CreateBudgetFacts(facts []BudgetFactEntity) error
-	CreateCapexBudgetFacts(facts []CapexBudgetFactEntity) error
-	CreateCapexActualFacts(facts []CapexActualFactEntity) error
-	CreateActualFacts(facts []ActualFactEntity) error
 	ListFileBudgets() ([]FileBudgetEntity, error)
-	ListFileCapexBudgets() ([]FileCapexBudgetEntity, error)
-	ListFileCapexActuals() ([]FileCapexActualEntity, error)
 	GetFileBudget(id string) (*FileBudgetEntity, error)
-	GetFileCapexBudget(id string) (*FileCapexBudgetEntity, error)
-	GetFileCapexActual(id string) (*FileCapexActualEntity, error)
-	GetBudgetFilterOptions() ([]BudgetFactEntity, error)
-	GetOrganizationStructure() ([]BudgetFactEntity, error)
-	GetBudgetDetails(filter map[string]interface{}) ([]BudgetDetailDTO, error)
-	GetActualDetails(filter map[string]interface{}) ([]ActualFactEntity, error)
-	GetActualTransactions(filter map[string]interface{}) (*PaginatedActualTransactionDTO, error)
-	GetDashboardAggregates(filter map[string]interface{}) (*DashboardSummaryDTO, error)
 	DeleteFileBudget(id string) error
-	DeleteFileCapexBudget(id string) error
-	DeleteFileCapexActual(id string) error
 	DeleteAllBudgetFacts() error
-	DeleteAllCapexBudgetFacts() error
-	DeleteAllCapexActualFacts() error
-	DeleteAllActualFacts() error
 	DeleteBudgetFactsByFileID(fileID string) error
-	DeleteCapexBudgetFactsByFileID(fileID string) error
-	DeleteCapexActualFactsByFileID(fileID string) error
-	DeleteActualFactsByYear(year string) error
-	DeleteAllActualTransactions() error
-	DeleteActualTransactionsByYear(year string) error
-	GetAllAchHmwGle() ([]AchHmwGleEntity, error)
-	GetAggregatedHMW(year string, months []string) ([]ActualAggregatedDTO, error)
-	GetRawTransactionsHMW(year string, months []string) ([]ActualTransactionDTO, error)
-	GetAllClikGle() ([]ClikGleEntity, error)
-	GetAggregatedCLIK(year string, months []string) ([]ActualAggregatedDTO, error)
-	GetRawTransactionsCLIK(year string, months []string) ([]ActualTransactionDTO, error)
-	CreateActualTransactions(txs []ActualTransactionEntity) error
-	GetRawDate() (string, error)
 	UpdateFileBudget(id string, filename string) error
-	UpdateFileCapexBudget(id string, filename string) error
-	UpdateFileCapexActual(id string, filename string) error
-	ListGLMappings() ([]GlMappingEntity, error)
-	GetGLMappingByID(id string) (*GlMappingEntity, error)
-	CreateGLMapping(m *GlMappingEntity) error
-	UpdateGLMapping(m *GlMappingEntity) error
-	DeleteGLMapping(id string) error
-	GetGLInfo(entity string, entityGL string, target *GlMappingEntity) error
-	GetBudgetStructure() ([]BudgetStructureEntity, error)
-	GetBudgetStructureByID(id uint) (*BudgetStructureEntity, error)
-	CreateBudgetStructure(entity *BudgetStructureEntity) error
-	UpdateBudgetStructure(entity *BudgetStructureEntity) error
-	DeleteBudgetStructure(id uint) error
-	InsertBudgetStructures(entities []BudgetStructureEntity) error
-	DeleteAllBudgetStructures() error
-	CheckExactGLMapping(entity, entityGL, consoGL, accountName string) (bool, error)
-	GetActualYears() ([]string, error)
 }
 
-type BudgetService interface {
+type PLBudgetService interface {
 	ImportBudget(file *multipart.FileHeader, userID string, versionName string) error
-	ImportCapexBudget(file *multipart.FileHeader, userID string, versionName string) error
-	ImportCapexActual(file *multipart.FileHeader, userID string, versionName string) error
 	SyncBudget(id string) error
-	SyncCapexBudget(id string) error
-	SyncCapexActual(id string) error
 	ClearBudget() error
-	ClearCapexBudget() error
-	ClearCapexActual() error
-	GetFilterOptions() ([]FilterOptionDTO, error)
-	GetOrganizationStructure() ([]OrganizationDTO, error)
-	GetBudgetDetails(filter map[string]interface{}) ([]BudgetDetailDTO, error)
-	GetActualDetails(filter map[string]interface{}) ([]ActualFactEntity, error)
 	ListBudgetFiles() ([]FileBudgetEntity, error)
-	ListCapexBudgetFiles() ([]FileCapexBudgetEntity, error)
-	ListCapexActualFiles() ([]FileCapexActualEntity, error)
 	DeleteBudgetFile(id string) error
-	DeleteCapexBudgetFile(id string) error
-	DeleteCapexActualFile(id string) error
 	RenameBudgetFile(id string, newName string) error
-	RenameCapexBudgetFile(id string, newName string) error
-	RenameCapexActualFile(id string, newName string) error
-	ListGLMappings() ([]GlMappingEntity, error)
-	GetGLMappingByID(id string) (*GlMappingEntity, error)
-	CreateGLMapping(m *GlMappingEntity) error
-	UpdateGLMapping(m *GlMappingEntity) error
-	DeleteGLMapping(id string) error
-	ImportGLMapping(file *multipart.FileHeader) error
-	GetBudgetStructureTree() (interface{}, error)
-	ListBudgetStructure() ([]BudgetStructureEntity, error)
-	GetBudgetStructureByID(id uint) (*BudgetStructureEntity, error)
-	CreateBudgetStructure(entity *BudgetStructureEntity) error
-	UpdateBudgetStructure(entity *BudgetStructureEntity) error
-	DeleteBudgetStructure(id uint) error
-	SyncActuals(year string, months []string) error
-	DeleteActualFacts(year string) error
-	GetDashboardSummary(filter map[string]interface{}) (*DashboardSummaryDTO, error)
-	GetActualTransactions(filter map[string]interface{}) (*PaginatedActualTransactionDTO, error)
-	GetRawDate() (string, error)
-	GetActualYears() ([]string, error)
 }
 
-// --- Capex ---
-
+// 2. Capex Domain
 type CapexRepository interface {
 	WithTrx(trxHandle func(repo CapexRepository) error) error
 	CreateFileCapexBudget(file *FileCapexBudgetEntity) error
@@ -228,6 +144,8 @@ type CapexRepository interface {
 	DeleteFileCapexActual(id string) error
 	DeleteAllCapexBudgetFacts() error
 	DeleteAllCapexActualFacts() error
+	DeleteCapexBudgetFactsByFileID(fileID string) error
+	DeleteCapexActualFactsByFileID(fileID string) error
 	UpdateFileCapexBudget(id string, filename string) error
 	UpdateFileCapexActual(id string, filename string) error
 	GetCapexDashboardAggregates(filter map[string]interface{}) (*DashboardSummaryDTO, error)
@@ -238,6 +156,8 @@ type CapexService interface {
 	ImportCapexActual(file *multipart.FileHeader, userID string, versionName string) error
 	SyncCapexBudget(id string) error
 	SyncCapexActual(id string) error
+	ClearCapexBudget() error
+	ClearCapexActual() error
 	ListCapexBudgetFiles() ([]FileCapexBudgetEntity, error)
 	ListCapexActualFiles() ([]FileCapexActualEntity, error)
 	DeleteCapexBudgetFile(id string) error
@@ -247,29 +167,117 @@ type CapexService interface {
 	GetCapexDashboardSummary(filter map[string]interface{}) (*DashboardSummaryDTO, error)
 }
 
+// 3. Actuals Domain
+type ActualRepository interface {
+	WithTrx(trxHandle func(repo ActualRepository) error) error
+	CreateActualFacts(facts []ActualFactEntity) error
+	DeleteAllActualFacts() error
+	DeleteActualFactsByYear(year string) error
+	DeleteActualFactsByMonth(year string, month string) error
+	DeleteAllActualTransactions() error
+	DeleteActualTransactionsByYear(year string) error
+	DeleteActualTransactionsByMonth(year string, month string) error
+	GetAllAchHmwGle() ([]AchHmwGleEntity, error)
+	GetAggregatedHMW(year string, months []string) ([]ActualAggregatedDTO, error)
+	GetRawTransactionsHMW(year string, months []string) ([]ActualTransactionDTO, error)
+	GetAllClikGle() ([]ClikGleEntity, error)
+	GetAggregatedCLIK(year string, months []string) ([]ActualAggregatedDTO, error)
+	GetRawTransactionsCLIK(year string, months []string) ([]ActualTransactionDTO, error)
+	CreateActualTransactions(txs []ActualTransactionEntity) error
+	GetRawDate() (string, error)
+}
+
+type ActualService interface {
+	SyncActuals(year string, months []string) error
+	DeleteActualFacts(year string) error
+	GetRawDate() (string, error)
+}
+
+// 4. Master Data Domain
+type MasterDataRepository interface {
+	WithTrx(trxHandle func(repo MasterDataRepository) error) error
+	ListGLMappings() ([]GlMappingEntity, error)
+	GetGLMappingByID(id string) (*GlMappingEntity, error)
+	CreateGLMapping(m *GlMappingEntity) error
+	UpdateGLMapping(m *GlMappingEntity) error
+	DeleteGLMapping(id string) error
+	GetGLInfo(entity string, entityGL string, target *GlMappingEntity) error
+	CheckExactGLMapping(entity, entityGL, consoGL, accountName string) (bool, error)
+
+	GetBudgetStructure() ([]BudgetStructureEntity, error)
+	GetBudgetStructureByID(id uint) (*BudgetStructureEntity, error)
+	CreateBudgetStructure(entity *BudgetStructureEntity) error
+	UpdateBudgetStructure(entity *BudgetStructureEntity) error
+	DeleteBudgetStructure(id uint) error
+	InsertBudgetStructures(entities []BudgetStructureEntity) error
+	DeleteAllBudgetStructures() error
+
+	// User Config
+	GetUserConfigs(userID string) ([]UserConfigEntity, error)
+	UpdateUserConfig(config *UserConfigEntity) error
+}
+
+type MasterDataService interface {
+	ListGLMappings() ([]GlMappingEntity, error)
+	GetGLMappingByID(id string) (*GlMappingEntity, error)
+	CreateGLMapping(m *GlMappingEntity) error
+	UpdateGLMapping(m *GlMappingEntity) error
+	DeleteGLMapping(id string) error
+	ImportGLMapping(file *multipart.FileHeader) error
+
+	GetBudgetStructureTree() (interface{}, error)
+	ListBudgetStructure() ([]BudgetStructureEntity, error)
+	GetBudgetStructureByID(id uint) (*BudgetStructureEntity, error)
+	CreateBudgetStructure(entity *BudgetStructureEntity) error
+	UpdateBudgetStructure(entity *BudgetStructureEntity) error
+	DeleteBudgetStructure(id uint) error
+
+	// User Config
+	GetUserConfigs(userID string) (map[string]string, error)
+	SetUserConfig(userID string, key string, value string) error
+}
+
+// 5. Dashboard Domain
+type DashboardRepository interface {
+	GetBudgetFilterOptions() ([]BudgetFactEntity, error)
+	GetOrganizationStructure() ([]BudgetFactEntity, error)
+	GetBudgetDetails(filter map[string]interface{}) ([]BudgetDetailDTO, error)
+	GetActualDetails(filter map[string]interface{}) ([]ActualFactEntity, error)
+	GetActualTransactions(filter map[string]interface{}) (*PaginatedActualTransactionDTO, error)
+	GetDashboardAggregates(filter map[string]interface{}) (*DashboardSummaryDTO, error)
+	GetActualYears() ([]string, error)
+}
+
+type DashboardService interface {
+	GetFilterOptions() ([]FilterOptionDTO, error)
+	GetRawFilterOptions() ([]BudgetFactEntity, error)
+	GetOrganizationStructure() ([]OrganizationDTO, error)
+	GetBudgetDetails(filter map[string]interface{}) ([]BudgetDetailDTO, error)
+	GetActualDetails(filter map[string]interface{}) ([]ActualFactEntity, error)
+	GetDashboardSummary(filter map[string]interface{}) (*DashboardSummaryDTO, error)
+	GetActualTransactions(filter map[string]interface{}) (*PaginatedActualTransactionDTO, error)
+	GetActualYears() ([]string, error)
+}
+
 // --- Owner ---
+
+type OwnerRepository interface {
+	GetBudgetFilterOptions() ([]BudgetFactEntity, error)
+	GetOrganizationStructure() ([]BudgetFactEntity, error)
+	GetDashboardAggregates(filter map[string]interface{}) (*DashboardSummaryDTO, error)
+	GetActualTransactions(filter map[string]interface{}) (*PaginatedActualTransactionDTO, error)
+	GetActualDetails(filter map[string]interface{}) ([]ActualFactEntity, error)
+	GetBudgetDetails(filter map[string]interface{}) ([]BudgetFactEntity, error)
+}
 
 type OwnerService interface {
 	GetDashboardSummary(user *UserInfo, filter map[string]interface{}) (*OwnerDashboardSummaryDTO, error)
 	GetActualTransactions(user *UserInfo, filter map[string]interface{}) (*PaginatedActualTransactionDTO, error)
 	GetActualDetails(user *UserInfo, filter map[string]interface{}) ([]ActualFactEntity, error)
 	GetBudgetDetails(user *UserInfo, filter map[string]interface{}) ([]BudgetFactEntity, error)
-	GetFilterOptions(user *UserInfo) ([]FilterOptionDTO, error)
+	GetFilterOptions(user *UserInfo) (interface{}, error)
 	GetOrganizationStructure(user *UserInfo) ([]OrganizationDTO, error)
 	GetOwnerFilterLists(user *UserInfo) (*OwnerFilterListsDTO, error)
-}
-
-type OwnerRepository interface {
-	GetUserContext(userID string) (*UserEntity, error)
-	CreateUser(user *UserEntity) error
-	GetDashboardAggregates(filter map[string]interface{}) (*OwnerDashboardSummaryDTO, error)
-	GetBudgetDetails(filter map[string]interface{}) ([]BudgetFactEntity, error)
-	GetActualDetails(filter map[string]interface{}) ([]ActualFactEntity, error)
-	GetActualTransactions(filter map[string]interface{}) (*PaginatedActualTransactionDTO, error)
-	GetBudgetFilterOptions(filter map[string]interface{}) ([]BudgetFactEntity, error)
-	GetOwnerFilterLists(filter map[string]interface{}) (*OwnerFilterListsDTO, error)
-	GetUserPermissions(userID string) ([]UserPermissionEntity, error)
-	GetNavCodesByMasterDepts(masterCodes []string) ([]string, error)
 }
 
 // --- Organization ---

@@ -111,17 +111,24 @@ func (s *server) Handlers() error {
 	deptRepo := _deptRe.NewDepartmentRepositoryDB(s.Db)
 	s.DeptSrv = _deptSer.NewDepartmentService(deptRepo)
 
-	// Owner Module
-	ownerRepo := _ownerRe.NewOwnerRepositoryDB(s.Db)
-	s.OwnerSrv = _ownerSer.NewOwnerService(ownerRepo)
-
 	// Auth Module
 	userRepo := _authRe.NewUserRepositoryDB(s.Db)
 	s.AuthSrv = _authSer.NewAuthService(s.Keycloak, s.Cfg, userRepo, s.Redis)
 
-	// Budget Module
-	budgetRepo := _budgetRe.NewBudgetRepositoryDB(s.Db)
-	s.BudgetSrv = _budgetSer.NewBudgetService(budgetRepo, s.DeptSrv)
+	// Budget Module Domains
+	plRepo := _budgetRe.NewPLBudgetRepository(s.Db)
+	actualRepo := _budgetRe.NewActualRepository(s.Db)
+	masterDataRepo := _budgetRe.NewMasterDataRepository(s.Db)
+	dashRepo := _budgetRe.NewDashboardRepository(s.Db)
+
+	s.PLBudgetSrv = _budgetSer.NewPLBudgetService(plRepo, s.DeptSrv)
+	s.MasterDataSrv = _budgetSer.NewMasterDataService(masterDataRepo)
+	s.DashboardSrv = _budgetSer.NewDashboardService(dashRepo, s.DeptSrv)
+	s.ActualSrv = _budgetSer.NewActualService(actualRepo, s.MasterDataSrv, s.DashboardSrv, s.DeptSrv)
+
+	// Owner Module
+	ownerRepo := _ownerRe.NewOwnerRepository(s.Db)
+	s.OwnerSrv = _ownerSer.NewOwnerService(ownerRepo, s.DashboardSrv, s.AuthSrv, s.CapexSrv)
 
 	// Capex Module
 	capexRepo := _capexRe.NewCapexRepositoryDB(s.Db)
@@ -156,11 +163,16 @@ func (s *server) Handlers() error {
 
 	// --- Controller Registration ---
 	_authCon.NewUserController(v1.Group("/auth"), s.AuthSrv, s.DeptSrv)
-	_budgetCon.NewBudgetController(v1.Group("/budgets"), s.BudgetSrv)
+
+	budgetGroup := v1.Group("/budgets")
+	budgetGroup.Use(middlewares.JwtAuthentication(s.AuthSrv, nil))
+	_budgetCon.NewBudgetController(budgetGroup, s.PLBudgetSrv, s.CapexSrv, s.ActualSrv, s.MasterDataSrv, s.DashboardSrv)
+
 	_capexCon.NewCapexController(v1, s.CapexSrv)
 
+
 	ownerGroup := v1.Group("/owner")
-	ownerGroup.Use(middlewares.JwtAuthentication(nil))
+	ownerGroup.Use(middlewares.JwtAuthentication(s.AuthSrv, nil))
 	_ownerCon.NewOwnerController(ownerGroup, s.OwnerSrv)
 
 	s.App.Use(func(c *fiber.Ctx) error {

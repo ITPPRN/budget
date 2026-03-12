@@ -67,6 +67,9 @@ func NewPostgresConnection(cfg *configs.Config) (*gorm.DB, error) {
 		// Budget Structure Hierarchy
 		&models.BudgetStructureEntity{},
 
+		// User Configuration (Personalized)
+		&models.UserConfigEntity{},
+
 		// Centralized Transaction Table
 		&models.ActualTransactionEntity{},
 		&models.GeneralLedgerEntriesClik{},

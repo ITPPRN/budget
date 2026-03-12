@@ -468,3 +468,16 @@ type ActualTransactionEntity struct {
 }
 
 func (ActualTransactionEntity) TableName() string { return "actual_transaction_entities" }
+
+// UserConfigEntity stores personal settings (e.g., active budget files) per user
+type UserConfigEntity struct {
+	ID        uuid.UUID `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
+	UserID    string    `gorm:"index:idx_user_config_user_key;not null" json:"user_id"`
+	ConfigKey string    `gorm:"index:idx_user_config_user_key;not null" json:"config_key"`
+	Value     string    `json:"value"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func (UserConfigEntity) TableName() string { return "user_config_entities" }
+
+

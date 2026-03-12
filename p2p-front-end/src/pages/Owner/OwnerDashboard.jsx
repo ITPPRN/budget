@@ -226,34 +226,52 @@ const OwnerDashboard = () => {
                 entities: selectedCompany && selectedCompany !== 'All' ? [selectedCompany] : [],
                 branches: selectedBranch && selectedBranch !== 'All' ? [selectedBranch] : [],
                 departments: selectedDept && selectedDept !== 'All' ? [selectedDept] : [],
-                conso_gls: targetGls // Pass to backend
+                conso_gls: targetGls, // Pass to backend
+                budget_file_id: JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}').selectedBudget,
+                capex_file_id: JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}').selectedCapexBg,
+                capex_actual_file_id: JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}').selectedCapexActual
             };
 
+            const res = await api.post('/owner/dashboard-summary', payload);
+            console.log("OwnerDashboard: API Response Status:", res.status);
+            console.log("OwnerDashboard: Raw API Response Body:", res.data);
 
+            const result = res.data.data || res.data;
+            console.log("OwnerDashboard: Extracted Result:", result);
 
-            const { data } = await api.post('/owner/dashboard-summary', payload);
+            if (result) {
+                setSummary(prev => ({
+                    ...prev,
+                    totalBudget: result.total_budget || 0,
+                    totalActual: result.total_actual || 0,
+                    capexBudget: result.capex_budget || 0,
+                    capexActual: result.capex_actual || 0,
+                    topExpenses: (result.top_expenses || []).map(item => ({
+                        name: item.name,
+                        value: Number(item.amount) || 0
+                    })),
+                    chartData: (result.chart_data || []).map(item => ({
+                        name: item.month,
+                        budget: item.budget,
+                        actual: item.actual
+                    })),
+                    overBudgetCount: result.over_budget_count || 0,
+                    nearLimitCount: result.near_limit_count || 0
+                }));
 
-            setSummary({
-                totalBudget: data.total_budget || 0,
-                totalActual: data.total_actual || 0,
-                capexBudget: data.capex_budget || 0,
-                capexActual: data.capex_actual || 0,
-                chartData: (data.chart_data || []).map(item => ({
-                    name: item.month,
-                    budget: item.budget,
-                    actual: item.actual
-                })),
-                topExpenses: (data.top_expenses || []).map(item => ({
-                    name: item.name,
-                    value: Number(item.amount) || 0
-                })),
-                overBudgetCount: data.over_budget_count || 0,
-                nearLimitCount: data.near_limit_count || 0
-            });
-
+                // Also update the local state if used for table/others
+                if (result.department_data) {
+                    setDepartmentData(result.department_data.map(d => ({
+                        name: d.department,
+                        budget: d.budget,
+                        spending: d.actual,
+                        deptRaw: d.department
+                    })));
+                    setTotalCount(result.total_count || 0);
+                }
+            }
         } catch (err) {
             console.error("Owner Dashboard Fetch Error", err);
-            // toast.error("Failed to load dashboard data"); 
         } finally {
             setDataLoading(false);
         }
@@ -288,13 +306,20 @@ const OwnerDashboard = () => {
 
                 setAccountFilters(accountRes.data || []);
 
-                // Smart Default logic
+                // Smart Default logic (Check localStorage first)
                 if (!selectedYear && years.length > 0) {
-                    if (years.includes('All')) {
+                    const syncConfig = JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}');
+                    const configYear = syncConfig.actualYear ? String(syncConfig.actualYear) : null;
+
+                    if (configYear && years.includes(configYear)) {
+                        console.log("Setting Year from SyncConfig:", configYear);
+                        setSelectedYear(configYear);
+                    } else if (years.includes('All')) {
                         setSelectedYear('All');
                     } else {
                         const sortedYears = [...years].sort((a, b) => b.localeCompare(a));
                         const defaultYear = sortedYears[0];
+                        console.log("Setting Year from Sorted List:", defaultYear);
                         setSelectedYear(defaultYear);
                     }
                 }

@@ -86,7 +86,29 @@ const DetailContent = () => {
 
       try {
         // Get the synced Actuals configuration from localStorage
-        const syncConfig = JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}');
+        let syncConfig = JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}');
+
+        // If localStorage is empty, try fetching from Backend directly (Single Source of Truth)
+        if (!syncConfig.actualYear) {
+          try {
+            const configRes = await api.get('/budgets/configs');
+            const configs = configRes.data || {};
+            if (configs.actualYear) {
+              syncConfig = {
+                actualYear: configs.actualYear,
+                selectedMonths: JSON.parse(configs.selectedMonths || '[]'),
+                selectedBudget: configs.selectedBudget,
+                selectedCapexBg: configs.selectedCapexBg,
+                selectedCapexActual: configs.selectedCapexActual
+              };
+              // Cache it for subsequent loads
+              localStorage.setItem('dm_lastSyncedConfig', JSON.stringify(syncConfig));
+            }
+          } catch (e) {
+            console.error("Failed to fetch fallback configs in Detail", e);
+          }
+        }
+
         const actualYear = syncConfig.actualYear || new Date().getFullYear();
         const selectedMonths = syncConfig.selectedMonths || [];
 
@@ -99,6 +121,9 @@ const DetailContent = () => {
           departments: selectedDepartment ? [selectedDepartment] : [],
           year: String(actualYear),
           months: selectedMonths,
+          budget_file_id: syncConfig.selectedBudget,
+          capex_file_id: syncConfig.selectedCapexBg,
+          capex_actual_file_id: syncConfig.selectedCapexActual,
           page: actualPage,
           limit: actualRowsPerPage
         };

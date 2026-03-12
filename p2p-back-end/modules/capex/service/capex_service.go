@@ -14,6 +14,7 @@ import (
 	"gorm.io/datatypes"
 
 	"p2p-back-end/modules/entities/models"
+	"p2p-back-end/pkg/excel"
 )
 
 type capexService struct {
@@ -67,8 +68,10 @@ func getColSafe(row []string, idx int) string {
 // Import & Sync
 // ---------------------------------------------------------------------
 
+var expectedCapexHeaders = []string{"Entity", "Department", "CAPEX No.", "CAPEX Name", "CAPEX Category", "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC", "YEARTOTAL"}
+
 func (s *capexService) ImportCapexBudget(fileHeader *multipart.FileHeader, userID string, versionName string) error {
-	rows, err := parseExcelToJSON(fileHeader)
+	rows, err := excel.ParseExcelToJSONStrict(fileHeader, expectedCapexHeaders)
 	if err != nil {
 		return err
 	}
@@ -90,7 +93,7 @@ func (s *capexService) ImportCapexBudget(fileHeader *multipart.FileHeader, userI
 }
 
 func (s *capexService) ImportCapexActual(fileHeader *multipart.FileHeader, userID string, versionName string) error {
-	rows, err := parseExcelToJSON(fileHeader)
+	rows, err := excel.ParseExcelToJSONStrict(fileHeader, expectedCapexHeaders)
 	if err != nil {
 		return err
 	}
@@ -121,19 +124,34 @@ func (s *capexService) processCapexBudgetFact(rows [][]string, fileID uuid.UUID,
 		return []models.CapexBudgetFactEntity{}, nil
 	}
 
+	headerRow := rows[0]
+	colMap := make(map[string]int)
+	for i, h := range headerRow {
+		cleanHeader := strings.TrimSpace(strings.ToUpper(h))
+		colMap[cleanHeader] = i
+	}
+
+	idxEntity := colMap["ENTITY"]
+	idxDept := colMap["DEPARTMENT"]
+	idxCNo := colMap["CAPEX NO."]
+	idxCName := colMap["CAPEX NAME"]
+	idxCCat := colMap["CAPEX CATEGORY"]
+
+	monthIdxs := make([]int, 12)
+	for m := 0; m < 12; m++ {
+		monthIdxs[m] = colMap[months[m]]
+	}
+
 	for i, row := range rows {
 		if i == 0 {
-			continue
-		}
-		if len(row) < 5 {
-			continue
+			continue // Skip Header
 		}
 
-		entity := getColSafe(row, 0)
-		dept := getColSafe(row, 1)
-		cNo := getColSafe(row, 2)
-		cName := getColSafe(row, 3)
-		cCat := getColSafe(row, 4)
+		entity := getColSafe(row, idxEntity)
+		dept := getColSafe(row, idxDept)
+		cNo := getColSafe(row, idxCNo)
+		cName := getColSafe(row, idxCName)
+		cCat := getColSafe(row, idxCCat)
 
 		headerID := uuid.New()
 		header := models.CapexBudgetFactEntity{
@@ -146,7 +164,7 @@ func (s *capexService) processCapexBudgetFact(rows [][]string, fileID uuid.UUID,
 		}
 
 		for mIdx := 0; mIdx < 12; mIdx++ {
-			colIdx := 5 + mIdx
+			colIdx := monthIdxs[mIdx]
 			valStr := getColSafe(row, colIdx)
 			amount := parseDecimal(valStr)
 
@@ -168,19 +186,34 @@ func (s *capexService) processCapexActualFact(rows [][]string, fileID uuid.UUID,
 		return []models.CapexActualFactEntity{}, nil
 	}
 
+	headerRow := rows[0]
+	colMap := make(map[string]int)
+	for i, h := range headerRow {
+		cleanHeader := strings.TrimSpace(strings.ToUpper(h))
+		colMap[cleanHeader] = i
+	}
+
+	idxEntity := colMap["ENTITY"]
+	idxDept := colMap["DEPARTMENT"]
+	idxCNo := colMap["CAPEX NO."]
+	idxCName := colMap["CAPEX NAME"]
+	idxCCat := colMap["CAPEX CATEGORY"]
+
+	monthIdxs := make([]int, 12)
+	for m := 0; m < 12; m++ {
+		monthIdxs[m] = colMap[months[m]]
+	}
+
 	for i, row := range rows {
 		if i == 0 {
-			continue
-		}
-		if len(row) < 5 {
-			continue
+			continue // Skip header
 		}
 
-		entity := getColSafe(row, 0)
-		dept := getColSafe(row, 1)
-		cNo := getColSafe(row, 2)
-		cName := getColSafe(row, 3)
-		cCat := getColSafe(row, 4)
+		entity := getColSafe(row, idxEntity)
+		dept := getColSafe(row, idxDept)
+		cNo := getColSafe(row, idxCNo)
+		cName := getColSafe(row, idxCName)
+		cCat := getColSafe(row, idxCCat)
 
 		headerID := uuid.New()
 		header := models.CapexActualFactEntity{
@@ -193,7 +226,7 @@ func (s *capexService) processCapexActualFact(rows [][]string, fileID uuid.UUID,
 		}
 
 		for mIdx := 0; mIdx < 12; mIdx++ {
-			colIdx := 5 + mIdx
+			colIdx := monthIdxs[mIdx]
 			valStr := getColSafe(row, colIdx)
 			amount := parseDecimal(valStr)
 
@@ -304,6 +337,22 @@ func (s *capexService) RenameCapexActualFile(id string, newName string) error {
 
 func (s *capexService) GetCapexDashboardSummary(filter map[string]interface{}) (*models.DashboardSummaryDTO, error) {
 	return s.repo.GetCapexDashboardAggregates(filter)
+}
+
+// ---------------------------------------------------------------------
+// Clear Data (Sync Empty)
+// ---------------------------------------------------------------------
+
+func (s *capexService) ClearCapexBudget() error {
+	return s.repo.WithTrx(func(trxRepo models.CapexRepository) error {
+		return trxRepo.DeleteAllCapexBudgetFacts()
+	})
+}
+
+func (s *capexService) ClearCapexActual() error {
+	return s.repo.WithTrx(func(trxRepo models.CapexRepository) error {
+		return trxRepo.DeleteAllCapexActualFacts()
+	})
 }
 
 // ---------------------------------------------------------------------

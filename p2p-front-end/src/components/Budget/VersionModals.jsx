@@ -143,7 +143,8 @@ export const BudgetVersionModal = ({ open, onClose, items, onRefresh, activeId }
             setFileToUpload(null);
             onRefresh();
         } catch (error) {
-            toast.error("อัปโหลดล้มเหลว คอลัมน์หรือไฟล์ไม่ถูกต้อง");
+            const errorMsg = error.response?.data?.error || "อัปโหลดล้มเหลว คอลัมน์หรือไฟล์ไม่ถูกต้อง";
+            toast.error(errorMsg);
         } finally { setIsUploading(false); }
     };
 
@@ -282,7 +283,8 @@ export const CapexPlanModal = ({ open, onClose, items, onRefresh, activeId }) =>
             setFileToUpload(null);
             onRefresh();
         } catch (error) {
-            toast.error("อัปโหลดล้มเหลว คอลัมน์หรือไฟล์ไม่ถูกต้อง");
+            const errorMsg = error.response?.data?.error || "อัปโหลดล้มเหลว คอลัมน์หรือไฟล์ไม่ถูกต้อง";
+            toast.error(errorMsg);
         } finally { setIsUploading(false); }
     };
 
@@ -421,7 +423,8 @@ export const CapexActualModal = ({ open, onClose, items, onRefresh, activeId }) 
             setFileToUpload(null);
             onRefresh();
         } catch (error) {
-            toast.error("อัปโหลดล้มเหลว คอลัมน์หรือไฟล์ไม่ถูกต้อง");
+            const errorMsg = error.response?.data?.error || "อัปโหลดล้มเหลว คอลัมน์หรือไฟล์ไม่ถูกต้อง";
+            toast.error(errorMsg);
         } finally { setIsUploading(false); }
     };
 

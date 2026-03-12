@@ -115,6 +115,14 @@ func (r *capexRepositoryDB) DeleteFileCapexActual(id string) error {
 	return r.db.Delete(&models.FileCapexActualEntity{}, "id = ?", id).Error
 }
 
+func (r *capexRepositoryDB) DeleteCapexBudgetFactsByFileID(fileID string) error {
+	return r.db.Where("file_capex_budget_id = ?", fileID).Delete(&models.CapexBudgetFactEntity{}).Error
+}
+
+func (r *capexRepositoryDB) DeleteCapexActualFactsByFileID(fileID string) error {
+	return r.db.Where("file_capex_actual_id = ?", fileID).Delete(&models.CapexActualFactEntity{}).Error
+}
+
 // ---------------------------------------------------------
 // Delete Facts
 // ---------------------------------------------------------

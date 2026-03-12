@@ -25,13 +25,16 @@ type server struct {
 	MqChannel *amqp.Channel
 
 	// Services
-	AuthSrv     models.AuthService
-	MasterSrv   models.MasterService
-	BudgetSrv   models.BudgetService
-	CapexSrv    models.CapexService
-	DeptSrv     models.DepartmentService
-	ProducerSrv models.ProducerService
-	OwnerSrv    models.OwnerService
+	AuthSrv       models.AuthService
+	MasterSrv     models.MasterService
+	PLBudgetSrv   models.PLBudgetService
+	ActualSrv     models.ActualService
+	MasterDataSrv models.MasterDataService
+	DashboardSrv  models.DashboardService
+	CapexSrv      models.CapexService
+	DeptSrv       models.DepartmentService
+	ProducerSrv   models.ProducerService
+	OwnerSrv      models.OwnerService
 }
 
 func NewServer(

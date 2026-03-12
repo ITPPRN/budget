@@ -9,11 +9,22 @@ import (
 )
 
 type budgetController struct {
-	budgetSrv models.BudgetService
+	plSrv     models.PLBudgetService
+	capexSrv  models.CapexService
+	actualSrv models.ActualService
+	masterSrv models.MasterDataService
+	dashSrv   models.DashboardService
 }
 
-func NewBudgetController(router fiber.Router, budgetSrv models.BudgetService) {
-	controller := &budgetController{budgetSrv: budgetSrv}
+func NewBudgetController(
+	router fiber.Router,
+	plSrv models.PLBudgetService,
+	capexSrv models.CapexService,
+	actualSrv models.ActualService,
+	masterSrv models.MasterDataService,
+	dashSrv models.DashboardService,
+) {
+	controller := &budgetController{plSrv: plSrv, capexSrv: capexSrv, actualSrv: actualSrv, masterSrv: masterSrv, dashSrv: dashSrv}
 	router.Post("/import-budget", controller.importBudget)
 	router.Post("/import-capex-budget", controller.importCapexBudget)
 	router.Post("/import-capex-actual", controller.importCapexActual)
@@ -72,10 +83,14 @@ func NewBudgetController(router fiber.Router, budgetSrv models.BudgetService) {
 	router.Post("/budget-structure", controller.createBudgetStructure)
 	router.Put("/budget-structure/:id", controller.updateBudgetStructure)
 	router.Delete("/budget-structure/:id", controller.deleteBudgetStructure)
+
+	// User Config APIs
+	router.Get("/configs", controller.getUserConfigs)
+	router.Post("/configs/:key", controller.setUserConfig)
 }
 
 func (c *budgetController) getDebugDate(ctx *fiber.Ctx) error {
-	date, err := c.budgetSrv.GetRawDate()
+	date, err := c.actualSrv.GetRawDate()
 	if err != nil {
 		fmt.Println("DEBUG DATE ERROR:", err.Error())
 		return ctx.Status(500).SendString(err.Error())
@@ -94,7 +109,7 @@ func (c *budgetController) getActualTransactions(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
 
-	details, err := c.budgetSrv.GetActualTransactions(req)
+	details, err := c.dashSrv.GetActualTransactions(req)
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -107,7 +122,7 @@ func (c *budgetController) getDashboardSummary(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
 
-	summary, err := c.budgetSrv.GetDashboardSummary(req)
+	summary, err := c.dashSrv.GetDashboardSummary(req)
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -115,7 +130,7 @@ func (c *budgetController) getDashboardSummary(ctx *fiber.Ctx) error {
 }
 
 func (c *budgetController) getActualYears(ctx *fiber.Ctx) error {
-	years, err := c.budgetSrv.GetActualYears()
+	years, err := c.dashSrv.GetActualYears()
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -123,7 +138,7 @@ func (c *budgetController) getActualYears(ctx *fiber.Ctx) error {
 }
 
 func (c *budgetController) getFilterOptions(ctx *fiber.Ctx) error {
-	options, err := c.budgetSrv.GetFilterOptions()
+	options, err := c.dashSrv.GetFilterOptions()
 	if err != nil {
 		fmt.Printf("[Error] getFilterOptions failed: %v\n", err)
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
@@ -132,7 +147,7 @@ func (c *budgetController) getFilterOptions(ctx *fiber.Ctx) error {
 }
 
 func (c *budgetController) getOrganizationStructure(ctx *fiber.Ctx) error {
-	structure, err := c.budgetSrv.GetOrganizationStructure()
+	structure, err := c.dashSrv.GetOrganizationStructure()
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -145,7 +160,7 @@ func (c *budgetController) getBudgetDetails(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
 
-	details, err := c.budgetSrv.GetBudgetDetails(req)
+	details, err := c.dashSrv.GetBudgetDetails(req)
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -158,7 +173,7 @@ func (c *budgetController) getActualDetails(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
 
-	details, err := c.budgetSrv.GetActualDetails(req)
+	details, err := c.dashSrv.GetActualDetails(req)
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -166,13 +181,18 @@ func (c *budgetController) getActualDetails(ctx *fiber.Ctx) error {
 }
 
 func (c *budgetController) importBudget(ctx *fiber.Ctx) error {
+	userID, ok := ctx.Locals("userID").(string)
+	if !ok || userID == "" {
+		return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Unauthorized: User ID not found in context"})
+	}
+
 	fileHeader, err := ctx.FormFile("file")
 	if err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Missing file"})
 	}
 	versionName := ctx.FormValue("version_name")
 
-	if err := c.budgetSrv.ImportBudget(fileHeader, "system", versionName); err != nil {
+	if err := c.plSrv.ImportBudget(fileHeader, userID, versionName); err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
@@ -181,7 +201,7 @@ func (c *budgetController) importBudget(ctx *fiber.Ctx) error {
 
 func (c *budgetController) syncBudget(ctx *fiber.Ctx) error {
 	id := ctx.Params("id")
-	if err := c.budgetSrv.SyncBudget(id); err != nil {
+	if err := c.plSrv.SyncBudget(id); err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return ctx.JSON(fiber.Map{"status": "synced", "message": "Data synced successfully"})
@@ -200,20 +220,25 @@ func (c *budgetController) syncActuals(ctx *fiber.Ctx) error {
 		req.Year = fmt.Sprintf("%d", time.Now().Year())
 	}
 
-	if err := c.budgetSrv.SyncActuals(req.Year, req.Months); err != nil {
+	if err := c.actualSrv.SyncActuals(req.Year, req.Months); err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return ctx.JSON(fiber.Map{"status": "synced", "message": fmt.Sprintf("Actuals for %s synced successfully from Database", req.Year)})
 }
 
 func (c *budgetController) importCapexBudget(ctx *fiber.Ctx) error {
+	userID, ok := ctx.Locals("userID").(string)
+	if !ok || userID == "" {
+		return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Unauthorized: User ID not found in context"})
+	}
+
 	fileHeader, err := ctx.FormFile("file")
 	if err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Missing file"})
 	}
 	versionName := ctx.FormValue("version_name")
 
-	if err := c.budgetSrv.ImportCapexBudget(fileHeader, "system", versionName); err != nil {
+	if err := c.capexSrv.ImportCapexBudget(fileHeader, userID, versionName); err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return ctx.JSON(fiber.Map{"status": "uploaded", "message": "File uploaded successfully. Please Sync to apply data."})
@@ -221,20 +246,25 @@ func (c *budgetController) importCapexBudget(ctx *fiber.Ctx) error {
 
 func (c *budgetController) syncCapexBudget(ctx *fiber.Ctx) error {
 	id := ctx.Params("id")
-	if err := c.budgetSrv.SyncCapexBudget(id); err != nil {
+	if err := c.capexSrv.SyncCapexBudget(id); err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return ctx.JSON(fiber.Map{"status": "synced", "message": "Data synced successfully"})
 }
 
 func (c *budgetController) importCapexActual(ctx *fiber.Ctx) error {
+	userID, ok := ctx.Locals("userID").(string)
+	if !ok || userID == "" {
+		return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Unauthorized: User ID not found in context"})
+	}
+
 	fileHeader, err := ctx.FormFile("file")
 	if err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Missing file"})
 	}
 	versionName := ctx.FormValue("version_name")
 
-	if err := c.budgetSrv.ImportCapexActual(fileHeader, "system", versionName); err != nil {
+	if err := c.capexSrv.ImportCapexActual(fileHeader, userID, versionName); err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return ctx.JSON(fiber.Map{"status": "uploaded", "message": "File uploaded successfully. Please Sync to apply data."})
@@ -242,7 +272,7 @@ func (c *budgetController) importCapexActual(ctx *fiber.Ctx) error {
 
 func (c *budgetController) syncCapexActual(ctx *fiber.Ctx) error {
 	id := ctx.Params("id")
-	if err := c.budgetSrv.SyncCapexActual(id); err != nil {
+	if err := c.capexSrv.SyncCapexActual(id); err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return ctx.JSON(fiber.Map{"status": "synced", "message": "Data synced successfully"})
@@ -253,21 +283,21 @@ func (c *budgetController) syncCapexActual(ctx *fiber.Ctx) error {
 // ---------------------------------------------------------------------
 
 func (c *budgetController) clearBudget(ctx *fiber.Ctx) error {
-	if err := c.budgetSrv.ClearBudget(); err != nil {
+	if err := c.plSrv.ClearBudget(); err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return ctx.JSON(fiber.Map{"status": "cleared", "message": "Budget data cleared successfully"})
 }
 
 func (c *budgetController) clearCapexBudget(ctx *fiber.Ctx) error {
-	if err := c.budgetSrv.ClearCapexBudget(); err != nil {
+	if err := c.capexSrv.ClearCapexBudget(); err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return ctx.JSON(fiber.Map{"status": "cleared", "message": "Capex Budget data cleared successfully"})
 }
 
 func (c *budgetController) clearCapexActual(ctx *fiber.Ctx) error {
-	if err := c.budgetSrv.ClearCapexActual(); err != nil {
+	if err := c.capexSrv.ClearCapexActual(); err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return ctx.JSON(fiber.Map{"status": "cleared", "message": "Capex Actual data cleared successfully"})
@@ -279,21 +309,21 @@ func (c *budgetController) clearCapexActual(ctx *fiber.Ctx) error {
 
 func (c *budgetController) deleteBudgetFile(ctx *fiber.Ctx) error {
 	id := ctx.Params("id")
-	if err := c.budgetSrv.DeleteBudgetFile(id); err != nil {
+	if err := c.plSrv.DeleteBudgetFile(id); err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return ctx.JSON(fiber.Map{"status": "success"})
 }
 func (c *budgetController) deleteCapexBudgetFile(ctx *fiber.Ctx) error {
 	id := ctx.Params("id")
-	if err := c.budgetSrv.DeleteCapexBudgetFile(id); err != nil {
+	if err := c.capexSrv.DeleteCapexBudgetFile(id); err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return ctx.JSON(fiber.Map{"status": "success"})
 }
 func (c *budgetController) deleteCapexActualFile(ctx *fiber.Ctx) error {
 	id := ctx.Params("id")
-	if err := c.budgetSrv.DeleteCapexActualFile(id); err != nil {
+	if err := c.capexSrv.DeleteCapexActualFile(id); err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return ctx.JSON(fiber.Map{"status": "success"})
@@ -312,7 +342,7 @@ func (c *budgetController) renameBudgetFile(ctx *fiber.Ctx) error {
 	if err := ctx.BodyParser(&req); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
-	if err := c.budgetSrv.RenameBudgetFile(id, req.NewName); err != nil {
+	if err := c.plSrv.RenameBudgetFile(id, req.NewName); err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return ctx.JSON(fiber.Map{"status": "success"})
@@ -326,7 +356,7 @@ func (c *budgetController) renameCapexBudgetFile(ctx *fiber.Ctx) error {
 	if err := ctx.BodyParser(&req); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
-	if err := c.budgetSrv.RenameCapexBudgetFile(id, req.NewName); err != nil {
+	if err := c.capexSrv.RenameCapexBudgetFile(id, req.NewName); err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return ctx.JSON(fiber.Map{"status": "success"})
@@ -340,7 +370,7 @@ func (c *budgetController) renameCapexActualFile(ctx *fiber.Ctx) error {
 	if err := ctx.BodyParser(&req); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
-	if err := c.budgetSrv.RenameCapexActualFile(id, req.NewName); err != nil {
+	if err := c.capexSrv.RenameCapexActualFile(id, req.NewName); err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return ctx.JSON(fiber.Map{"status": "success"})
@@ -351,7 +381,7 @@ func (c *budgetController) renameCapexActualFile(ctx *fiber.Ctx) error {
 // ---------------------------------------------------------------------
 
 func (c *budgetController) listBudgetFiles(ctx *fiber.Ctx) error {
-	files, err := c.budgetSrv.ListBudgetFiles()
+	files, err := c.plSrv.ListBudgetFiles()
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -359,7 +389,7 @@ func (c *budgetController) listBudgetFiles(ctx *fiber.Ctx) error {
 }
 
 func (c *budgetController) listCapexBudgetFiles(ctx *fiber.Ctx) error {
-	files, err := c.budgetSrv.ListCapexBudgetFiles()
+	files, err := c.capexSrv.ListCapexBudgetFiles()
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -367,7 +397,7 @@ func (c *budgetController) listCapexBudgetFiles(ctx *fiber.Ctx) error {
 }
 
 func (c *budgetController) listCapexActualFiles(ctx *fiber.Ctx) error {
-	files, err := c.budgetSrv.ListCapexActualFiles()
+	files, err := c.capexSrv.ListCapexActualFiles()
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -380,7 +410,7 @@ func (c *budgetController) deleteActuals(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Year is required"})
 	}
 
-	if err := c.budgetSrv.DeleteActualFacts(year); err != nil {
+	if err := c.actualSrv.DeleteActualFacts(year); err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return ctx.JSON(fiber.Map{"message": "Actuals deleted successfully", "year": year})
@@ -391,7 +421,7 @@ func (c *budgetController) deleteActuals(ctx *fiber.Ctx) error {
 // ---------------------------------------------------------------------
 
 func (c *budgetController) listGLMappings(ctx *fiber.Ctx) error {
-	mappings, err := c.budgetSrv.ListGLMappings()
+	mappings, err := c.masterSrv.ListGLMappings()
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -400,7 +430,7 @@ func (c *budgetController) listGLMappings(ctx *fiber.Ctx) error {
 
 func (c *budgetController) getGLMapping(ctx *fiber.Ctx) error {
 	id := ctx.Params("id")
-	mapping, err := c.budgetSrv.GetGLMappingByID(id)
+	mapping, err := c.masterSrv.GetGLMappingByID(id)
 	if err != nil {
 		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Mapping not found"})
 	}
@@ -412,7 +442,7 @@ func (c *budgetController) createGLMapping(ctx *fiber.Ctx) error {
 	if err := ctx.BodyParser(&body); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
-	if err := c.budgetSrv.CreateGLMapping(&body); err != nil {
+	if err := c.masterSrv.CreateGLMapping(&body); err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return ctx.JSON(body)
@@ -424,7 +454,7 @@ func (c *budgetController) updateGLMapping(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
 	// ensure ID is correct from param if needed, but assuming body has it.
-	if err := c.budgetSrv.UpdateGLMapping(&body); err != nil {
+	if err := c.masterSrv.UpdateGLMapping(&body); err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return ctx.JSON(body)
@@ -432,7 +462,7 @@ func (c *budgetController) updateGLMapping(ctx *fiber.Ctx) error {
 
 func (c *budgetController) deleteGLMapping(ctx *fiber.Ctx) error {
 	id := ctx.Params("id")
-	if err := c.budgetSrv.DeleteGLMapping(id); err != nil {
+	if err := c.masterSrv.DeleteGLMapping(id); err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return ctx.JSON(fiber.Map{"status": "success"})
@@ -444,7 +474,7 @@ func (c *budgetController) importGLMapping(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to get file"})
 	}
 
-	err = c.budgetSrv.ImportGLMapping(file)
+	err = c.masterSrv.ImportGLMapping(file)
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -453,7 +483,7 @@ func (c *budgetController) importGLMapping(ctx *fiber.Ctx) error {
 }
 
 func (c *budgetController) getBudgetStructureTree(ctx *fiber.Ctx) error {
-	tree, err := c.budgetSrv.GetBudgetStructureTree()
+	tree, err := c.masterSrv.GetBudgetStructureTree()
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -461,7 +491,7 @@ func (c *budgetController) getBudgetStructureTree(ctx *fiber.Ctx) error {
 }
 
 func (c *budgetController) listBudgetStructure(ctx *fiber.Ctx) error {
-	list, err := c.budgetSrv.ListBudgetStructure()
+	list, err := c.masterSrv.ListBudgetStructure()
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -473,7 +503,7 @@ func (c *budgetController) getBudgetStructure(ctx *fiber.Ctx) error {
 	if err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid ID format"})
 	}
-	entity, err := c.budgetSrv.GetBudgetStructureByID(uint(id))
+	entity, err := c.masterSrv.GetBudgetStructureByID(uint(id))
 	if err != nil {
 		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Structure node not found"})
 	}
@@ -485,7 +515,7 @@ func (c *budgetController) createBudgetStructure(ctx *fiber.Ctx) error {
 	if err := ctx.BodyParser(&body); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
-	if err := c.budgetSrv.CreateBudgetStructure(&body); err != nil {
+	if err := c.masterSrv.CreateBudgetStructure(&body); err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return ctx.JSON(body)
@@ -502,7 +532,7 @@ func (c *budgetController) updateBudgetStructure(ctx *fiber.Ctx) error {
 	}
 	body.ID = uint(id)
 
-	if err := c.budgetSrv.UpdateBudgetStructure(&body); err != nil {
+	if err := c.masterSrv.UpdateBudgetStructure(&body); err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return ctx.JSON(body)
@@ -513,8 +543,50 @@ func (c *budgetController) deleteBudgetStructure(ctx *fiber.Ctx) error {
 	if err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid ID format"})
 	}
-	if err := c.budgetSrv.DeleteBudgetStructure(uint(id)); err != nil {
+	if err := c.masterSrv.DeleteBudgetStructure(uint(id)); err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to delete: " + err.Error()})
+	}
+	return ctx.JSON(fiber.Map{"status": "success"})
+}
+
+// User Config Handlers
+
+func (c *budgetController) getUserConfigs(ctx *fiber.Ctx) error {
+	userID, ok := ctx.Locals("userID").(string)
+	if !ok || userID == "" {
+		return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Unauthorized: User ID not found in context"})
+	}
+
+	configs, err := c.masterSrv.GetUserConfigs(userID)
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	return ctx.JSON(configs)
+}
+
+func (c *budgetController) setUserConfig(ctx *fiber.Ctx) error {
+	userID, ok := ctx.Locals("userID").(string)
+	if !ok || userID == "" {
+		return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Unauthorized: User ID not found in context"})
+	}
+
+	key := ctx.Params("key")
+	if key == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Key is required"})
+	}
+
+	type ConfigReq struct {
+		Value string `json:"value"`
+	}
+	var req ConfigReq
+	if err := ctx.BodyParser(&req); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
+	}
+
+	if err := c.masterSrv.SetUserConfig(userID, key, req.Value); err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return ctx.JSON(fiber.Map{"status": "success"})
 }
+
+

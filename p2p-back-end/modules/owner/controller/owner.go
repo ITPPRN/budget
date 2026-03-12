@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"encoding/json"
+	"p2p-back-end/logs"
 	"p2p-back-end/modules/entities/models"
 
 	"github.com/gofiber/fiber/v2"
@@ -14,7 +16,7 @@ func NewOwnerController(r fiber.Router, service models.OwnerService) {
 	controller := &ownerController{ownerService: service}
 
 	r.Post("/dashboard-summary", controller.GetDashboardSummary)
-	r.Get("/filter-options", controller.GetFilterOptions)
+	r.Get("/budget-filters", controller.GetFilterOptions)
 	r.Get("/organization-structure", controller.GetOrganizationStructure)
 	r.Get("/filter-lists", controller.GetOwnerFilterLists)
 	r.Post("/actual-transactions", controller.GetActualTransactions)
@@ -33,6 +35,11 @@ func (c *ownerController) GetDashboardSummary(ctx *fiber.Ctx) error {
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
+
+	// 🕵️ DEBUG: Log the final JSON structure to find mismatches
+	jsonBytes, _ := json.Marshal(summary)
+	logs.Infof("[DEBUG] OwnerController: Final Response: %s", string(jsonBytes))
+
 	return ctx.JSON(summary)
 }
 

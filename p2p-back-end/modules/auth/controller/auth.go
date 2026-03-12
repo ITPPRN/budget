@@ -17,24 +17,7 @@ type authController struct {
 	deptSrv models.DepartmentService
 }
 
-// JwtEnricher is a local middleware that enriches the models.UserInfo with local roles/permissions.
-func (h authController) JwtEnricher(next models.TokenHandler) fiber.Handler {
-	return middlewares.JwtAuthentication(func(c *fiber.Ctx, user *models.UserInfo) error {
-		// Fetch full user profile from DB (which includes merged roles/permissions)
-		profile, err := h.authSrv.GetUserProfile(user.UserId)
-		if err == nil {
-			fmt.Printf("DEBUG: Enriched user %s with roles %v\n", user.UserId, profile.Roles)
-			logs.Info(fmt.Sprintf("JwtEnricher: Enriched user %s with roles %v", user.UserId, profile.Roles))
-			user.Roles = profile.Roles
-			user.Permissions = profile.Permissions
-			user.DepartmentCode = profile.DepartmentCode
-		} else {
-			fmt.Printf("DEBUG: JwtEnricher Failed for %s: %v\n", user.UserId, err)
-			logs.Warn(fmt.Sprintf("JwtEnricher: Failed to get profile for %s: %v", user.UserId, err))
-		}
-		return next(c, user)
-	})
-}
+// Removed JwtEnricher as its logic has been moved upstream directly into the JwtAuthentication middleware itself!
 
 func NewUserController(router fiber.Router, authSrv models.AuthService, deptSrv models.DepartmentService) {
 	controller := &authController{
@@ -45,22 +28,22 @@ func NewUserController(router fiber.Router, authSrv models.AuthService, deptSrv 
 	router.Post("/login", controller.login)
 	router.Post("/login-dev-test", controller.loginDevTest)
 	router.Post("/refresh-token", controller.refreshToken)
-	router.Post("/change-password", middlewares.JwtAuthentication(controller.changePassword))
+	router.Post("/change-password", middlewares.JwtAuthentication(authSrv, controller.changePassword))
 
 	// --- ADMIN Group (Strictly System Admin) ---
 	admin := router.Group("/admin")
-	admin.Post("/users/:id/reset-password", controller.JwtEnricher(middlewares.RolesGuard(controller.adminResetUserPassword, models.RoleAdmin)))
-	admin.Get("/users", controller.JwtEnricher(middlewares.RolesGuard(controller.adminListUsers, models.RoleAdmin)))
+	admin.Post("/users/:id/reset-password", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(controller.adminResetUserPassword, models.RoleAdmin)))
+	admin.Get("/users", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(controller.adminListUsers, models.RoleAdmin)))
 
 	// --- MANAGE Group (Shared Visibility Management for Admin, Owner, Delegate) ---
 	manage := router.Group("/manage")
-	manage.Get("/users", controller.JwtEnricher(middlewares.RolesGuard(controller.manageListUsers, models.RoleAdmin, models.RoleOwner, models.RoleDelegate)))
-	manage.Get("/users/:id/permissions", controller.JwtEnricher(middlewares.RolesGuard(controller.getUserPermissions, models.RoleAdmin, models.RoleOwner)))
-	manage.Put("/users/:id/permissions", controller.JwtEnricher(middlewares.RolesGuard(controller.setUserPermissions, models.RoleAdmin, models.RoleOwner)))
-	manage.Get("/departments", controller.JwtEnricher(middlewares.RolesGuard(controller.listDepartments, models.RoleAdmin, models.RoleOwner, models.RoleDelegate)))
+	manage.Get("/users", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(controller.manageListUsers, models.RoleAdmin, models.RoleOwner, models.RoleDelegate)))
+	manage.Get("/users/:id/permissions", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(controller.getUserPermissions, models.RoleAdmin, models.RoleOwner)))
+	manage.Put("/users/:id/permissions", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(controller.setUserPermissions, models.RoleAdmin, models.RoleOwner)))
+	manage.Get("/departments", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(controller.listDepartments, models.RoleAdmin, models.RoleOwner, models.RoleDelegate)))
 
-	router.Post("/logout", middlewares.JwtAuthentication(controller.logout))
-	router.Get("/profile", middlewares.JwtAuthentication(controller.getProfile))
+	router.Post("/logout", middlewares.JwtAuthentication(authSrv, controller.logout))
+	router.Get("/profile", middlewares.JwtAuthentication(authSrv, controller.getProfile))
 	router.Get("/tcf", controller.test11)
 }
 
@@ -204,18 +187,8 @@ func (h authController) loginDevTest(c *fiber.Ctx) error {
 // @Router /v1/auth/profile [get]
 // @Security ApiKeyAuth
 func (h authController) getProfile(c *fiber.Ctx, userInfo *models.UserInfo) error {
-	// Enrich with DB data (Permissions / Explicit Context)
-	enrichedUser, err := h.authSrv.GetUserProfile(userInfo.UserId)
-	if err != nil {
-		logs.Warnf("Failed to fetch profile from DB for %s: %v", userInfo.UserId, err)
-		// Return what we have from token as fallback
-		return responseSuccess(c, userInfo)
-	}
-
-	// Merge Token Roles into Enriched Profile
-	// enrichedUser.Roles = userInfo.Roles // Removed to use DB roles (Uppercased)
-
-	return responseSuccess(c, enrichedUser)
+	// 📌 userInfo is now automatically enriched by JwtAuthentication Middleware!
+	return responseSuccess(c, userInfo)
 }
 
 // ChangePassword godoc

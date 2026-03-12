@@ -119,7 +119,24 @@ const HomePageContent = () => {
     setLoading(true);
     try {
       // Get the synced Actuals configuration from localStorage
-      const syncConfig = JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}');
+      let syncConfig = JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}');
+
+      // If localStorage is empty, try fetching from Backend directly (Single Source of Truth)
+      if (!syncConfig.actualYear) {
+        try {
+          const configRes = await api.get('/budgets/configs');
+          const configs = configRes.data || {};
+          if (configs.actualYear) {
+            syncConfig = {
+              actualYear: configs.actualYear,
+              selectedMonths: JSON.parse(configs.selectedMonths || '[]')
+            };
+            // Cache it for subsequent loads
+            localStorage.setItem('dm_lastSyncedConfig', JSON.stringify(syncConfig));
+          }
+        } catch (e) { console.error("Failed to fetch fallback configs", e); }
+      }
+
       const actualYear = syncConfig.actualYear || new Date().getFullYear();
       const selectedMonths = syncConfig.selectedMonths || [];
 
@@ -131,6 +148,9 @@ const HomePageContent = () => {
         budget_gls: Array.from(selectedLeaves).map(id => id.split('|')[0]).filter(code => code !== ""),
         year: String(actualYear),
         months: selectedMonths,
+        budget_file_id: syncConfig.selectedBudget,
+        capex_file_id: syncConfig.selectedCapexBg,
+        capex_actual_file_id: syncConfig.selectedCapexActual,
         page: page + 1,
         limit: rowsPerPage,
         sort_by: orderBy,

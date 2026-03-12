@@ -4,23 +4,54 @@ import (
 	"fmt"
 	"p2p-back-end/logs"
 	"time"
-
-	"go.uber.org/zap"
 )
 
 func (s *server) StartCronJob() {
 	logs.Info("⏰ Initializing Cron Jobs...")
 
-	// 1. Job: Sync Data (Actuals Sync) - Replacing manual ticker
+	// 1. Job: Tier 1 - Fast Sync (Every 5 mins)
+	// Sync only the current month of the current year for real-time reactivity.
 	if _, err := s.Cron.AddFunc("0/5 * * * *", func() {
-		logs.Info("⏰ Job: Auto-Sync Central Actuals Started (Triggered via Master/Budget Sync placeholder)")
-		// Currently handled by the unified BudgetSrv.SyncActuals
-		if err := s.BudgetSrv.SyncActuals(time.Now().Format("2006"), []string{}); err != nil {
-			logs.Error("Auto-Sync Central Actuals Failed", zap.Error(err))
+		now := time.Now()
+		yearStr := now.Format("2006")
+		monCode := now.Format("01")
+
+		// Month map for name conversion
+		monthMap := map[string]string{
+			"01": "JAN", "02": "FEB", "03": "MAR", "04": "APR", "05": "MAY", "06": "JUN",
+			"07": "JUL", "08": "AUG", "09": "SEP", "10": "OCT", "11": "NOV", "12": "DEC",
 		}
-		logs.Info("⏰ Job: Auto-Sync Central Actuals Completed Successfully")
+		mName := monthMap[monCode]
+
+		logs.Infof("⏰ Tier 1 Job: Fast-Sync Current Month (%s %s) Started", mName, yearStr)
+		if err := s.ActualSrv.SyncActuals(yearStr, []string{mName}); err != nil {
+			logs.Errorf("Tier 1 Job: Fast-Sync Failed: %v", err)
+		}
+		logs.Info("⏰ Tier 1 Job: Fast-Sync Completed Successfully")
 	}); err != nil {
-		logs.Fatal(fmt.Sprintf("Failed to register Cron Job: %v", err))
+		logs.Fatal(fmt.Sprintf("Failed to register Tier 1 Cron Job: %v", err))
+	}
+
+	// 2. Job: Tier 2 - Full Maintenance Sync (Daily @ 02:00 AM)
+	// Synchronize all data from 2025 to Present to ensure full consistency during off-peak hours.
+	if _, err := s.Cron.AddFunc("0 2 * * *", func() {
+		logs.Info("⏰ Tier 2 Job: Full Maintenance Sync Started")
+
+		startYear := 2025
+		currentYear := time.Now().Year()
+
+		for year := startYear; year <= currentYear; year++ {
+			yearStr := fmt.Sprintf("%d", year)
+			logs.Infof("⏰ Tier 2 Job: Syncing Full Year %s...", yearStr)
+
+			// SyncActuals handles months internally batch-by-batch if passed empty months
+			if err := s.ActualSrv.SyncActuals(yearStr, []string{}); err != nil {
+				logs.Errorf("Tier 2 Job: Failed to sync year %s: %v", yearStr, err)
+			}
+		}
+		logs.Info("⏰ Tier 2 Job: Full Maintenance Sync Completed")
+	}); err != nil {
+		logs.Fatal(fmt.Sprintf("Failed to register Tier 2 Cron Job: %v", err))
 	}
 
 	// 2. Job: Department Seeding (Run once at startup, or could be a job)

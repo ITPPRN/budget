@@ -56,7 +56,7 @@ func InitKeycloakValidator(host string, port string, realm string, clientID stri
 	})
 }
 
-func JwtAuthentication(handler models.TokenHandler) fiber.Handler {
+func JwtAuthentication(authSrv models.AuthService, handler models.TokenHandler) fiber.Handler {
 	// We assume InitKeycloakValidator has been called in main()
 
 	return func(c *fiber.Ctx) error {
@@ -80,10 +80,23 @@ func JwtAuthentication(handler models.TokenHandler) fiber.Handler {
 			Name:     claims.Name,
 		}
 
+		// 🛠️ NEW FIX: Always fetch full profile from Local DB (following Senior's RabbitMQ logic)
+		if authSrv != nil {
+			profile, err := authSrv.GetUserProfile(user.UserId)
+			if err == nil && profile != nil {
+				// Use the enriched profile from Local DB which contains Departments & fine-grained Roles
+				user = profile
+			} else {
+				logs.Warnf("JwtAuthentication: User %s authenticated but profile missing from Local DB: %v", user.UserName, err)
+			}
+		}
+
 		// ✅ เก็บไว้ใน Context เผื่อ handler อื่นจะใช้ได้ง่าย
 		c.Locals("user", user)
+		c.Locals("userID", user.UserId)
 
 		logs.Info(fmt.Sprintf("JwtAuthentication Success: UserID=%s Roles=%v", user.UserId, user.Roles))
+
 
 		if handler == nil {
 			return c.Next()

@@ -33,29 +33,12 @@ const DataManagePage = () => {
   const [capexBgVersions, setCapexBgVersions] = useState([]);
   const [capexActualVersions, setCapexActualVersions] = useState([]);
 
-  // --- Selected Versions (External) with Persistence (Last Synced) ---
-  // Load initial state from the LAST SUCCESSFUL SYNC config, not the draft.
-  const loadSavedState = (key, defaultVal) => {
-    const saved = localStorage.getItem('dm_lastSyncedConfig');
-    if (saved) {
-      const config = JSON.parse(saved);
-      return config[key] || defaultVal;
-    }
-    return defaultVal;
-  };
-
-  const [selectedBudget, setSelectedBudget] = useState(() => loadSavedState('selectedBudget', ''));
-  const [selectedCapexBg, setSelectedCapexBg] = useState(() => loadSavedState('selectedCapexBg', ''));
-  const [selectedCapexActual, setSelectedCapexActual] = useState(() => loadSavedState('selectedCapexActual', ''));
-
-  // --- New State for Operational Actuals ---
-  ;
-  const [actualYear, setActualYear] = useState(() => loadSavedState('actualYear', ''));
-  const [selectedMonths, setSelectedMonths] = useState(() => loadSavedState('selectedMonths', []));
+  const [selectedBudget, setSelectedBudget] = useState('');
+  const [selectedCapexBg, setSelectedCapexBg] = useState('');
+  const [selectedCapexActual, setSelectedCapexActual] = useState('');
+  const [actualYear, setActualYear] = useState('');
+  const [selectedMonths, setSelectedMonths] = useState([]);
   const [actualYears, setActualYears] = useState([]);
-
-  // Note: We NO LONGER save to localStorage on every change (useEffect). 
-  // We only save when the user successfully SYNCS.
 
   const [open, setOpen] = useState(false);
   const [modalType, setModalType] = useState(''); // 'BUDGET', 'CAPEX_BG', 'CAPEX_ACTUAL'
@@ -64,21 +47,35 @@ const DataManagePage = () => {
   // --- Fetch Data on Load ---
   const fetchAllVersions = async () => {
     try {
-      ;
-      const [resBudget, resCapexBg, resCapexAct, resYears] = await Promise.all([
+      const [resBudget, resCapexBg, resCapexAct, resYears, resConfigs] = await Promise.all([
         api.get('/budgets/files-budget'),
         api.get('/budgets/files-capex-budget'),
         api.get('/budgets/files-capex-actual'),
         api.get('/budgets/actual-years'),
+        api.get('/budgets/configs'),
       ]);
 
       setBudgetVersions(resBudget.data || []);
       setCapexBgVersions(resCapexBg.data || []);
       setCapexActualVersions(resCapexAct.data || []);
       setActualYears(resYears.data || []);
+
+      // Apply System Configs
+      const configs = resConfigs.data || {};
+      if (configs.selectedBudget) setSelectedBudget(configs.selectedBudget);
+      if (configs.selectedCapexBg) setSelectedCapexBg(configs.selectedCapexBg);
+      if (configs.selectedCapexActual) setSelectedCapexActual(configs.selectedCapexActual);
+      if (configs.actualYear) setActualYear(configs.actualYear);
+      if (configs.selectedMonths) {
+        try {
+          setSelectedMonths(JSON.parse(configs.selectedMonths));
+        } catch (e) {
+          setSelectedMonths([]);
+        }
+      }
     } catch (error) {
-      console.error("Failed to fetch versions:", error);
-      toast.error("ไม่สามารถดึงข้อมูล Version ได้");
+      console.error("Failed to fetch versions or configs:", error);
+      toast.error("ไม่สามารถดึงข้อมูล Version หรือการตั้งค่าได้");
     }
   };
 
@@ -98,11 +95,14 @@ const DataManagePage = () => {
   };
 
 
-  const saveLocalConfig = (key, value) => {
-    const saved = localStorage.getItem('dm_lastSyncedConfig');
-    let config = saved ? JSON.parse(saved) : {};
-    config[key] = value;
-    localStorage.setItem('dm_lastSyncedConfig', JSON.stringify(config));
+  const saveRemoteConfig = async (key, value) => {
+    try {
+      // If value is array or object, stringify it
+      const valStr = typeof value === 'string' ? value : JSON.stringify(value);
+      await api.post(`/budgets/configs/${key}`, { value: valStr });
+    } catch (error) {
+      console.error(`Failed to save config ${key}:`, error);
+    }
   };
 
   const [loadingUpdate, setLoadingUpdate] = useState({ budget: false, capexBg: false, capexActual: false, dbActuals: false });
@@ -112,7 +112,7 @@ const DataManagePage = () => {
       if (window.confirm("คุณต้องการยกเลิกการเลือกไฟล์ Budget หรือไม่? (ข้อมูลจะถูกล้างออกจากระบบด้วย)")) {
         try {
           await api.post('/budgets/clear-budget');
-          saveLocalConfig('selectedBudget', '');
+          await saveRemoteConfig('selectedBudget', '');
           setSelectedBudget('');
           toast.success("ยกเลิกการเลือกและล้างข้อมูล Budget สำเร็จ");
         } catch (error) {
@@ -124,7 +124,7 @@ const DataManagePage = () => {
     setLoadingUpdate(prev => ({ ...prev, budget: true }));
     try {
       await api.post(`/budgets/files-budget/${selectedBudget}/sync`);
-      saveLocalConfig('selectedBudget', selectedBudget);
+      await saveRemoteConfig('selectedBudget', selectedBudget);
       toast.success("อัปเดต Budget สำเร็จ");
     } catch (error) {
       toast.error("อัปเดต Budget ล้มเหลว: " + (error.response?.data?.error || error.message));
@@ -138,7 +138,7 @@ const DataManagePage = () => {
       if (window.confirm("คุณต้องการยกเลิกการเลือกไฟล์ CAPEX Plan หรือไม่? (ข้อมูลจะถูกล้างออกจากระบบด้วย)")) {
         try {
           await api.post('/budgets/clear-capex-budget');
-          saveLocalConfig('selectedCapexBg', '');
+          await saveRemoteConfig('selectedCapexBg', '');
           setSelectedCapexBg('');
           toast.success("ยกเลิกการเลือกและล้างข้อมูล CAPEX Plan สำเร็จ");
         } catch (error) {
@@ -150,7 +150,7 @@ const DataManagePage = () => {
     setLoadingUpdate(prev => ({ ...prev, capexBg: true }));
     try {
       await api.post(`/budgets/files-capex-budget/${selectedCapexBg}/sync`);
-      saveLocalConfig('selectedCapexBg', selectedCapexBg);
+      await saveRemoteConfig('selectedCapexBg', selectedCapexBg);
       toast.success("อัปเดต CAPEX Plan สำเร็จ");
     } catch (error) {
       toast.error("อัปเดต CAPEX Plan ล้มเหลว: " + (error.response?.data?.error || error.message));
@@ -164,7 +164,7 @@ const DataManagePage = () => {
       if (window.confirm("คุณต้องการยกเลิกการเลือกไฟล์ CAPEX Actual หรือไม่? (ข้อมูลจะถูกล้างออกจากระบบด้วย)")) {
         try {
           await api.post('/budgets/clear-capex-actual');
-          saveLocalConfig('selectedCapexActual', '');
+          await saveRemoteConfig('selectedCapexActual', '');
           setSelectedCapexActual('');
           toast.success("ยกเลิกการเลือกและล้างข้อมูล CAPEX Actual สำเร็จ");
         } catch (error) {
@@ -176,7 +176,7 @@ const DataManagePage = () => {
     setLoadingUpdate(prev => ({ ...prev, capexActual: true }));
     try {
       await api.post(`/budgets/files-capex-actual/${selectedCapexActual}/sync`);
-      saveLocalConfig('selectedCapexActual', selectedCapexActual);
+      await saveRemoteConfig('selectedCapexActual', selectedCapexActual);
       toast.success("อัปเดต CAPEX Actual สำเร็จ");
     } catch (error) {
       toast.error("อัปเดต CAPEX Actual ล้มเหลว: " + (error.response?.data?.error || error.message));
@@ -210,8 +210,19 @@ const DataManagePage = () => {
       // The Dashboard and Reports will use these filters to query the "Central Table" (Table กลาง)
       // which is kept up-to-date by the Backend Cron Job (every 5 mins).
 
-      saveLocalConfig('actualYear', actualYear);
-      saveLocalConfig('selectedMonths', selectedMonths);
+      await saveRemoteConfig('actualYear', actualYear);
+      await saveRemoteConfig('selectedMonths', selectedMonths);
+
+      // --- Sync to LocalStorage for immediate cross-page reactivity ---
+      const syncConfig = {
+        actualYear: actualYear,
+        selectedMonths: selectedMonths,
+        selectedBudget: selectedBudget,
+        selectedCapexBg: selectedCapexBg,
+        selectedCapexActual: selectedCapexActual,
+        timestamp: new Date().toISOString()
+      };
+      localStorage.setItem('dm_lastSyncedConfig', JSON.stringify(syncConfig));
 
       toast.success("บันทึกการตั้งค่าตัวกรอง Actuals สำเร็จ");
     } catch (error) {
