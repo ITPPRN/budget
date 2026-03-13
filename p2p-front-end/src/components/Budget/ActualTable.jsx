@@ -103,7 +103,7 @@ const ActualTable = React.memo(({
                             paginatedData.map((row, index) => (
                                 <TableRow key={index} hover>
                                     <TableCell sx={{ borderRight: '1px solid #e0e0e0' }}>{row.gl_account_no}</TableCell>
-                                    <TableCell sx={{ borderRight: '1px solid #e0e0e0' }}>{row.gl_account_name}</TableCell>
+                                    <TableCell sx={{ borderRight: '1px solid #e0e0e0' }}>{row.gl_account_name || "-"}</TableCell>
                                     <TableCell sx={{ borderRight: '1px solid #e0e0e0' }}>{row.document_no}</TableCell>
                                     <TableCell align="right" sx={{ fontWeight: 'bold', color: parseFloat(row.amount) < 0 ? 'red' : 'green', borderRight: '1px solid #e0e0e0' }}>
                                         {parseFloat(row.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}

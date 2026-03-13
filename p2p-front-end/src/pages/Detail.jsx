@@ -203,7 +203,7 @@ const DetailContent = () => {
 
       {/* Header & Filters */}
       <Box sx={{ mb: 2, flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Box sx={{ color: 'primary.main', fontWeight: 'bold', fontSize: '1.5rem' }}>
+        <Box sx={{ color: 'primary.main', fontWeight: 'bold', fontSize: '2rem' }}>
           รายงานรายละเอียด
         </Box>
 

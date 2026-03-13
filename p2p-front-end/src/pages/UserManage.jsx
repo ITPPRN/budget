@@ -183,8 +183,7 @@ const UserManagePage = () => {
   return (
     <Box sx={{ p: 4, bgcolor: '#f8fafc', minHeight: '100vh' }}>
       <Box sx={{ display: 'flex', alignItems: 'center', mb: 4 }}>
-        <Box sx={{ width: 4, height: 24, bgcolor: '#1a2a47', mr: 2, borderRadius: 2 }} />
-        <Typography variant="h5" sx={{ fontWeight: 800, color: '#1e293b' }}>จัดการสิทธิ์เข้าถึง</Typography>
+        <Typography variant="h4" sx={{ fontWeight: 800, color: '#043478' }}>จัดการสิทธิ์เข้าถึง</Typography>
       </Box>
 
       {/* Filters */}
