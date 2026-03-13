@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Grid, Typography, FormControl, Select, MenuItem, Stack, Paper, CircularProgress, Button, IconButton, Tooltip, LinearProgress, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, InputLabel } from '@mui/material';
+import { Box, Grid, Typography, FormControl, Select, MenuItem, Stack, Paper, CircularProgress, Button, IconButton, Tooltip, LinearProgress, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, InputLabel, Popover, Badge } from '@mui/material';
 import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
 import SyncIcon from '@mui/icons-material/Sync';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
@@ -17,11 +17,14 @@ import FilterAltIcon from '@mui/icons-material/FilterAlt';
 import ArrowBackIosNewIcon from '@mui/icons-material/ArrowBackIosNew';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import PeopleIcon from '@mui/icons-material/People';
+import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
 import { useAuth } from '../../hooks/useAuth';
 import api from '../../utils/api/axiosInstance';
 import BudgetChart from '../../components/Dashboard/OwnerBudgetChart';
 import DonutChart, { COLORS } from '../../components/Dashboard/DonutChart';
 import ErrorBoundary from '../../components/ErrorBoundary';
+import { BudgetProvider, useBudget } from '../../contexts/BudgetContext';
+import FilterPane from '../../components/Budget/FilterPane';
 import { toast } from 'react-toastify';
 
 // Calculate formatter
@@ -141,19 +144,26 @@ const UsageCard = ({ usagePercent }) => (
     </Paper>
 );
 
-const OwnerDashboard = () => {
+const OwnerDashboardContent = () => {
     const { user } = useAuth();
+    const { selectedLeaves } = useBudget();
     const [loading, setLoading] = useState(true); // Filter initialization
     const [dataLoading, setDataLoading] = useState(false); // Background data fetch
     const [chartMode, setChartMode] = useState('monthly'); // 'monthly' | 'accumulated'
     const [isTopExpenseExpanded, setIsTopExpenseExpanded] = useState(false);
+
+    // Popover Filter State
+    const [anchorEl, setAnchorEl] = useState(null);
+    const openFilter = Boolean(anchorEl);
+
+    const handleOpenFilter = (event) => setAnchorEl(event.currentTarget);
+    const handleCloseFilter = () => setAnchorEl(null);
 
     // Filter Options State (Reset on load)
     const [selectedCompany, setSelectedCompany] = useState('');
     const [selectedBranch, setSelectedBranch] = useState('');
     const [selectedDept, setSelectedDept] = useState('');
     const [selectedYear, setSelectedYear] = useState('');
-    const [selectedAccount, setSelectedAccount] = useState(''); // New State
 
     const [summary, setSummary] = useState({
         totalBudget: 0,
@@ -195,43 +205,45 @@ const OwnerDashboard = () => {
         return Array.from(depts).sort();
     }, [orgStructure]);
 
-    // Derived Accounts for the dropdown based on selected departments
-    const availableAccounts = React.useMemo(() => {
-        if (!Array.isArray(accountFilters)) return [];
-        let filtered = accountFilters;
-        if (selectedDept && selectedDept !== 'All') {
-            filtered = filtered.filter(f => f.department === selectedDept || f.nav_code === selectedDept);
-        }
-        // Extract unique Level 3 Names based on current filter or all if none selected
-        const accounts = new Set();
-        // Since budget filter options returns raw GLs, we just want unique GL names or we need to wait for Phase 11 for the full tree
-        // The user asked to "Connect Filter Account dropdown to API". The Owner API has a `/owner/budget-filters` endpoint yielding BudgetFactEntities.
-        filtered.forEach(f => {
-            if (f.gl_name) accounts.add(f.gl_name); // Or whatever we group by. Let's use gl_name for now to match the payload requirement
-        });
-        return Array.from(accounts).sort();
-    }, [accountFilters, selectedDept]);
 
     // 2. Fetch Dashboard Data
     const fetchDashboardData = async () => {
-        if (!selectedYear) return;
+        if (!selectedYear && selectedYear !== '') return;
         setDataLoading(true);
         try {
-            // Find the conso_gls matching the selected account name
-            let targetGls = [];
-            if (selectedAccount && selectedAccount !== 'All') {
-                targetGls = accountFilters.filter(f => f.gl_name === selectedAccount).map(f => f.conso_gl);
+            // Get the synced Actuals configuration from localStorage
+            let syncConfig = JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}');
+
+            // Fallback to Backend if localStorage is empty (Fixes "Budget = 0" issue)
+            if (!syncConfig.selectedBudget) {
+                try {
+                    const configRes = await api.get('/budgets/configs');
+                    const configs = configRes.data || {};
+                    
+                    // Map backend config keys to front-end expected keys
+                    syncConfig = {
+                        selectedBudget: configs.selectedBudget || configs.selected_budget || "",
+                        selectedCapexBg: configs.selectedCapexBg || configs.selected_capex_bg || "",
+                        selectedCapexActual: configs.selectedCapexActual || configs.selected_capex_actual || "",
+                        actualYear: configs.actualYear || configs.actual_year || "",
+                        selectedMonths: JSON.parse(configs.selectedMonths || configs.selected_months || '[]')
+                    };
+                    
+                    if (syncConfig.selectedBudget) {
+                        localStorage.setItem('dm_lastSyncedConfig', JSON.stringify(syncConfig));
+                    }
+                } catch (e) { console.error("Failed to fetch fallback configs", e); }
             }
 
             const payload = {
-                year: selectedYear,
+                year: selectedYear === 'All' ? "" : selectedYear.replace('FY', ''),
                 entities: selectedCompany && selectedCompany !== 'All' ? [selectedCompany] : [],
                 branches: selectedBranch && selectedBranch !== 'All' ? [selectedBranch] : [],
                 departments: selectedDept && selectedDept !== 'All' ? [selectedDept] : [],
-                conso_gls: targetGls, // Pass to backend
-                budget_file_id: JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}').selectedBudget,
-                capex_file_id: JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}').selectedCapexBg,
-                capex_actual_file_id: JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}').selectedCapexActual
+                conso_gls: Array.from(selectedLeaves).map(id => id.split('|')[0]).filter(code => code !== ""),
+                budget_file_id: syncConfig.selectedBudget,
+                capex_file_id: syncConfig.selectedCapexBg,
+                capex_actual_file_id: syncConfig.selectedCapexActual
             };
 
             const res = await api.post('/owner/dashboard-summary', payload);
@@ -292,27 +304,16 @@ const OwnerDashboard = () => {
                 setOrgStructure(structData);
 
                 const years = listRes.data.years || [];
-                setFilterYears(years);
-                console.log("4. Filters Fetched. Years:", years);
+                // Always ensure "All" is an option in the state
+                const yearsWithAll = years.includes('All') ? years : ['All', ...years];
+                setFilterYears(yearsWithAll);
+                console.log("4. Filters Fetched. Years With All:", yearsWithAll);
 
                 setAccountFilters(accountRes.data || []);
 
-                // Smart Default logic (Check localStorage first)
-                if (!selectedYear && years.length > 0) {
-                    const syncConfig = JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}');
-                    const configYear = syncConfig.actualYear ? String(syncConfig.actualYear) : null;
-
-                    if (configYear && years.includes(configYear)) {
-                        console.log("Setting Year from SyncConfig:", configYear);
-                        setSelectedYear(configYear);
-                    } else if (years.includes('All')) {
-                        setSelectedYear('All');
-                    } else {
-                        const sortedYears = [...years].sort((a, b) => b.localeCompare(a));
-                        const defaultYear = sortedYears[0];
-                        console.log("Setting Year from Sorted List:", defaultYear);
-                        setSelectedYear(defaultYear);
-                    }
+                // Smart Default logic: Strictly prioritize "All" as per user request
+                if (!selectedYear) {
+                    setSelectedYear('All');
                 }
 
                 // Smart Auto-Selection logic (only if not already set)
@@ -343,11 +344,11 @@ const OwnerDashboard = () => {
 
     // 3. Fetch Data on Filter Change
     useEffect(() => {
-        if (selectedYear) {
+        if (selectedYear !== undefined) {
             console.log("Triggering Fetch Dashboard (Filter Changed)");
             fetchDashboardData();
         }
-    }, [selectedYear, selectedCompany, selectedBranch, selectedDept, selectedAccount]);
+    }, [selectedYear, selectedCompany, selectedBranch, selectedDept, selectedLeaves]);
 
 
     const usagePercent = summary.totalBudget > 0
@@ -462,20 +463,6 @@ const OwnerDashboard = () => {
                                     </Select>
                                 </FormControl>
 
-                                {/* Account Name Filter */}
-                                <FormControl size="small" sx={{ minWidth: 200, bgcolor: 'white', borderRadius: 1 }}>
-                                    <InputLabel>Account (หมวดหมู่)</InputLabel>
-                                    <Select
-                                        value={selectedAccount}
-                                        label="Account (หมวดหมู่)"
-                                        onChange={(e) => setSelectedAccount(e.target.value)}
-                                    >
-                                        <MenuItem value=""><em>All Accounts</em></MenuItem>
-                                        {availableAccounts.map((accountName) => (
-                                            <MenuItem key={accountName} value={accountName}>{accountName}</MenuItem>
-                                        ))}
-                                    </Select>
-                                </FormControl>
 
                                 {/* Company Filter */}
                                 <FormControl size="small" sx={{ minWidth: 200, bgcolor: 'white', borderRadius: 1 }}>
@@ -513,7 +500,8 @@ const OwnerDashboard = () => {
                                         onChange={(e) => setSelectedYear(e.target.value)}
                                     >
                                         <MenuItem value="" disabled><em>Year</em></MenuItem>
-                                        {filterYears.map((y) => <MenuItem key={y} value={y}>{y.replace('FY', '')}</MenuItem>)}
+                                        <MenuItem value="All">All Years</MenuItem>
+                                        {filterYears.filter(y => y !== 'All').map((y) => <MenuItem key={y} value={y}>{y.replace('FY', '')}</MenuItem>)}
                                     </Select>
                                 </FormControl>
                             </Stack>
@@ -627,8 +615,18 @@ const OwnerDashboard = () => {
                                         </Paper>
 
                                         <Box sx={{ display: 'flex', gap: 1 }}>
-                                            <IconButton size="small" sx={{ bgcolor: '#4d6eff', color: 'white', '&:hover': { bgcolor: '#3d59cc' } }}>
-                                                <FilterAltIcon sx={{ fontSize: 18 }} />
+                                            <IconButton 
+                                                size="small" 
+                                                onClick={handleOpenFilter}
+                                                sx={{ bgcolor: '#4d6eff', color: 'white', '&:hover': { bgcolor: '#3d59cc' } }}
+                                            >
+                                                <Badge 
+                                                   badgeContent={selectedLeaves?.size || 0} 
+                                                   color="error"
+                                                   sx={{ '& .MuiBadge-badge': { fontSize: '0.65rem', height: 16, minWidth: 16 } }}
+                                                >
+                                                   <FilterAltIcon sx={{ fontSize: 18 }} />
+                                                </Badge>
                                             </IconButton>
                                             <IconButton size="small" sx={{ bgcolor: '#4d6eff', color: 'white', '&:hover': { bgcolor: '#3d59cc' } }}>
                                                 <DownloadIcon sx={{ fontSize: 18 }} />
@@ -765,9 +763,44 @@ const OwnerDashboard = () => {
                             </Stack>
                         </Grid>
                     </Grid>
+                    {/* Account Filter Popover */}
+                    <Popover
+                        open={openFilter}
+                        anchorEl={anchorEl}
+                        onClose={handleCloseFilter}
+                        anchorOrigin={{
+                            vertical: 'bottom',
+                            horizontal: 'right',
+                        }}
+                        transformOrigin={{
+                            vertical: 'top',
+                            horizontal: 'right',
+                        }}
+                        PaperProps={{
+                            sx: {
+                                width: 350,
+                                height: 400,
+                                mt: 1,
+                                p: 0,
+                                overflow: 'hidden',
+                                boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+                                borderRadius: '12px'
+                            }
+                        }}
+                    >
+                        {openFilter && <FilterPane compact={true} />}
+                    </Popover>
                 </Box>
             </Box >
         </ErrorBoundary >
+    );
+};
+
+const OwnerDashboard = () => {
+    return (
+        <BudgetProvider>
+            <OwnerDashboardContent />
+        </BudgetProvider>
     );
 };
 

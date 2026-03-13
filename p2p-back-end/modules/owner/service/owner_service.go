@@ -34,34 +34,27 @@ func (s *ownerService) GetDashboardSummary(user *models.UserInfo, filter map[str
 		return nil, err
 	}
 
-	// 2. Fetch Capex Summary from CapexService
-	capexSummary, err := s.capexSrv.GetCapexDashboardSummary(filter)
+	// 🛠️ Special Logic: CAPEX Section (Both Budget & Actual) ignores the 'year' filter
+	// It should still filter by entities and departments to show project-wide scope.
+	capexFilter := make(map[string]interface{})
+	for k, v := range filter {
+		capexFilter[k] = v
+	}
+	capexFilter["year"] = "All"
+
+	capexSummary, err := s.capexSrv.GetCapexDashboardSummary(capexFilter)
 	capexBudget := 0.0
 	capexActual := 0.0
 	if err == nil && capexSummary != nil {
 		capexBudget = capexSummary.TotalBudget
 		capexActual = capexSummary.TotalActual
-	}
-
-	// 3. Top Expenses Logic (By Department for now)
-	topExp := []models.TopExpenseDTO{}
-	for i, d := range summary.DepartmentData {
-		if i >= 5 {
-			break
-		}
-		if d.Actual > 0 {
-			topExp = append(topExp, models.TopExpenseDTO{
-				Name:   d.Department,
-				Amount: d.Actual,
-			})
-		}
+		logs.Infof("[DEBUG] OwnerService: Static CAPEX (Project-Wide) Budget=%.2f, Actual=%.2f", capexBudget, capexActual)
 	}
 
 	logs.Infof("[DEBUG] OwnerService: Result - Budget=%.2f, Actual=%.2f, DeptsCount=%d", summary.TotalBudget, summary.TotalActual, len(summary.DepartmentData))
 
 	return &models.OwnerDashboardSummaryDTO{
 		DashboardSummaryDTO: *summary,
-		TopExpenses:         topExp,
 		CapexBudget:         capexBudget,
 		CapexActual:         capexActual,
 	}, nil

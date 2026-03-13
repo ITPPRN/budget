@@ -312,6 +312,7 @@ type DashboardSummaryDTO struct {
 	TotalActual     float64             `json:"total_actual"`
 	DepartmentData  []DepartmentStatDTO `json:"department_data"`
 	ChartData       []MonthlyStatDTO    `json:"chart_data"`
+	TopExpenses     []TopExpenseDTO     `json:"top_expenses"`
 	TotalCount      int64               `json:"total_count"`
 	Page            int                 `json:"page"`
 	Limit           int                 `json:"limit"`
@@ -348,7 +349,8 @@ type ActualTransactionDTO struct {
 	DocNo         string          `json:"document_no" gorm:"column:doc_no"`
 	Vendor        string          `json:"vendor" gorm:"column:vendor"`
 	Description   string          `json:"description" gorm:"column:description"`
-	GLAccountNo   string          `json:"gl_account_no" gorm:"column:gl_account_no"`
+	EntityGL      string          `json:"entity_gl" gorm:"column:entity_gl"`
+	ConsoGL       string          `json:"conso_gl" gorm:"column:conso_gl"`
 	GLAccountName string          `json:"gl_account_name" gorm:"column:gl_account_name"`
 	Amount        decimal.Decimal `json:"amount" gorm:"column:amount"`
 	Department    string          `json:"department" gorm:"column:department"`
@@ -377,9 +379,8 @@ type PaginatedActualTransactionDTO struct {
 
 type OwnerDashboardSummaryDTO struct {
 	DashboardSummaryDTO
-	TopExpenses []TopExpenseDTO `json:"top_expenses"`
-	CapexBudget float64         `json:"capex_budget"`
-	CapexActual float64         `json:"capex_actual"`
+	CapexBudget float64 `json:"capex_budget"`
+	CapexActual float64 `json:"capex_actual"`
 }
 
 type OwnerFilterListsDTO struct {

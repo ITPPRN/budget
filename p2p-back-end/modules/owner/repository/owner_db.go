@@ -128,7 +128,15 @@ func (r *ownerRepository) GetDashboardAggregates(filter map[string]interface{}) 
 	if fid, ok := filter["budget_file_id"].(string); ok && fid != "" {
 		txB = txB.Where("file_budget_id = ?", fid)
 	} else {
-		txB = txB.Where("1 = 0")
+		// 🛠️ Fallback: If no ID provided, use the most recent synced budget file in the system
+		var latestFid string
+		if err := r.db.Model(&models.BudgetFactEntity{}).Order("created_at desc").Limit(1).Pluck("file_budget_id", &latestFid).Error; err == nil && latestFid != "" {
+			logs.Infof("[DEBUG] OwnerRepository: Fallback BudgetFileID Found: %s", latestFid)
+			txB = txB.Where("file_budget_id = ?", latestFid)
+		} else {
+			logs.Warn("[WARN] OwnerRepository: No budget_file_id and no fallback found.")
+			txB = txB.Where("1 = 0")
+		}
 	}
 
 	if err := txB.Group(groupBy).Scan(&budgetDept).Error; err != nil {
@@ -155,7 +163,7 @@ func (r *ownerRepository) GetDashboardAggregates(filter map[string]interface{}) 
 	}
 
 	txA = applyCommonFilters(txA, "actual_fact_entities")
-	if yVal, ok := filter["year"].(string); ok && yVal != "" {
+	if yVal, ok := filter["year"].(string); ok && yVal != "" && yVal != "All" {
 		yVal = strings.ReplaceAll(yVal, "FY", "")
 		txA = txA.Where("actual_fact_entities.year = ?", yVal)
 	}
@@ -200,7 +208,14 @@ func (r *ownerRepository) GetDashboardAggregates(filter map[string]interface{}) 
 	if fid, ok := filter["budget_file_id"].(string); ok && fid != "" {
 		txBM = txBM.Where("budget_fact_entities.file_budget_id = ?", fid)
 	} else {
-		txBM = txBM.Where("1 = 0")
+		// Same fallback for Chart Budget
+		var latestFid string
+		r.db.Model(&models.BudgetFactEntity{}).Order("created_at desc").Limit(1).Pluck("file_budget_id", &latestFid)
+		if latestFid != "" {
+			txBM = txBM.Where("budget_fact_entities.file_budget_id = ?", latestFid)
+		} else {
+			txBM = txBM.Where("1 = 0")
+		}
 	}
 
 	txBM.Group("budget_amount_entities.month").Scan(&budgetM)
@@ -212,7 +227,7 @@ func (r *ownerRepository) GetDashboardAggregates(filter map[string]interface{}) 
 		Joins("JOIN actual_fact_entities ON actual_amount_entities.actual_fact_id = actual_fact_entities.id")
 
 	txAM = applyCommonFilters(txAM, "actual_fact_entities")
-	if yVal, ok := filter["year"].(string); ok && yVal != "" {
+	if yVal, ok := filter["year"].(string); ok && yVal != "" && yVal != "All" {
 		yVal = strings.ReplaceAll(yVal, "FY", "")
 		txAM = txAM.Where("actual_fact_entities.year = ?", yVal)
 	}
@@ -237,6 +252,35 @@ func (r *ownerRepository) GetDashboardAggregates(filter map[string]interface{}) 
 		}
 		monthMap[m.Month].Actual += m.Total
 	}
+
+	// --- 4. Top Expenses (Group 3) ---
+	var topExpenses []models.TopExpenseDTO
+	txTE := r.db.Table("actual_amount_entities").
+		Select("budget_structure_entities.group3 as name, SUM(actual_amount_entities.amount) as amount").
+		Joins("JOIN actual_fact_entities ON actual_amount_entities.actual_fact_id = actual_fact_entities.id").
+		Joins("JOIN budget_structure_entities ON actual_fact_entities.conso_gl = budget_structure_entities.conso_gl")
+
+	txTE = applyCommonFilters(txTE, "actual_fact_entities")
+
+	if yVal, ok := filter["year"].(string); ok && yVal != "" && yVal != "All" {
+		yVal = strings.ReplaceAll(yVal, "FY", "")
+		txTE = txTE.Where("actual_fact_entities.year = ?", yVal)
+	}
+
+	if mVal, ok := filter["months"]; ok {
+		mstrs := toStringSlice(mVal)
+		if len(mstrs) > 0 {
+			txTE = txTE.Where("actual_amount_entities.month IN ?", mstrs)
+		}
+	}
+
+	if err := txTE.Group("budget_structure_entities.group3").
+		Order("amount DESC").
+		Limit(3).
+		Scan(&topExpenses).Error; err != nil {
+		logs.Errorf("[ERROR] OwnerRepository: Top Expenses Calculation Failed: %v", err)
+	}
+	summary.TopExpenses = topExpenses
 
 	monthsOrder := []string{"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"}
 	for _, mon := range monthsOrder {
@@ -268,7 +312,7 @@ func (r *ownerRepository) GetActualTransactions(filter map[string]interface{}) (
 	// Apply Filter Logic (Subset of Dashboard logic but tailored for Owner)
 	if val, ok := filter["entities"]; ok {
 		if strs := toStringSlice(val); len(strs) > 0 {
-			tx = tx.Where("company IN ?", strs)
+			tx = tx.Where("entity IN ?", strs)
 		}
 	}
 	if val, ok := filter["branches"]; ok {

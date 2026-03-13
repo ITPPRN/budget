@@ -197,10 +197,44 @@ func (r *capexRepositoryDB) GetCapexDashboardAggregates(filter map[string]interf
 			}
 		}
 		if val, ok := filter["year"]; ok {
-			if s, ok := val.(string); ok && s != "" {
+			if s, ok := val.(string); ok && s != "" && s != "All" {
 				tx = tx.Where(tableName+".year = ?", s)
 			}
 		}
+
+		// 🛠️ Key Mapping: Standardize between Frontend and Backend Repo
+		if fid, ok := filter["capex_file_id"].(string); ok && fid != "" {
+			filter["file_capex_budget_id"] = fid
+		}
+		if fid, ok := filter["capex_actual_file_id"].(string); ok && fid != "" {
+			filter["file_capex_actual_id"] = fid
+		}
+
+		if tableName == "capex_budget_fact_entities" {
+			if fid, ok := filter["file_capex_budget_id"].(string); ok && fid != "" {
+				tx = tx.Where("file_capex_budget_id = ?", fid)
+			} else {
+				// Fallback for independent budget
+				var latestFid string
+				r.db.Model(&models.CapexBudgetFactEntity{}).Order("created_at desc").Select("file_capex_budget_id").Limit(1).Take(&latestFid)
+				if latestFid != "" {
+					tx = tx.Where("file_capex_budget_id = ?", latestFid)
+				}
+			}
+		}
+		if tableName == "capex_actual_fact_entities" {
+			if fid, ok := filter["file_capex_actual_id"].(string); ok && fid != "" {
+				tx = tx.Where("file_capex_actual_id = ?", fid)
+			} else {
+				// Fallback for actual
+				var latestFid string
+				r.db.Model(&models.CapexActualFactEntity{}).Order("created_at desc").Select("file_capex_actual_id").Limit(1).Take(&latestFid)
+				if latestFid != "" {
+					tx = tx.Where("file_capex_actual_id = ?", latestFid)
+				}
+			}
+		}
+
 		return tx
 	}
 
