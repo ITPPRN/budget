@@ -268,6 +268,7 @@ type OwnerRepository interface {
 	GetActualTransactions(filter map[string]interface{}) (*PaginatedActualTransactionDTO, error)
 	GetActualDetails(filter map[string]interface{}) ([]ActualFactEntity, error)
 	GetBudgetDetails(filter map[string]interface{}) ([]BudgetFactEntity, error)
+	GetActualYears() ([]string, error)
 }
 
 type OwnerService interface {

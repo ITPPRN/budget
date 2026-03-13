@@ -131,7 +131,7 @@ const GLMappingModal = ({ open, onClose }) => {
 
     return (
         <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
-            <DialogTitle sx={{ bgcolor: '#1a237e', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <DialogTitle sx={{ bgcolor: '#043478', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Typography sx={{ fontWeight: 'bold', color: 'white' }}>MANAGE GL MAPPING</Typography>
                 <IconButton onClick={onClose} sx={{ color: 'white' }}><CloseIcon /></IconButton>
             </DialogTitle>
@@ -161,7 +161,7 @@ const GLMappingModal = ({ open, onClose }) => {
                             />
                             <Button
                                 variant="contained" fullWidth startIcon={<AddIcon sx={{ fontSize: 18 }} />}
-                                sx={{ borderRadius: '10px', bgcolor: '#1a237e', textTransform: 'none', py: 1.2, fontSize: '0.85rem', fontWeight: 'bold' }}
+                                sx={{ borderRadius: '10px', bgcolor: '#043478', textTransform: 'none', py: 1.2, fontSize: '0.85rem', fontWeight: 'bold' }}
                                 onClick={handleAdd}
                             >
                                 เพิ่มข้อมูล

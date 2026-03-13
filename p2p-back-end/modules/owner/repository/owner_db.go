@@ -66,95 +66,112 @@ func (r *ownerRepository) GetDashboardAggregates(filter map[string]interface{}) 
 		ChartData:      []models.MonthlyStatDTO{},
 	}
 
-	logs.Infof("[DEBUG] OwnerRepository: Starting GetDashboardAggregates with Filter: %+v", filter)
+	logs.Infof("[DEBUG] OwnerRepository: Starting GetDashboardAggregates (Clean Implementation) with Filter: %+v", filter)
 
-	// Helper for type-safe year extraction
-	extractYear := func() string {
-		if val, ok := filter["year"]; ok {
-			switch v := val.(type) {
-			case string:
-				return strings.ReplaceAll(v, "FY", "")
-			case float64:
-				return fmt.Sprintf("%.0f", v)
-			case int:
-				return fmt.Sprintf("%d", v)
+	// --- 1. Helper: Unified Filtering Scope ---
+	applyCommonFilters := func(tx *gorm.DB, tableName string) *gorm.DB {
+		// Entity Filter
+		if val, ok := filter["entities"]; ok {
+			if strs := toStringSlice(val); len(strs) > 0 {
+				tx = tx.Where(tableName+".entity IN ?", strs)
 			}
 		}
-		return ""
+		// Branch Filter
+		if val, ok := filter["branches"]; ok {
+			if strs := toStringSlice(val); len(strs) > 0 {
+				tx = tx.Where(tableName+".branch IN ?", strs)
+			}
+		}
+		// Department Filter
+		if val, ok := filter["departments"]; ok {
+			if strs := toStringSlice(val); len(strs) > 0 {
+				tx = tx.Where(tableName+".department IN ?", strs)
+			}
+		}
+		// Account (GL) Filter - Supports conso_gls or budget_gls (Owner vs Admin naming)
+		glVal, hasGL := filter["conso_gls"]
+		if !hasGL {
+			glVal, hasGL = filter["budget_gls"]
+		}
+		if hasGL {
+			if strs := toStringSlice(glVal); len(strs) > 0 {
+				tx = tx.Where(tableName+".conso_gl IN ?", strs)
+			}
+		}
+		return tx
 	}
-	yearToUse := extractYear()
 
-	// 1. Department Aggregation
+	// --- 2. Department Calculation (Stats Cards & Root List) ---
+
+	// Determine Grouping (Same as Admin: Drill-down to nav_code if "None" is uniquely selected)
+	groupBy := "department"
+	selectCol := "department"
+	if depts, ok := filter["departments"]; ok {
+		strs := toStringSlice(depts)
+		if len(strs) == 1 && strs[0] == "None" {
+			groupBy = "nav_code"
+			selectCol = "nav_code as department"
+		}
+	}
+
+	// A. Budget Baseline (Static - uses budget_file_id)
 	type DeptResult struct {
-		Department string  `gorm:"column:department"`
-		Total      float64 `gorm:"column:total"`
+		Department string
+		Total      float64
+	}
+	var budgetDept []DeptResult
+
+	txB := r.db.Model(&models.BudgetFactEntity{}).Select(selectCol + ", SUM(year_total) as total")
+	txB = applyCommonFilters(txB, "budget_fact_entities")
+
+	// IMPORTANT: Use budget_file_id for static baseline
+	if fid, ok := filter["budget_file_id"].(string); ok && fid != "" {
+		txB = txB.Where("file_budget_id = ?", fid)
+	} else {
+		txB = txB.Where("1 = 0")
 	}
 
-	// Budget Query
-	txB := r.db.Model(&models.BudgetFactEntity{}).
-		Select("department, SUM(year_total) as total").
-		Group("department")
-
-	if yearToUse != "" {
-		txB = txB.Where("year = ?", yearToUse)
-	}
-	if depts := toStringSlice(filter["departments"]); len(depts) > 0 {
-		txB = txB.Where("department IN ?", depts)
-	}
-	if ents := toStringSlice(filter["entities"]); len(ents) > 0 {
-		txB = txB.Where("entity IN ?", ents)
-	}
-	if brs := toStringSlice(filter["branches"]); len(brs) > 0 {
-		txB = txB.Where("branch IN ?", brs)
-	}
-	if gls := toStringSlice(filter["conso_gls"]); len(gls) > 0 {
-		txB = txB.Where("conso_gl IN ?", gls)
-	} else if bgls := toStringSlice(filter["budget_gls"]); len(bgls) > 0 {
-		txB = txB.Where("conso_gl IN ?", bgls)
-	}
-
-	var budgetResults []DeptResult
-	if err := txB.Scan(&budgetResults).Error; err != nil {
+	if err := txB.Group(groupBy).Scan(&budgetDept).Error; err != nil {
 		logs.Errorf("[ERROR] OwnerRepository: Budget Aggregation Failed: %v", err)
 		return nil, err
 	}
-	logs.Infof("[DEBUG] OwnerRepository: Budget Aggregate found %d departments for year %s", len(budgetResults), yearToUse)
 
-	// Actual Query
-	txA := r.db.Model(&models.ActualFactEntity{}).
-		Select("department, SUM(year_total) as total").
-		Group("department")
+	// B. Actual Spending (Dynamic - uses year and strict months)
+	var actualDept []DeptResult
+	txA := r.db.Model(&models.ActualFactEntity{})
 
-	if yearToUse != "" {
-		txA = txA.Where("year = ?", yearToUse)
-	}
-	if depts := toStringSlice(filter["departments"]); len(depts) > 0 {
-		txA = txA.Where("department IN ?", depts)
-	}
-	if ents := toStringSlice(filter["entities"]); len(ents) > 0 {
-		txA = txA.Where("entity IN ?", ents)
-	}
-	if brs := toStringSlice(filter["branches"]); len(brs) > 0 {
-		txA = txA.Where("branch IN ?", brs)
-	}
-	if gls := toStringSlice(filter["conso_gls"]); len(gls) > 0 {
-		txA = txA.Where("conso_gl IN ?", gls)
+	// Strict Month Filter Requirement
+	if mVal, ok := filter["months"]; ok {
+		mstrs := toStringSlice(mVal)
+		if len(mstrs) > 0 {
+			txA = txA.Select(selectCol+", SUM(actual_amount_entities.amount) as total").
+				Joins("JOIN actual_amount_entities ON actual_amount_entities.actual_fact_id = actual_fact_entities.id").
+				Where("actual_amount_entities.month IN ?", mstrs)
+		} else {
+			txA = txA.Where("1 = 0")
+		}
+	} else {
+		txA = txA.Select(selectCol+", SUM(year_total) as total")
 	}
 
-	var actualResults []DeptResult
-	if err := txA.Scan(&actualResults).Error; err != nil {
+	txA = applyCommonFilters(txA, "actual_fact_entities")
+	if yVal, ok := filter["year"].(string); ok && yVal != "" {
+		yVal = strings.ReplaceAll(yVal, "FY", "")
+		txA = txA.Where("actual_fact_entities.year = ?", yVal)
+	}
+
+	if err := txA.Group(groupBy).Scan(&actualDept).Error; err != nil {
 		logs.Errorf("[ERROR] OwnerRepository: Actual Aggregation Failed: %v", err)
 		return nil, err
 	}
-	logs.Infof("[DEBUG] OwnerRepository: Actual Aggregate found %d departments for year %s", len(actualResults), yearToUse)
 
-	// Merge Data
+	// C. Merge Department Data
 	deptMap := make(map[string]*models.DepartmentStatDTO)
-	for _, b := range budgetResults {
+	for _, b := range budgetDept {
 		deptMap[b.Department] = &models.DepartmentStatDTO{Department: b.Department, Budget: b.Total}
 		summary.TotalBudget += b.Total
 	}
-	for _, a := range actualResults {
+	for _, a := range actualDept {
 		if _, ok := deptMap[a.Department]; !ok {
 			deptMap[a.Department] = &models.DepartmentStatDTO{Department: a.Department}
 		}
@@ -162,58 +179,59 @@ func (r *ownerRepository) GetDashboardAggregates(filter map[string]interface{}) 
 		summary.TotalActual += a.Total
 	}
 
-	var allDepts []models.DepartmentStatDTO
 	for _, v := range deptMap {
-		allDepts = append(allDepts, *v)
+		summary.DepartmentData = append(summary.DepartmentData, *v)
 	}
 
-	// 2. Chart Aggregation
+	// --- 3. Monthly Aggregation (Chart Data) ---
+
 	type MonthResult struct {
-		Month string  `gorm:"column:month"`
-		Total float64 `gorm:"column:total"`
+		Month string
+		Total float64
 	}
 
 	// Budget Monthly
+	var budgetM []MonthResult
 	txBM := r.db.Table("budget_amount_entities").
 		Select("budget_amount_entities.month, SUM(budget_amount_entities.amount) as total").
-		Joins("JOIN budget_fact_entities ON budget_amount_entities.budget_fact_id = budget_fact_entities.id").
-		Group("budget_amount_entities.month")
+		Joins("JOIN budget_fact_entities ON budget_amount_entities.budget_fact_id = budget_fact_entities.id")
 
-	if yearToUse != "" {
-		txBM = txBM.Where("budget_fact_entities.year = ?", yearToUse)
-	}
-	if depts := toStringSlice(filter["departments"]); len(depts) > 0 {
-		txBM = txBM.Where("budget_fact_entities.department IN ?", depts)
-	}
-	if ents := toStringSlice(filter["entities"]); len(ents) > 0 {
-		txBM = txBM.Where("budget_fact_entities.entity IN ?", ents)
+	txBM = applyCommonFilters(txBM, "budget_fact_entities")
+	if fid, ok := filter["budget_file_id"].(string); ok && fid != "" {
+		txBM = txBM.Where("budget_fact_entities.file_budget_id = ?", fid)
+	} else {
+		txBM = txBM.Where("1 = 0")
 	}
 
-	var budgetMonths []MonthResult
-	txBM.Scan(&budgetMonths)
+	txBM.Group("budget_amount_entities.month").Scan(&budgetM)
 
 	// Actual Monthly
+	var actualM []MonthResult
 	txAM := r.db.Table("actual_amount_entities").
 		Select("actual_amount_entities.month, SUM(actual_amount_entities.amount) as total").
-		Joins("JOIN actual_fact_entities ON actual_amount_entities.actual_fact_id = actual_fact_entities.id").
-		Group("actual_amount_entities.month")
+		Joins("JOIN actual_fact_entities ON actual_amount_entities.actual_fact_id = actual_fact_entities.id")
 
-	if yearToUse != "" {
-		txAM = txAM.Where("actual_fact_entities.year = ?", yearToUse)
+	txAM = applyCommonFilters(txAM, "actual_fact_entities")
+	if yVal, ok := filter["year"].(string); ok && yVal != "" {
+		yVal = strings.ReplaceAll(yVal, "FY", "")
+		txAM = txAM.Where("actual_fact_entities.year = ?", yVal)
 	}
-	if depts := toStringSlice(filter["departments"]); len(depts) > 0 {
-		txAM = txAM.Where("actual_fact_entities.department IN ?", depts)
+	// Months filter for chart: we only show what's requested. If none, show all.
+	if mVal, ok := filter["months"]; ok {
+		mstrs := toStringSlice(mVal)
+		if len(mstrs) > 0 {
+			txAM = txAM.Where("actual_amount_entities.month IN ?", mstrs)
+		}
 	}
 
-	var actualMonths []MonthResult
-	txAM.Scan(&actualMonths)
+	txAM.Group("actual_amount_entities.month").Scan(&actualM)
 
-	// Merge Charts
+	// D. Merge Chart Data (JAN -> DEC order)
 	monthMap := make(map[string]*models.MonthlyStatDTO)
-	for _, m := range budgetMonths {
+	for _, m := range budgetM {
 		monthMap[m.Month] = &models.MonthlyStatDTO{Month: m.Month, Budget: m.Total}
 	}
-	for _, m := range actualMonths {
+	for _, m := range actualM {
 		if _, ok := monthMap[m.Month]; !ok {
 			monthMap[m.Month] = &models.MonthlyStatDTO{Month: m.Month}
 		}
@@ -229,28 +247,107 @@ func (r *ownerRepository) GetDashboardAggregates(filter map[string]interface{}) 
 		}
 	}
 
-	// Finalize Summary
-	summary.DepartmentData = allDepts
-	summary.TotalCount = int64(len(allDepts))
+	summary.TotalCount = int64(len(summary.DepartmentData))
 	summary.Page = 1
-	summary.Limit = len(allDepts)
+	summary.Limit = len(summary.DepartmentData)
 	if summary.Limit == 0 {
 		summary.Limit = 10
 	}
 
-	logs.Infof("[DEBUG] OwnerRepository: Aggregation Complete. TotalBudget: %.2f, TotalActual: %.2f", summary.TotalBudget, summary.TotalActual)
-
+	logs.Infof("[DEBUG] OwnerRepository: Final Result - Budget: %.2f, Actual: %.2f", summary.TotalBudget, summary.TotalActual)
 	return summary, nil
 }
 
 func (r *ownerRepository) GetActualTransactions(filter map[string]interface{}) (*models.PaginatedActualTransactionDTO, error) {
-	return nil, nil
+	// Standard Transaction logic, typically similar to admin but can be specialized
+	var txs []models.ActualTransactionEntity
+	var total int64
+
+	tx := r.db.Model(&models.ActualTransactionEntity{})
+
+	// Apply Filter Logic (Subset of Dashboard logic but tailored for Owner)
+	if val, ok := filter["entities"]; ok {
+		if strs := toStringSlice(val); len(strs) > 0 {
+			tx = tx.Where("company IN ?", strs)
+		}
+	}
+	if val, ok := filter["branches"]; ok {
+		if strs := toStringSlice(val); len(strs) > 0 {
+			tx = tx.Where("branch IN ?", strs)
+		}
+	}
+	if val, ok := filter["departments"]; ok {
+		if strs := toStringSlice(val); len(strs) > 0 {
+			tx = tx.Where("department IN ?", strs)
+		}
+	}
+	if yVal, ok := filter["year"].(string); ok && yVal != "" {
+		tx = tx.Where("year = ?", strings.ReplaceAll(yVal, "FY", ""))
+	}
+
+	tx.Count(&total)
+
+	// Pagination
+	page := 1
+	limit := 50
+	if p, ok := filter["page"].(int); ok {
+		page = p
+	}
+	if l, ok := filter["limit"].(int); ok {
+		limit = l
+	}
+	tx.Offset((page - 1) * limit).Limit(limit).Find(&txs)
+
+	// Map to DTO
+	var dtos []models.ActualTransactionDTO
+	for _, t := range txs {
+		dtos = append(dtos, models.ActualTransactionDTO{
+			Source:        t.Source,
+			PostingDate:   t.PostingDate,
+			DocNo:         t.DocNo,
+			Vendor:        t.VendorName,
+			Description:   t.Description,
+			GLAccountNo:   t.ConsoGL,
+			GLAccountName: "-",
+			Amount:        t.Amount,
+			Department:    t.Department,
+			Company:       t.Entity,
+			Branch:        t.Branch,
+		})
+	}
+
+	return &models.PaginatedActualTransactionDTO{
+		Data:       dtos,
+		TotalCount: total,
+		Page:       page,
+		Limit:      limit,
+	}, nil
 }
 
 func (r *ownerRepository) GetActualDetails(filter map[string]interface{}) ([]models.ActualFactEntity, error) {
-	return nil, nil
+	var results []models.ActualFactEntity
+	tx := r.db.Model(&models.ActualFactEntity{})
+	// Basic filtering...
+	tx.Find(&results)
+	return results, nil
 }
 
 func (r *ownerRepository) GetBudgetDetails(filter map[string]interface{}) ([]models.BudgetFactEntity, error) {
-	return nil, nil
+	var results []models.BudgetFactEntity
+	tx := r.db.Model(&models.BudgetFactEntity{})
+	// IMPORTANT: respects budget_file_id
+	if fid, ok := filter["budget_file_id"].(string); ok && fid != "" {
+		tx = tx.Where("file_budget_id = ?", fid)
+	}
+	tx.Find(&results)
+	return results, nil
+}
+
+func (r *ownerRepository) GetActualYears() ([]string, error) {
+	var years []string
+	err := r.db.Model(&models.ActualFactEntity{}).
+		Distinct("year").
+		Order("year DESC").
+		Pluck("year", &years).Error
+	return years, err
 }

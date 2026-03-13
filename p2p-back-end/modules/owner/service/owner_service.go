@@ -9,13 +9,12 @@ import (
 
 type ownerService struct {
 	repo     models.OwnerRepository
-	dashSrv  models.DashboardService
 	authSrv  models.AuthService
 	capexSrv models.CapexService
 }
 
-func NewOwnerService(repo models.OwnerRepository, dashSrv models.DashboardService, authSrv models.AuthService, capexSrv models.CapexService) models.OwnerService {
-	return &ownerService{repo: repo, dashSrv: dashSrv, authSrv: authSrv, capexSrv: capexSrv}
+func NewOwnerService(repo models.OwnerRepository, authSrv models.AuthService, capexSrv models.CapexService) models.OwnerService {
+	return &ownerService{repo: repo, authSrv: authSrv, capexSrv: capexSrv}
 }
 
 func (s *ownerService) GetDashboardSummary(user *models.UserInfo, filter map[string]interface{}) (*models.OwnerDashboardSummaryDTO, error) {
@@ -28,9 +27,8 @@ func (s *ownerService) GetDashboardSummary(user *models.UserInfo, filter map[str
 		filter["budget_gls"] = gls
 	}
 
-	// 1. Fetch PL Summary from DashboardService (Single Source of Truth)
-	// This ensures we benefit from sanitizeFilter and advanced aggregation in DashboardService
-	summary, err := s.dashSrv.GetDashboardSummary(filter)
+	// 1. Fetch PL Summary from own OwnerRepository (Pure SRP)
+	summary, err := s.repo.GetDashboardAggregates(filter)
 	if err != nil {
 		logs.Errorf("[ERROR] OwnerService: DashboardSummary Failed: %v", err)
 		return nil, err
@@ -71,28 +69,17 @@ func (s *ownerService) GetDashboardSummary(user *models.UserInfo, filter map[str
 
 func (s *ownerService) GetActualTransactions(user *models.UserInfo, filter map[string]interface{}) (*models.PaginatedActualTransactionDTO, error) {
 	filter = s.injectPermissions(user, filter)
-	return s.dashSrv.GetActualTransactions(filter)
+	return s.repo.GetActualTransactions(filter)
 }
 
 func (s *ownerService) GetActualDetails(user *models.UserInfo, filter map[string]interface{}) ([]models.ActualFactEntity, error) {
 	filter = s.injectPermissions(user, filter)
-	return s.dashSrv.GetActualDetails(filter)
+	return s.repo.GetActualDetails(filter)
 }
 
 func (s *ownerService) GetBudgetDetails(user *models.UserInfo, filter map[string]interface{}) ([]models.BudgetFactEntity, error) {
 	filter = s.injectPermissions(user, filter)
-
-	// Map to BudgetDetailDTO since Dashboard Service changed signature
-	_, err := s.dashSrv.GetBudgetDetails(filter)
-	if err != nil {
-		return nil, err
-	}
-
-	// The Owner interface demands BudgetFactEntity. To avoid breaking things entirely,
-	// We'll need to adapt it. Alternatively, we update the Owner interface to return BudgetDetailDTO.
-	// But let's check interfaces.go : GetBudgetDetails returns []BudgetFactEntity.
-	// We should probably just return an empty array or adapt it if nobody uses it.
-	return []models.BudgetFactEntity{}, nil
+	return s.repo.GetBudgetDetails(filter)
 }
 
 func (s *ownerService) GetFilterOptions(user *models.UserInfo) (interface{}, error) {
@@ -202,12 +189,13 @@ func (s *ownerService) GetOrganizationStructure(user *models.UserInfo) ([]models
 }
 
 func (s *ownerService) GetOwnerFilterLists(user *models.UserInfo) (*models.OwnerFilterListsDTO, error) {
-	// The DashboardService has GetActualYears, but not GetOwnerFilterLists (Companies/Branches/Years).
-	// Let's stub it out to prevent errors, utilizing the new Dashboard APIs where possible
-	years, _ := s.dashSrv.GetActualYears()
+	years, err := s.repo.GetActualYears()
+	if err != nil {
+		logs.Errorf("[ERROR] OwnerService: Failed to get actual years: %v", err)
+	}
 
 	lists := &models.OwnerFilterListsDTO{
-		Companies: []string{"HMW", "ACG", "CLIK"}, // Hardcoded defaults for now since we removed the giant Repo query
+		Companies: []string{"HMW", "ACG", "CLIK"}, // Hardcoded defaults for now
 		Branches:  []string{},
 		Years:     years,
 	}

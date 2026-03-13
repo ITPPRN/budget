@@ -207,7 +207,7 @@ const UserManagePage = () => {
               variant="contained"
               fullWidth
               onClick={() => { setPage(1); fetchUsers(); }}
-              sx={{ bgcolor: '#1a2a47', py: 1, borderRadius: '8px', fontWeight: 'bold', '&:hover': { bgcolor: '#2c3e50' } }}
+              sx={{ bgcolor: '#043478', py: 1, borderRadius: '8px', fontWeight: 'bold', '&:hover': { bgcolor: '#4f6788ff' } }}
             >
               ค้นหา
             </Button>
@@ -218,7 +218,7 @@ const UserManagePage = () => {
       {/* Table */}
       <TableContainer component={Paper} sx={{ borderRadius: '12px', overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>
         <Table sx={{ minWidth: 650 }}>
-          <TableHead sx={{ bgcolor: '#1a2a47' }}>
+          <TableHead sx={{ bgcolor: '#043478' }}>
             <TableRow>
               <TableCell sx={{ color: 'white', fontWeight: 600, py: 2 }}>รหัสพนักงาน</TableCell>
               <TableCell sx={{ color: 'white', fontWeight: 600 }}>ชื่อผู้ใช้งาน</TableCell>
@@ -283,8 +283,8 @@ const UserManagePage = () => {
                             disabled={shouldDisable}
                             sx={{
                               opacity: shouldDisable ? 0.5 : 1,
-                              '& .MuiSwitch-switchBase.Mui-checked': { color: '#1a2a47' },
-                              '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: '#1a2a47' }
+                              '& .MuiSwitch-switchBase.Mui-checked': { color: '#043478' },
+                              '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: '#043478' }
                             }}
                           />
                         </>

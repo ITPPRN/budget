@@ -26,9 +26,15 @@ const Routes = (isLoggedIn, user) => [
     children: [
       {
         path: "/",
-        element: (user?.roles?.some(r => r.toUpperCase().includes('OWNER')) || !!user?.department_code || !!user?.department)
-          ? <Navigate to="/owner/dashboard" />
-          : <Navigate to="/home" />
+        element: (() => {
+          const roles = user?.roles?.map(r => r.toUpperCase()) || [];
+          const isAdmin = roles.some(r => r.includes('ADMIN'));
+          const isOwner = roles.some(r => r.includes('OWNER')) || !!user?.department_code || !!user?.department;
+
+          if (isAdmin) return <Navigate to="/home" />;
+          if (isOwner) return <Navigate to="/owner/dashboard" />;
+          return <Navigate to="/home" />;
+        })()
       },
       { path: "home", element: <HomePage /> },
       { path: "detail", element: <DetailPage /> },

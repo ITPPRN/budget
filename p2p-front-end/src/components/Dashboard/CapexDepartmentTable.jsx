@@ -1,5 +1,6 @@
 import React from 'react';
-import { Paper, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Box, TablePagination, TableSortLabel } from '@mui/material';
+import { Paper, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Box, TablePagination, TableSortLabel, IconButton } from '@mui/material';
+import DownloadIcon from '@mui/icons-material/Download';
 import FlagIcon from '@mui/icons-material/Flag';
 
 const CapexDepartmentTable = ({ data, count, page, rowsPerPage, onPageChange, onRowsPerPageChange, orderBy, order, onRequestSort, selectedDept, onRowClick }) => {
@@ -33,6 +34,9 @@ const CapexDepartmentTable = ({ data, count, page, rowsPerPage, onPageChange, on
                 <Typography variant="h6" sx={{ fontWeight: 'bold', color: 'secondary.main', bgcolor: '#f3e5f5', px: 2, py: 0.5, borderRadius: 2 }}>
                     Capex Department Status
                 </Typography>
+                <IconButton size="small" sx={{ color: 'primary.main' }}>
+                    <DownloadIcon sx={{ fontSize: 20 }} />
+                </IconButton>
             </Box>
 
             <TableContainer sx={{ flexGrow: 1, overflow: 'auto' }}>

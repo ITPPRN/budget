@@ -22,7 +22,7 @@ const VersionList = React.memo(({ items, editingId, newName, onNewNameChange, on
                 <React.Fragment key={item.id}>
                     <ListItem sx={{ py: 1.5, px: 2 }}>
                         <ListItemAvatar>
-                            <Avatar sx={{ bgcolor: '#e8eaf6', color: '#1a237e' }}>
+                            <Avatar sx={{ bgcolor: '#e8eaf6', color: '#043478' }}>
                                 <InsertDriveFileIcon style={{ fontSize: 18 }} />
                             </Avatar>
                         </ListItemAvatar>
@@ -36,7 +36,7 @@ const VersionList = React.memo(({ items, editingId, newName, onNewNameChange, on
                                     autoFocus
                                     fullWidth
                                     variant="standard"
-                                    sx={{ '& .MuiInput-underline:before': { borderBottomColor: '#1a237e' } }}
+                                    sx={{ '& .MuiInput-underline:before': { borderBottomColor: '#043478' } }}
                                 />
                             ) : (
                                 <>
@@ -62,7 +62,7 @@ const VersionList = React.memo(({ items, editingId, newName, onNewNameChange, on
                                 </>
                             ) : (
                                 <>
-                                    <IconButton size="small" onClick={() => onStartRename(item.id, item.file_name)} sx={{ color: '#1a237e' }}>
+                                    <IconButton size="small" onClick={() => onStartRename(item.id, item.file_name)} sx={{ color: '#043478' }}>
                                         <EditIcon fontSize="small" />
                                     </IconButton>
                                     <IconButton
@@ -173,7 +173,7 @@ export const BudgetVersionModal = ({ open, onClose, items, onRefresh, activeId }
             maxWidth="md"
             fullWidth
         >
-            <DialogTitle sx={{ bgcolor: '#1a237e', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 1 }}>
+            <DialogTitle sx={{ bgcolor: '#043478', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 1 }}>
                 <Typography sx={{ fontWeight: 'bold', color: 'white' }}>MANAGE BUDGET</Typography>
                 <IconButton onClick={onClose} sx={{ color: 'white' }}><CloseIcon /></IconButton>
             </DialogTitle>
@@ -189,11 +189,11 @@ export const BudgetVersionModal = ({ open, onClose, items, onRefresh, activeId }
                                     p: 4,
                                     textAlign: 'center',
                                     bgcolor: isDragging ? '#f0f4ff' : 'white',
-                                    borderColor: isDragging ? '#1a237e' : '#ccc',
+                                    borderColor: isDragging ? '#043478' : '#ccc',
                                     mb: 3,
                                     cursor: 'pointer',
                                     transition: 'all 0.2s',
-                                    '&:hover': { borderColor: '#1a237e', bgcolor: '#f0f4ff' }
+                                    '&:hover': { borderColor: '#043478', bgcolor: '#f0f4ff' }
                                 }}
                                 onClick={() => fileInputRef.current.click()}
                                 onDragOver={handleDragOver}
@@ -201,9 +201,9 @@ export const BudgetVersionModal = ({ open, onClose, items, onRefresh, activeId }
                                 onDrop={handleDrop}
                             >
                                 <input type="file" hidden ref={fileInputRef} onChange={(e) => handleFileChange(e.target.files[0])} accept=".xlsx" />
-                                <CloudUploadIcon sx={{ fontSize: 40, color: isDragging ? '#1a237e' : '#ccc', mb: 1 }} />
+                                <CloudUploadIcon sx={{ fontSize: 40, color: isDragging ? '#043478' : '#ccc', mb: 1 }} />
                                 <Typography variant="body2" color="text.secondary">ลากไฟล์มาวางที่นี่ หรือคลิกเพื่อค้นหา</Typography>
-                                <Button variant="contained" sx={{ mt: 2, borderRadius: '20px', bgcolor: '#1a237e' }}>เลือกไฟล์ .xlsx</Button>
+                                <Button variant="contained" sx={{ mt: 2, borderRadius: '20px', bgcolor: '#043478' }}>เลือกไฟล์ .xlsx</Button>
                             </Box>
                         ) : (
                             <Box sx={{ p: 2, bgcolor: 'white', borderRadius: '15px', border: '1px solid #e3e6f0' }}>
@@ -211,7 +211,7 @@ export const BudgetVersionModal = ({ open, onClose, items, onRefresh, activeId }
                                 <Typography variant="body2" sx={{ fontWeight: 'bold', mb: 2 }}>{fileToUpload.name}</Typography>
                                 <TextField fullWidth size="small" label="ชื่อ Version" value={versionName} onChange={(e) => setVersionName(e.target.value)} sx={{ mb: 2 }} />
                                 <Box sx={{ display: 'flex', gap: 1 }}>
-                                    <Button variant="contained" fullWidth onClick={handleSaveUpload} disabled={isUploading} sx={{ bgcolor: '#1a237e' }}>{isUploading ? <CircularProgress size={20} /> : 'บันทึก'}</Button>
+                                    <Button variant="contained" fullWidth onClick={handleSaveUpload} disabled={isUploading} sx={{ bgcolor: '#043478' }}>{isUploading ? <CircularProgress size={20} /> : 'บันทึก'}</Button>
                                     <Button variant="outlined" onClick={() => setFileToUpload(null)}>ยกเลิก</Button>
                                 </Box>
                             </Box>
@@ -313,7 +313,7 @@ export const CapexPlanModal = ({ open, onClose, items, onRefresh, activeId }) =>
             maxWidth="md"
             fullWidth
         >
-            <DialogTitle sx={{ bgcolor: '#1a237e', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 1 }}>
+            <DialogTitle sx={{ bgcolor: '#043478', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 1 }}>
                 <Typography sx={{ fontWeight: 'bold', color: 'white' }}>MANAGE CAPEX PLAN</Typography>
                 <IconButton onClick={onClose} sx={{ color: 'white' }}><CloseIcon /></IconButton>
             </DialogTitle>
@@ -329,11 +329,11 @@ export const CapexPlanModal = ({ open, onClose, items, onRefresh, activeId }) =>
                                     p: 4,
                                     textAlign: 'center',
                                     bgcolor: isDragging ? '#f0f4ff' : 'white',
-                                    borderColor: isDragging ? '#1a237e' : '#ccc',
+                                    borderColor: isDragging ? '#043478' : '#ccc',
                                     mb: 3,
                                     cursor: 'pointer',
                                     transition: 'all 0.2s',
-                                    '&:hover': { borderColor: '#1a237e', bgcolor: '#f0f4ff' }
+                                    '&:hover': { borderColor: '#043478', bgcolor: '#f0f4ff' }
                                 }}
                                 onClick={() => fileInputRef.current.click()}
                                 onDragOver={handleDragOver}
@@ -341,9 +341,9 @@ export const CapexPlanModal = ({ open, onClose, items, onRefresh, activeId }) =>
                                 onDrop={handleDrop}
                             >
                                 <input type="file" hidden ref={fileInputRef} onChange={(e) => handleFileChange(e.target.files[0])} accept=".xlsx" />
-                                <CloudUploadIcon sx={{ fontSize: 40, color: isDragging ? '#1a237e' : '#ccc', mb: 1 }} />
+                                <CloudUploadIcon sx={{ fontSize: 40, color: isDragging ? '#043478' : '#ccc', mb: 1 }} />
                                 <Typography variant="body2" color="text.secondary">ลากไฟล์มาวางที่นี่ หรือคลิกเพื่อค้นหา</Typography>
-                                <Button variant="contained" sx={{ mt: 2, borderRadius: '20px', bgcolor: '#1a237e' }}>เลือกไฟล์ .xlsx</Button>
+                                <Button variant="contained" sx={{ mt: 2, borderRadius: '20px', bgcolor: '#043478' }}>เลือกไฟล์ .xlsx</Button>
                             </Box>
                         ) : (
                             <Box sx={{ p: 2, bgcolor: 'white', borderRadius: '15px', border: '1px solid #e3e6f0' }}>
@@ -351,7 +351,7 @@ export const CapexPlanModal = ({ open, onClose, items, onRefresh, activeId }) =>
                                 <Typography variant="body2" sx={{ fontWeight: 'bold', mb: 2 }}>{fileToUpload.name}</Typography>
                                 <TextField fullWidth size="small" label="ชื่อ Version" value={versionName} onChange={(e) => setVersionName(e.target.value)} sx={{ mb: 2 }} />
                                 <Box sx={{ display: 'flex', gap: 1 }}>
-                                    <Button variant="contained" fullWidth onClick={handleSaveUpload} disabled={isUploading} sx={{ bgcolor: '#1a237e' }}> บันทึก </Button>
+                                    <Button variant="contained" fullWidth onClick={handleSaveUpload} disabled={isUploading} sx={{ bgcolor: '#043478' }}> บันทึก </Button>
                                     <Button variant="outlined" onClick={() => setFileToUpload(null)}>ยกเลิก</Button>
                                 </Box>
                             </Box>
@@ -453,7 +453,7 @@ export const CapexActualModal = ({ open, onClose, items, onRefresh, activeId }) 
             maxWidth="md"
             fullWidth
         >
-            <DialogTitle sx={{ bgcolor: '#1a237e', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 1 }}>
+            <DialogTitle sx={{ bgcolor: '#043478', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 1 }}>
                 <Typography sx={{ fontWeight: 'bold', color: 'white' }}>MANAGE CAPEX ACTUAL</Typography>
                 <IconButton onClick={onClose} sx={{ color: 'white' }}><CloseIcon /></IconButton>
             </DialogTitle>
@@ -469,11 +469,11 @@ export const CapexActualModal = ({ open, onClose, items, onRefresh, activeId }) 
                                     p: 4,
                                     textAlign: 'center',
                                     bgcolor: isDragging ? '#f0f4ff' : 'white',
-                                    borderColor: isDragging ? '#1a237e' : '#ccc',
+                                    borderColor: isDragging ? '#043478' : '#ccc',
                                     mb: 3,
                                     cursor: 'pointer',
                                     transition: 'all 0.2s',
-                                    '&:hover': { borderColor: '#1a237e', bgcolor: '#f0f4ff' }
+                                    '&:hover': { borderColor: '#043478', bgcolor: '#f0f4ff' }
                                 }}
                                 onClick={() => fileInputRef.current.click()}
                                 onDragOver={handleDragOver}
@@ -481,9 +481,9 @@ export const CapexActualModal = ({ open, onClose, items, onRefresh, activeId }) 
                                 onDrop={handleDrop}
                             >
                                 <input type="file" hidden ref={fileInputRef} onChange={(e) => handleFileChange(e.target.files[0])} accept=".xlsx" />
-                                <CloudUploadIcon sx={{ fontSize: 40, color: isDragging ? '#1a237e' : '#ccc', mb: 1 }} />
+                                <CloudUploadIcon sx={{ fontSize: 40, color: isDragging ? '#043478' : '#ccc', mb: 1 }} />
                                 <Typography variant="body2" color="text.secondary">ลากไฟล์มาวางที่นี่ หรือคลิกเพื่อค้นหา</Typography>
-                                <Button variant="contained" sx={{ mt: 2, borderRadius: '20px', bgcolor: '#1a237e' }}>เลือกไฟล์ .xlsx</Button>
+                                <Button variant="contained" sx={{ mt: 2, borderRadius: '20px', bgcolor: '#043478' }}>เลือกไฟล์ .xlsx</Button>
                             </Box>
                         ) : (
                             <Box sx={{ p: 2, bgcolor: 'white', borderRadius: '15px', border: '1px solid #e3e6f0' }}>
@@ -491,7 +491,7 @@ export const CapexActualModal = ({ open, onClose, items, onRefresh, activeId }) 
                                 <Typography variant="body2" sx={{ fontWeight: 'bold', mb: 2 }}>{fileToUpload.name}</Typography>
                                 <TextField fullWidth size="small" label="ชื่อ Version" value={versionName} onChange={(e) => setVersionName(e.target.value)} sx={{ mb: 2 }} />
                                 <Box sx={{ display: 'flex', gap: 1 }}>
-                                    <Button variant="contained" fullWidth onClick={handleSaveUpload} disabled={isUploading} sx={{ bgcolor: '#1a237e' }}> บันทึก </Button>
+                                    <Button variant="contained" fullWidth onClick={handleSaveUpload} disabled={isUploading} sx={{ bgcolor: '#043478' }}> บันทึก </Button>
                                     <Button variant="outlined" onClick={() => setFileToUpload(null)}>ยกเลิก</Button>
                                 </Box>
                             </Box>

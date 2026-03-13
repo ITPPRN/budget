@@ -126,13 +126,13 @@ func (s *server) Handlers() error {
 	s.DashboardSrv = _budgetSer.NewDashboardService(dashRepo, s.DeptSrv)
 	s.ActualSrv = _budgetSer.NewActualService(actualRepo, s.MasterDataSrv, s.DashboardSrv, s.DeptSrv)
 
-	// Owner Module
-	ownerRepo := _ownerRe.NewOwnerRepository(s.Db)
-	s.OwnerSrv = _ownerSer.NewOwnerService(ownerRepo, s.DashboardSrv, s.AuthSrv, s.CapexSrv)
-
 	// Capex Module
 	capexRepo := _capexRe.NewCapexRepositoryDB(s.Db)
 	s.CapexSrv = _capexSer.NewCapexService(capexRepo)
+
+	// Owner Module
+	ownerRepo := _ownerRe.NewOwnerRepository(s.Db)
+	s.OwnerSrv = _ownerSer.NewOwnerService(ownerRepo, s.AuthSrv, s.CapexSrv)
 
 	// --- Start Background Tasks (Cron) ---
 	s.StartCronJob()

@@ -44,12 +44,12 @@ const BudgetTable = React.memo(({ loading, data, selectedCount }) => {
                 <Table stickyHeader size={isMaximized ? "medium" : "small"} sx={{ minWidth: '100%' }}>
                     <TableHead>
                         <TableRow>
-                            <TableCell sx={{ bgcolor: '#4e73df', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)', whiteSpace: 'nowrap', position: 'sticky', left: 0, zIndex: 3, minWidth: 100 }}>GL Code</TableCell>
-                            <TableCell sx={{ bgcolor: '#4e73df', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)', minWidth: 200, whiteSpace: 'nowrap', position: 'sticky', left: 100, zIndex: 3 }}>GL Name</TableCell>
+                            <TableCell sx={{ bgcolor: '#5271ff', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)', whiteSpace: 'nowrap', position: 'sticky', left: 0, zIndex: 3, minWidth: 100 }}>GL Code</TableCell>
+                            <TableCell sx={{ bgcolor: '#5271ff', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)', minWidth: 200, whiteSpace: 'nowrap', position: 'sticky', left: 100, zIndex: 3 }}>GL Name</TableCell>
                             {months.map(m => (
-                                <TableCell key={m} align="right" sx={{ bgcolor: '#4e73df', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)', whiteSpace: 'nowrap' }}>{m}</TableCell>
+                                <TableCell key={m} align="right" sx={{ bgcolor: '#5271ff', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)', whiteSpace: 'nowrap' }}>{m}</TableCell>
                             ))}
-                            <TableCell align="right" sx={{ bgcolor: '#4e73df', color: 'white', fontWeight: 'bold', whiteSpace: 'nowrap' }}>Total</TableCell>
+                            <TableCell align="right" sx={{ bgcolor: '#5271ff', color: 'white', fontWeight: 'bold', whiteSpace: 'nowrap' }}>Total</TableCell>
                         </TableRow>
                     </TableHead>
                     <TableBody>
@@ -130,7 +130,7 @@ const BudgetTable = React.memo(({ loading, data, selectedCount }) => {
             overflow: 'hidden'
         }}>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2, px: 1 }}>
-                <Box sx={{ bgcolor: '#2563eb', px: 2, py: 0.5, borderRadius: '8px' }}>
+                <Box sx={{ bgcolor: '#5271ff', px: 2, py: 0.5, borderRadius: '8px' }}>
                     <Typography variant="h6" sx={{ color: 'white', fontWeight: 'bold' }}>
                         Budget Detail
                     </Typography>
@@ -155,7 +155,7 @@ const BudgetTable = React.memo(({ loading, data, selectedCount }) => {
                 onClose={() => setOpenFullScreen(false)}
                 fullScreen
             >
-                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', bgcolor: '#2563eb', p: 2 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', bgcolor: '#5271ff', p: 2 }}>
                     <Typography variant="h6" sx={{ color: 'white', fontWeight: 'bold' }}>
                         Budget Detail (Full Screen)
                     </Typography>

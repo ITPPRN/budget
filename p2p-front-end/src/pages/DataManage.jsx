@@ -257,10 +257,16 @@ const DataManagePage = () => {
         </Box>
       </Box>
 
-      {/* 2. Main Logic Area */}
-      <Grid container spacing={3} sx={{ width: '100%', flexWrap: 'nowrap' }}>
-        {/* Left Column: Version Selections */}
-        <Grid item xs={6} sx={{ minWidth: 0, maxWidth: '50%', flexBasis: '50%' }}>
+      {/* 2. Main Logic Area - Using CSS Grid for absolute 2x2 stability */}
+      <Box sx={{ 
+        display: 'grid', 
+        gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, 
+        gap: 3,
+        alignItems: 'stretch'
+      }}>
+        
+        {/* Card 1: Budget & CAPEX Versions */}
+        <Box>
           <Paper
             elevation={0}
             sx={{
@@ -298,7 +304,7 @@ const DataManagePage = () => {
 
               {/* Budget Version */}
               <Box sx={{ mb: 5 }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5, flexWrap: 'wrap', gap: 1 }}>
                   <Typography variant="subtitle2" sx={{ fontWeight: 'bold', color: 'text.secondary', fontSize: '0.75rem', letterSpacing: '0.05rem' }}>
                     BUDGET VERSION
                   </Typography>
@@ -312,7 +318,7 @@ const DataManagePage = () => {
                     จัดการ Version
                   </Button>
                 </Box>
-                <Box sx={{ display: 'flex', gap: 1 }}>
+                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                   <Select
                     size="small"
                     value={selectedBudget}
@@ -322,6 +328,8 @@ const DataManagePage = () => {
                     sx={{
                       borderRadius: '12px',
                       bgcolor: '#fcfcfc',
+                      flex: 1,
+                      minWidth: { xs: '100%', md: '200px' },
                       '& .MuiOutlinedInput-notchedOutline': { borderColor: '#e0e0e0' },
                       '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#1a237e' }
                     }}
@@ -352,7 +360,7 @@ const DataManagePage = () => {
               </Typography>
 
               <Box sx={{ mb: 3, pl: 0 }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1, flexWrap: 'wrap', gap: 1 }}>
                   <Typography variant="caption" sx={{ fontWeight: 'bold', color: 'text.secondary' }}>CAPEX PLAN (แผนงบประมาณ)</Typography>
                   <Button
                     variant="text"
@@ -364,7 +372,7 @@ const DataManagePage = () => {
                     จัดการ Version
                   </Button>
                 </Box>
-                <Box sx={{ display: 'flex', gap: 1 }}>
+                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                   <Select
                     size="small"
                     value={selectedCapexBg}
@@ -374,6 +382,8 @@ const DataManagePage = () => {
                     sx={{
                       borderRadius: '12px',
                       bgcolor: '#fcfcfc',
+                      flex: 1,
+                      minWidth: { xs: '100%', md: '200px' },
                       '& .MuiOutlinedInput-notchedOutline': { borderColor: '#e0e0e0' }
                     }}
                   >
@@ -393,8 +403,8 @@ const DataManagePage = () => {
                 </Box>
               </Box>
 
-              <Box sx={{ pl: 0 }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+              <Box sx={{ pl: 0, mb: 2 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1, flexWrap: 'wrap', gap: 1 }}>
                   <Typography variant="caption" sx={{ fontWeight: 'bold', color: 'text.secondary' }}>CAPEX ACTUAL (ข้อมูลจริง)</Typography>
                   <Button
                     variant="text"
@@ -406,7 +416,7 @@ const DataManagePage = () => {
                     จัดการ Version
                   </Button>
                 </Box>
-                <Box sx={{ display: 'flex', gap: 1 }}>
+                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                   <Select
                     size="small"
                     value={selectedCapexActual}
@@ -416,6 +426,8 @@ const DataManagePage = () => {
                     sx={{
                       borderRadius: '12px',
                       bgcolor: '#fcfcfc',
+                      flex: 1,
+                      minWidth: { xs: '100%', md: '200px' },
                       '& .MuiOutlinedInput-notchedOutline': { borderColor: '#e0e0e0' }
                     }}
                   >
@@ -436,24 +448,23 @@ const DataManagePage = () => {
               </Box>
             </Box>
           </Paper>
-        </Grid>
+        </Box>
 
-        {/* Right Column: Operational Actuals */}
-        <Grid item xs={6} sx={{ minWidth: 0, maxWidth: '50%', flexBasis: '50%' }}>
+        {/* Card 2: Database Actuals Selection */}
+        <Box>
           <Paper elevation={0}
             sx={{
               p: 4,
               borderRadius: '20px',
               border: '1px solid #e3e6f0',
-              width: '100%',
               height: '100%',
               display: 'flex',
               flexDirection: 'column',
               position: 'relative',
-              overflow: 'hidden'
+              overflow: 'hidden',
+              bgcolor: 'white',
+              boxShadow: '0 10px 30px rgba(0,0,0,0.03)'
             }}>
-
-            {/* Background Decorative Circle */}
             <Box sx={{
               position: 'absolute',
               top: -50,
@@ -476,7 +487,6 @@ const DataManagePage = () => {
               <Typography variant="subtitle2" sx={{ fontWeight: 'bold', color: 'text.secondary', mb: 1.5, fontSize: '0.75rem', letterSpacing: '0.05rem' }}>
                 SELECT FISCAL YEAR
               </Typography>
-              ;
               <Select
                 size="small"
                 value={actualYear}
@@ -513,40 +523,41 @@ const DataManagePage = () => {
                 )}
               </Box>
 
-              <Grid container spacing={1.5}>
+              {/* Robust Grid for Months */}
+              <Box sx={{ 
+                display: 'grid', 
+                gridTemplateColumns: { xs: 'repeat(2, 1fr)', sm: 'repeat(3, 1fr)', md: 'repeat(4, 1fr)' }, 
+                gap: 1 
+              }}>
                 {MONTHS.map((month) => {
                   const isSelected = selectedMonths.includes(month);
                   return (
-                    <Grid item xs={12} sm={6} md={4} key={month}>
-                      <Button
-                        fullWidth
-                        variant={isSelected ? "contained" : "outlined"}
-                        onClick={() => toggleMonth(month)}
-                        sx={{
-                          height: '45px',
-                          borderRadius: '10px',
-                          textTransform: 'none',
-                          fontSize: '0.85rem',
-                          fontWeight: isSelected ? 'bold' : 500,
-                          bgcolor: isSelected ? '#1a237e' : 'white',
-                          color: isSelected ? 'white' : '#1a237e',
-                          borderColor: isSelected ? 'transparent' : '#eceff1',
-                          boxShadow: isSelected ? '0 4px 12px rgba(26, 35, 126, 0.2)' : 'none',
-                          '&:hover': {
-                            bgcolor: isSelected ? '#283593' : '#f5f5f5',
-                            borderColor: '#1a237e',
-                            transform: 'translateY(-1px)',
-                            boxShadow: isSelected ? '0 6px 15px rgba(26, 35, 126, 0.3)' : '0 2px 5px rgba(0,0,0,0.05)',
-                          },
-                          transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
-                        }}
-                      >
-                        {month}
-                      </Button>
-                    </Grid>
+                    <Button
+                      key={month}
+                      fullWidth
+                      variant={isSelected ? "contained" : "outlined"}
+                      onClick={() => toggleMonth(month)}
+                      sx={{
+                        height: '36px',
+                        minWidth: 'auto',
+                        borderRadius: '8px',
+                        textTransform: 'none',
+                        fontSize: '0.75rem',
+                        fontWeight: isSelected ? 'bold' : 500,
+                        bgcolor: isSelected ? '#043478' : 'white',
+                        color: isSelected ? 'white' : '#043478',
+                        borderColor: isSelected ? 'transparent' : '#eceff1',
+                        '&:hover': {
+                          bgcolor: isSelected ? '#043478' : '#f5f5f5',
+                          borderColor: '#043478'
+                        }
+                      }}
+                    >
+                      {month}
+                    </Button>
                   );
                 })}
-              </Grid>
+              </Box>
 
               <Button
                 variant="contained"
@@ -557,77 +568,92 @@ const DataManagePage = () => {
               >
                 {loadingUpdate.dbActuals ? <CircularProgress size={20} color="inherit" /> : 'อัปเดตการตั้งค่า'}
               </Button>
-
-              <Divider sx={{ my: 4, borderStyle: 'dashed' }} />
-
-              <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 3, display: 'flex', alignItems: 'center', gap: 1.5, color: '#1a237e', position: 'relative', zIndex: 1 }}>
-                <Avatar sx={{ bgcolor: '#e8eaf6', width: 32, height: 32 }}>
-                  <InsertDriveFileIcon sx={{ color: '#1a237e', fontSize: 20 }} />
-                </Avatar>
-                GL Mapping Config
-              </Typography>
-
-              <Box sx={{ position: 'relative', zIndex: 1 }}>
-                <Button
-                  variant="outlined"
-                  fullWidth
-                  onClick={() => handleOpenModal('MAP_GL', 'MANAGE GL MAPPING')}
-                  sx={{
-                    height: '45px',
-                    borderRadius: '12px',
-                    textTransform: 'none',
-                    fontSize: '0.85rem',
-                    fontWeight: 'bold',
-                    borderColor: '#1a237e',
-                    color: '#1a237e',
-                    '&:hover': {
-                      bgcolor: 'rgba(26, 35, 126, 0.04)',
-                      borderColor: '#283593'
-                    }
-                  }}
-                  startIcon={<EditIcon />}
-                >
-                  จัดการ GL Mapping
-                </Button>
-              </Box>
-
-              <Divider sx={{ my: 4, borderStyle: 'dashed' }} />
-
-              <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 3, display: 'flex', alignItems: 'center', gap: 1.5, color: '#1a237e', position: 'relative', zIndex: 1 }}>
-                <Avatar sx={{ bgcolor: '#e8eaf6', width: 32, height: 32 }}>
-                  <InsertDriveFileIcon sx={{ color: '#1a237e', fontSize: 20 }} />
-                </Avatar>
-                Filter Pane Config (Budget Structure)
-              </Typography>
-
-              <Box sx={{ position: 'relative', zIndex: 1 }}>
-                <Button
-                  variant="outlined"
-                  fullWidth
-                  onClick={() => handleOpenModal('BUDGET_STRUCTURE', 'MANAGE BUDGET STRUCTURE')}
-                  sx={{
-                    height: '45px',
-                    borderRadius: '12px',
-                    textTransform: 'none',
-                    fontSize: '0.85rem',
-                    fontWeight: 'bold',
-                    borderColor: '#1a237e',
-                    color: '#1a237e',
-                    '&:hover': {
-                      bgcolor: 'rgba(26, 35, 126, 0.04)',
-                      borderColor: '#1a237e'
-                    }
-                  }}
-                  startIcon={<EditIcon />}
-                >
-                  จัดการ Filter Pane
-                </Button>
-              </Box>
-
             </Box>
           </Paper>
-        </Grid>
-      </Grid>
+        </Box>
+
+        {/* Card 3: Filter Pane Config */}
+        <Box>
+          <Paper elevation={0}
+            sx={{
+              p: 4,
+              borderRadius: '20px',
+              border: '1px solid #e3e6f0',
+              height: '100%',
+              bgcolor: 'white',
+              boxShadow: '0 10px 30px rgba(0,0,0,0.03)'
+            }}>
+            <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 3, display: 'flex', alignItems: 'center', gap: 1.5, color: '#043478' }}>
+              <Avatar sx={{ bgcolor: '#e8eaf6', width: 32, height: 32 }}>
+                <InsertDriveFileIcon sx={{ color: '#043478', fontSize: 20 }} />
+              </Avatar>
+              Filter Pane Config
+            </Typography>
+
+            <Button
+              variant="outlined"
+              fullWidth
+              onClick={() => handleOpenModal('BUDGET_STRUCTURE', 'MANAGE BUDGET STRUCTURE')}
+              sx={{
+                height: '45px',
+                borderRadius: '12px',
+                textTransform: 'none',
+                fontWeight: 'bold',
+                borderColor: '#043478',
+                color: '#043478',
+                '&:hover': {
+                  bgcolor: 'rgba(4, 52, 120, 0.04)',
+                  borderColor: '#043478'
+                }
+              }}
+              startIcon={<EditIcon />}
+            >
+              จัดการ Filter Pane
+            </Button>
+          </Paper>
+        </Box>
+
+        {/* Card 4: GL Mapping Config */}
+        <Box>
+          <Paper elevation={0}
+            sx={{
+              p: 4,
+              borderRadius: '20px',
+              border: '1px solid #e3e6f0',
+              height: '100%',
+              bgcolor: 'white',
+              boxShadow: '0 10px 30px rgba(0,0,0,0.03)'
+            }}>
+            <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 3, display: 'flex', alignItems: 'center', gap: 1.5, color: '#043478' }}>
+              <Avatar sx={{ bgcolor: '#e8eaf6', width: 32, height: 32 }}>
+                <InsertDriveFileIcon sx={{ color: '#043478', fontSize: 20 }} />
+              </Avatar>
+              GL Mapping Config
+            </Typography>
+
+            <Button
+              variant="outlined"
+              fullWidth
+              onClick={() => handleOpenModal('MAP_GL', 'MANAGE GL MAPPING')}
+              sx={{
+                height: '45px',
+                borderRadius: '12px',
+                textTransform: 'none',
+                fontWeight: 'bold',
+                borderColor: '#043478',
+                color: '#043478',
+                '&:hover': {
+                  bgcolor: 'rgba(4, 52, 120, 0.04)',
+                  borderColor: '#043478'
+                }
+              }}
+              startIcon={<EditIcon />}
+            >
+              จัดการ GL Mapping
+            </Button>
+          </Paper>
+        </Box>
+      </Box>
 
       {/* --- Specialized Management Modals --- */}
       <BudgetVersionModal

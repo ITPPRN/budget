@@ -1,6 +1,7 @@
 
 import React from 'react';
-import { Paper, Typography, Box, Chip } from '@mui/material'; // Added Chip
+import { Paper, Typography, Box, Chip, IconButton } from '@mui/material'; // Added Chip, IconButton
+import DownloadIcon from '@mui/icons-material/Download';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 const BudgetChart = ({ data, title, selectedDept }) => {
@@ -10,12 +11,17 @@ const BudgetChart = ({ data, title, selectedDept }) => {
                 <Typography variant="h6">
                     {title || "Budget vs Actual"}
                 </Typography>
-                <Chip
-                    label={`DEP: ${selectedDept || 'ALL'}`}
-                    color="primary"
-                    variant={selectedDept && selectedDept !== 'ALL' ? "filled" : "outlined"}
-                    size="small" // Optional: makes it look neater
-                />
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Chip
+                        label={`DEP: ${selectedDept || 'ALL'}`}
+                        color="primary"
+                        variant={selectedDept && selectedDept !== 'ALL' ? "filled" : "outlined"}
+                        size="small" // Optional: makes it look neater
+                    />
+                    <IconButton size="small" sx={{ color: 'primary.main' }}>
+                        <DownloadIcon sx={{ fontSize: 20 }} />
+                    </IconButton>
+                </Box>
             </Box>
             <Box sx={{ flexGrow: 1, minHeight: 300, width: '100%', minWidth: 0 }}>
                 <ResponsiveContainer width="100%" height="100%">

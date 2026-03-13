@@ -77,13 +77,13 @@ const ActualTable = React.memo(({
                 <Table stickyHeader size={isMaximized ? "medium" : "small"} sx={{ minWidth: '100%' }}>
                     <TableHead>
                         <TableRow>
-                            <TableCell sx={{ bgcolor: '#0388d1', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)' }}>GL Code</TableCell>
-                            <TableCell sx={{ bgcolor: '#0388d1', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)' }}>GL Name</TableCell>
-                            <TableCell sx={{ bgcolor: '#0388d1', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)' }}>Doc No.</TableCell>
-                            <TableCell align="right" sx={{ bgcolor: '#0388d1', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)' }}>Amount</TableCell>
-                            <TableCell sx={{ bgcolor: '#0388d1', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)' }}>Vendor</TableCell>
-                            <TableCell sx={{ bgcolor: '#0388d1', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)' }}>Description</TableCell>
-                            <TableCell sx={{ bgcolor: '#0388d1', color: 'white', fontWeight: 'bold' }}>Date</TableCell>
+                            <TableCell sx={{ bgcolor: '#043478', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)' }}>GL Code</TableCell>
+                            <TableCell sx={{ bgcolor: '#043478', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)' }}>GL Name</TableCell>
+                            <TableCell sx={{ bgcolor: '#043478', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)' }}>Doc No.</TableCell>
+                            <TableCell align="right" sx={{ bgcolor: '#043478', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)' }}>Amount</TableCell>
+                            <TableCell sx={{ bgcolor: '#043478', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)' }}>Vendor</TableCell>
+                            <TableCell sx={{ bgcolor: '#043478', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)' }}>Description</TableCell>
+                            <TableCell sx={{ bgcolor: '#043478', color: 'white', fontWeight: 'bold' }}>Date</TableCell>
                         </TableRow>
                     </TableHead>
                     <TableBody>
@@ -159,7 +159,7 @@ const ActualTable = React.memo(({
             overflow: 'hidden'
         }}>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2, px: 1 }}>
-                <Box sx={{ bgcolor: '#0388d1', px: 2, py: 0.5, borderRadius: '8px' }}>
+                <Box sx={{ bgcolor: '#043478', px: 2, py: 0.5, borderRadius: '8px' }}>
                     <Typography variant="h6" sx={{ color: 'white', fontWeight: 'bold' }}>
                         Actual Detail
                     </Typography>
@@ -232,7 +232,7 @@ const ActualTable = React.memo(({
                 onClose={() => setOpenFullScreen(false)}
                 fullScreen
             >
-                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', bgcolor: '#0388d1', p: 2 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', bgcolor: '#043478', p: 2 }}>
                     <Typography variant="h6" sx={{ color: 'white', fontWeight: 'bold' }}>
                         Actual Detail (Full Screen)
                     </Typography>

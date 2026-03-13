@@ -2,6 +2,7 @@ import React from 'react';
 import { Paper, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Box, TablePagination, TableSortLabel, IconButton, Button } from '@mui/material';
 import FlagIcon from '@mui/icons-material/Flag';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import DownloadIcon from '@mui/icons-material/Download';
 
 const DepartmentTable = ({ data, count, page, rowsPerPage, onPageChange, onRowsPerPageChange, orderBy, order, onRequestSort, selectedDept, onRowClick, onBack }) => {
     // Helper to format numbers (Always in MB)
@@ -50,6 +51,9 @@ const DepartmentTable = ({ data, count, page, rowsPerPage, onPageChange, onRowsP
                         {selectedDept ? `Department: ${selectedDept}` : 'Department Budget Status (Top Spenders)'}
                     </Typography>
                 </Box>
+                <IconButton size="small" sx={{ color: 'primary.main' }}>
+                    <DownloadIcon sx={{ fontSize: 20 }} />
+                </IconButton>
             </Box>
 
             <TableContainer sx={{ flexGrow: 1, overflow: 'auto' }}>

@@ -171,6 +171,8 @@ const OwnerDashboard = () => {
     const [filterYears, setFilterYears] = useState([]);
     const [accountFilters, setAccountFilters] = useState([]); // Storage from GetBudgetFilterOptions
 
+
+
     // Derived Branches based on Entity Selection
     const availableBranches = React.useMemo(() => {
         if (!selectedCompany || selectedCompany === 'All' || !Array.isArray(orgStructure)) return [];
@@ -258,17 +260,6 @@ const OwnerDashboard = () => {
                     overBudgetCount: result.over_budget_count || 0,
                     nearLimitCount: result.near_limit_count || 0
                 }));
-
-                // Also update the local state if used for table/others
-                if (result.department_data) {
-                    setDepartmentData(result.department_data.map(d => ({
-                        name: d.department,
-                        budget: d.budget,
-                        spending: d.actual,
-                        deptRaw: d.department
-                    })));
-                    setTotalCount(result.total_count || 0);
-                }
             }
         } catch (err) {
             console.error("Owner Dashboard Fetch Error", err);
