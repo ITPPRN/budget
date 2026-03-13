@@ -297,7 +297,7 @@ func (r *dashboardRepository) GetActualTransactions(filter map[string]interface{
 	fmt.Printf("[DEBUG] GetActualTransactions Total Found: %d\n", total)
 
 	var results []models.ActualTransactionDTO
-	if err := query.Order("actual_transaction_entities.posting_date DESC, actual_transaction_entities.doc_no DESC").
+	if err := query.Order("actual_transaction_entities.posting_date ASC, actual_transaction_entities.doc_no ASC").
 		Limit(limit).Offset(offset).Scan(&results).Error; err != nil {
 		fmt.Printf("[ERROR] GetActualTransactions Scan: %v\n", err)
 		return nil, err

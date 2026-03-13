@@ -459,8 +459,8 @@ type ActualTransactionEntity struct {
 	Entity     string `gorm:"index" json:"entity"`
 	Branch     string `gorm:"index" json:"branch"`
 	Department string `gorm:"index" json:"department"`
-	EntityGL   string `gorm:"index" json:"entity_gl"`
-	ConsoGL    string `gorm:"index" json:"conso_gl"`
+	EntityGL   string `gorm:"index;column:entity_gl" json:"entity_gl"`
+	ConsoGL    string `gorm:"index;column:conso_gl" json:"conso_gl"`
 	Year       string `gorm:"index" json:"year"`
 
 	// Status

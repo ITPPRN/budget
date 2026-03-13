@@ -23,6 +23,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import DownloadIcon from '@mui/icons-material/Download';
 
+
 const ActualTable = React.memo(({
     loading,
     data = [],
@@ -78,7 +79,7 @@ const ActualTable = React.memo(({
                     <TableHead>
                         <TableRow>
                             <TableCell sx={{ bgcolor: '#043478', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)' }}>GL Code</TableCell>
-                            <TableCell sx={{ bgcolor: '#043478', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)' }}>GL Name</TableCell>
+                            <TableCell sx={{ bgcolor: '#043478', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)' }}>Account Name</TableCell>
                             <TableCell sx={{ bgcolor: '#043478', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)' }}>Doc No.</TableCell>
                             <TableCell align="right" sx={{ bgcolor: '#043478', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)' }}>Amount</TableCell>
                             <TableCell sx={{ bgcolor: '#043478', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)' }}>Vendor</TableCell>
@@ -102,8 +103,8 @@ const ActualTable = React.memo(({
                         ) : paginatedData.length > 0 ? (
                             paginatedData.map((row, index) => (
                                 <TableRow key={index} hover>
-                                    <TableCell sx={{ borderRight: '1px solid #e0e0e0' }}>{row.gl_account_no}</TableCell>
-                                    <TableCell sx={{ borderRight: '1px solid #e0e0e0' }}>{row.gl_account_name || "-"}</TableCell>
+                                    <TableCell sx={{ borderRight: '1px solid #e0e0e0', fontSize: '0.85rem' }}>{row.conso_gl}</TableCell>
+                                    <TableCell sx={{ borderRight: '1px solid #e0e0e0', fontSize: '0.85rem' }}>{row.gl_account_name}</TableCell>
                                     <TableCell sx={{ borderRight: '1px solid #e0e0e0' }}>{row.document_no}</TableCell>
                                     <TableCell align="right" sx={{ fontWeight: 'bold', color: parseFloat(row.amount) < 0 ? 'red' : 'green', borderRight: '1px solid #e0e0e0' }}>
                                         {parseFloat(row.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -115,7 +116,8 @@ const ActualTable = React.memo(({
                             ))
                         ) : (
                             <TableRow>
-                                <TableCell colSpan={7} align="center" sx={{ py: 5, color: 'text.secondary' }}>
+                                <TableCell colSpan={6} align="center" sx={{ py: 5, color: 'text.secondary' }}>
+
                                     No actual data found for selected filters
                                 </TableCell>
                             </TableRow>
@@ -165,7 +167,7 @@ const ActualTable = React.memo(({
                     </Typography>
                 </Box>
                 <Box>
-                    <Box sx={{ display: 'flex', gap: 1 }}>
+                    <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
                     <IconButton onClick={handleFilterClick} size="small" sx={{ color: '#424242'}}>
                         <FilterListIcon />
                     </IconButton>

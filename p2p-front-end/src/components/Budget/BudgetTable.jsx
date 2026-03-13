@@ -44,8 +44,8 @@ const BudgetTable = React.memo(({ loading, data, selectedCount }) => {
                 <Table stickyHeader size={isMaximized ? "medium" : "small"} sx={{ minWidth: '100%' }}>
                     <TableHead>
                         <TableRow>
-                            <TableCell sx={{ bgcolor: '#5271ff', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)', whiteSpace: 'nowrap', position: 'sticky', left: 0, zIndex: 3, minWidth: 100 }}>GL Code</TableCell>
-                            <TableCell sx={{ bgcolor: '#5271ff', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)', minWidth: 200, whiteSpace: 'nowrap', position: 'sticky', left: 100, zIndex: 3 }}>GL Name</TableCell>
+                            <TableCell sx={{ bgcolor: '#5271ff', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)', whiteSpace: 'nowrap', position: 'sticky', left: 0, zIndex: 3, minWidth: 150 }}>GL Code</TableCell>
+                            <TableCell sx={{ bgcolor: '#5271ff', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)', minWidth: 200, whiteSpace: 'nowrap', position: 'sticky', left: 150, zIndex: 3 }}>Account Name</TableCell>
                             {months.map(m => (
                                 <TableCell key={m} align="right" sx={{ bgcolor: '#5271ff', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)', whiteSpace: 'nowrap' }}>{m}</TableCell>
                             ))}
@@ -56,8 +56,8 @@ const BudgetTable = React.memo(({ loading, data, selectedCount }) => {
                         {loading ? (
                             Array.from(new Array(10)).map((_, index) => (
                                 <TableRow key={index}>
-                                    <TableCell sx={{ position: 'sticky', left: 0, bgcolor: 'background.paper', zIndex: 1, minWidth: 100 }}><Skeleton variant="text" width={80} /></TableCell>
-                                    <TableCell sx={{ position: 'sticky', left: 100, bgcolor: 'background.paper', zIndex: 1 }}><Skeleton variant="text" width={150} /></TableCell>
+                                    <TableCell sx={{ position: 'sticky', left: 0, bgcolor: 'background.paper', zIndex: 1, minWidth: 150 }}><Skeleton variant="text" width={130} /></TableCell>
+                                    <TableCell sx={{ position: 'sticky', left: 150, bgcolor: 'background.paper', zIndex: 1 }}><Skeleton variant="text" width={180} /></TableCell>
                                     {months.map(m => (
                                         <TableCell key={m}><Skeleton variant="text" /></TableCell>
                                     ))}
@@ -73,8 +73,8 @@ const BudgetTable = React.memo(({ loading, data, selectedCount }) => {
 
                                 return (
                                     <TableRow key={row.conso_gl} hover>
-                                        <TableCell sx={{ whiteSpace: 'nowrap', borderRight: '1px solid #e0e0e0', position: 'sticky', left: 0, bgcolor: 'background.paper', zIndex: 1, minWidth: 100 }}>{row.conso_gl || "-"}</TableCell>
-                                        <TableCell sx={{ whiteSpace: 'nowrap', borderRight: '1px solid #e0e0e0', position: 'sticky', left: 100, bgcolor: 'background.paper', zIndex: 1 }}>{row.gl_name}</TableCell>
+                                        <TableCell sx={{ whiteSpace: 'nowrap', borderRight: '1px solid #e0e0e0', position: 'sticky', left: 0, bgcolor: 'background.paper', zIndex: 1, minWidth: 150 }}>{row.conso_gl || "-"}</TableCell>
+                                        <TableCell sx={{ whiteSpace: 'nowrap', borderRight: '1px solid #e0e0e0', position: 'sticky', left: 150, bgcolor: 'background.paper', zIndex: 1 }}>{row.gl_name}</TableCell>
                                         {months.map(m => (
                                             <TableCell key={m} align="right" sx={{ whiteSpace: 'nowrap', borderRight: '1px solid #e0e0e0' }}>
                                                 {parseFloat(amountMap[m] || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -88,7 +88,7 @@ const BudgetTable = React.memo(({ loading, data, selectedCount }) => {
                             })
                         ) : (
                             <TableRow>
-                                <TableCell colSpan={15} align="center" sx={{ py: 5, color: 'text.secondary' }}>
+                                <TableCell colSpan={14} align="center" sx={{ py: 5, color: 'text.secondary' }}>
                                     {selectedCount === 0 ? "Select items from the Filter Pane to view details" : "No data found for selected filters"}
                                 </TableCell>
                             </TableRow>

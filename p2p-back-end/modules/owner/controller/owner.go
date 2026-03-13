@@ -19,6 +19,7 @@ func NewOwnerController(r fiber.Router, service models.OwnerService) {
 	r.Get("/budget-filters", controller.GetFilterOptions)
 	r.Get("/organization-structure", controller.GetOrganizationStructure)
 	r.Get("/filter-lists", controller.GetOwnerFilterLists)
+	r.Get("/actual-years", controller.GetActualYears)
 	r.Post("/actual-transactions", controller.GetActualTransactions)
 }
 
@@ -89,3 +90,13 @@ func (c *ownerController) GetActualTransactions(ctx *fiber.Ctx) error {
 	}
 	return ctx.JSON(txs)
 }
+
+func (c *ownerController) GetActualYears(ctx *fiber.Ctx) error {
+	user := ctx.Locals("user").(*models.UserInfo)
+	years, err := c.ownerService.GetActualYears(user)
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	return ctx.JSON(years)
+}
+

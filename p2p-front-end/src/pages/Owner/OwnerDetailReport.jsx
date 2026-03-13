@@ -35,16 +35,23 @@ const OwnerDetailContent = () => {
     const [selectedEntity, setSelectedEntity] = useState('');
     const [selectedBranch, setSelectedBranch] = useState('');
     const [selectedDepartment, setSelectedDepartment] = useState('');
+    const [selectedActualYear, setSelectedActualYear] = useState('');
     const [orgStructure, setOrgStructure] = useState([]);
+    const [actualYears, setActualYears] = useState([]);
+
+
 
     // Fetch Filter Options
     useEffect(() => {
         const fetchFilters = async () => {
             try {
-                // For Owner, we might want to use the owner specific endpoint if it exists
-                // like '/owner/organization-structure' or just reuse the standard one
-                const res = await api.get('/owner/organization-structure');
-                setOrgStructure(res.data || []);
+                const [orgRes, yearRes] = await Promise.all([
+                    api.get('/owner/organization-structure'),
+                    api.get('/owner/actual-years')
+                ]);
+                setOrgStructure(orgRes.data || []);
+                setActualYears(yearRes.data || []);
+
             } catch (err) {
                 console.error("Filter Fetch Error", err);
             }
@@ -100,6 +107,7 @@ const OwnerDetailContent = () => {
                     entities: selectedEntity ? [selectedEntity] : [],
                     branches: selectedBranch ? [selectedBranch] : [],
                     departments: selectedDepartment ? [selectedDepartment] : [],
+                    year: selectedActualYear, // Use the independent year filter
                     page: actualPage + 1,
                     limit: actualRowsPerPage
                 };
@@ -154,7 +162,7 @@ const OwnerDetailContent = () => {
             isMounted = false;
             clearTimeout(timeoutId);
         };
-    }, [selectedLeaves, getAllLeafIds, actualDateFilter, selectedEntity, selectedBranch, selectedDepartment, actualPage, actualRowsPerPage]);
+    }, [selectedLeaves, getAllLeafIds, actualDateFilter, selectedEntity, selectedBranch, selectedDepartment, actualPage, actualRowsPerPage, selectedActualYear]);
 
 
     if (!user) {
@@ -170,33 +178,28 @@ const OwnerDetailContent = () => {
                 </Box>
 
                 {/* Filter UI */}
-                <Stack direction="row" spacing={2} sx={{ minWidth: 300 }}>
-                    {/* Department Filter (Moved to Front & Selectable) */}
-                    <FormControl size="small" sx={{ minWidth: 200, bgcolor: 'white', borderRadius: 1 }}>
-                        <InputLabel>Department (แผนก)</InputLabel>
+                <Stack direction="row" spacing={2} sx={{ minWidth: 800 }}>
+                    {/* Independent Year Filter (Actual Only) */}
+                    <FormControl size="small" sx={{ minWidth: 120, bgcolor: 'white', borderRadius: 1 }}>
+                        <InputLabel id="actual-year-label" shrink={!!selectedActualYear}>Year (ปี)</InputLabel>
                         <Select
-                            value={selectedDepartment}
-                            label="Department (แผนก)"
-                            onChange={(e) => setSelectedDepartment(e.target.value)}
+                            labelId="actual-year-label"
+                            value={selectedActualYear}
+                            label="Year (ปี)"
+                            onChange={(e) => setSelectedActualYear(e.target.value)}
                         >
-                            <MenuItem value=""><em>All Departments</em></MenuItem>
-                            {/* If availableDepartments is populated based on entity/branch selection, show those */}
-                            {availableDepartments.length > 0 ? (
-                                availableDepartments.map((dept) => (
-                                    <MenuItem key={dept} value={dept}>{dept}</MenuItem>
-                                ))
-                            ) : (
-                                // Fallback: If user has a department and nothing else selected
-                                !!userDepartment && selectedDepartment === userDepartment && (
-                                    <MenuItem value={selectedDepartment}>{selectedDepartment}</MenuItem>
-                                )
-                            )}
+                            <MenuItem value="">FY All</MenuItem>
+                            {actualYears.map((year) => (
+                                <MenuItem key={year} value={year}>{`FY ${year}`}</MenuItem>
+                            ))}
                         </Select>
                     </FormControl>
 
+                    {/* Entity Filter (Primary) */}
                     <FormControl size="small" sx={{ minWidth: 200, bgcolor: 'white', borderRadius: 1 }}>
-                        <InputLabel>Entity (บริษัท)</InputLabel>
+                        <InputLabel id="entity-label" shrink={!!selectedEntity}>Entity (บริษัท)</InputLabel>
                         <Select
+                            labelId="entity-label"
                             value={selectedEntity}
                             label="Entity (บริษัท)"
                             onChange={(e) => {
@@ -205,16 +208,18 @@ const OwnerDetailContent = () => {
                             }}
                             disabled={!!userEntity} // Locked if user has entity
                         >
-                            <MenuItem value=""><em>All Entities</em></MenuItem>
+                            <MenuItem value="">All Entities</MenuItem>
                             {orgStructure.map((org) => (
                                 <MenuItem key={org.entity} value={org.entity}>{org.entity}</MenuItem>
                             ))}
                         </Select>
                     </FormControl>
 
+                    {/* Branch Filter (Secondary) */}
                     <FormControl size="small" sx={{ minWidth: 200, bgcolor: 'white', borderRadius: 1 }}>
-                        <InputLabel>Branch (สาขา)</InputLabel>
+                        <InputLabel id="branch-label" shrink={!!selectedBranch}>Branch (สาขา)</InputLabel>
                         <Select
+                            labelId="branch-label"
                             value={selectedBranch}
                             label="Branch (สาขา)"
                             onChange={(e) => {
@@ -222,13 +227,36 @@ const OwnerDetailContent = () => {
                             }}
                             disabled={!!userBranch || (!selectedEntity && !userEntity)} // Locked if user has branch
                         >
-                            <MenuItem value=""><em>All Branches</em></MenuItem>
-                            {!!userBranch && selectedBranch && availableBranches.length === 0 && (
-                                <MenuItem value={selectedBranch}>{selectedBranch}</MenuItem>
-                            )}
+                            <MenuItem value="">All Branches</MenuItem>
                             {availableBranches.map((branch) => (
                                 <MenuItem key={branch.name} value={branch.name}>{branch.name}</MenuItem>
                             ))}
+                        </Select>
+                    </FormControl>
+
+                    {/* Department Filter (Tertiary) */}
+                    <FormControl size="small" sx={{ minWidth: 200, bgcolor: 'white', borderRadius: 1 }}>
+                        <InputLabel id="dept-label" shrink={!!selectedDepartment}>Department (แผนก)</InputLabel>
+                        <Select
+                            labelId="dept-label"
+                            value={selectedDepartment}
+                            label="Department (แผนก)"
+                            onChange={(e) => setSelectedDepartment(e.target.value)}
+                        >
+                            <MenuItem value="">All Departments</MenuItem>
+                            {(() => {
+                                // 🛠️ Robust Logic: Merge Depts from OrgStructure with User's Allowed Permissions
+                                const deptsSet = new Set(availableDepartments);
+                                user?.permissions?.forEach(p => {
+                                    if (p.is_active && p.department_code) deptsSet.add(p.department_code.trim());
+                                });
+                                if (userDepartment) deptsSet.add(userDepartment.trim());
+
+                                const sortedDepts = Array.from(deptsSet).sort();
+                                return sortedDepts.map((dept) => (
+                                    <MenuItem key={dept} value={dept}>{dept}</MenuItem>
+                                ));
+                            })()}
                         </Select>
                     </FormControl>
                 </Stack>
@@ -268,6 +296,9 @@ const OwnerDetailContent = () => {
                         data={actualDetails}
                         dateFilter={actualDateFilter}
                         onDateFilterChange={setActualDateFilter}
+                        yearFilter={''}
+                        onYearFilterChange={() => {}}
+                        years={[]}
                         page={actualPage}
                         rowsPerPage={actualRowsPerPage}
                         totalCount={actualTotalCount}

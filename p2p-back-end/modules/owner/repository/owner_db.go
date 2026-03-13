@@ -303,65 +303,92 @@ func (r *ownerRepository) GetDashboardAggregates(filter map[string]interface{}) 
 }
 
 func (r *ownerRepository) GetActualTransactions(filter map[string]interface{}) (*models.PaginatedActualTransactionDTO, error) {
-	// Standard Transaction logic, typically similar to admin but can be specialized
-	var txs []models.ActualTransactionEntity
-	var total int64
+	query := r.db.Table("actual_transaction_entities").
+		Select(`
+			actual_transaction_entities.source,
+			actual_transaction_entities.posting_date,
+			actual_transaction_entities.doc_no as doc_no,
+			actual_transaction_entities.vendor_name as vendor,
+			actual_transaction_entities.description,
+			actual_transaction_entities.entity_gl as gl_account_no,
+			actual_transaction_entities.conso_gl as conso_gl,
+			mapping.account_name as gl_account_name,
+			actual_transaction_entities.amount,
+			actual_transaction_entities.department,
+			actual_transaction_entities.entity as company,
+			actual_transaction_entities.branch
+		`).
+		Joins("LEFT JOIN gl_mapping_entities mapping ON actual_transaction_entities.entity_gl = mapping.entity_gl AND actual_transaction_entities.entity = mapping.entity")
 
-	tx := r.db.Model(&models.ActualTransactionEntity{})
-
-	// Apply Filter Logic (Subset of Dashboard logic but tailored for Owner)
+	// 2. Filters (Standardized Alignment)
 	if val, ok := filter["entities"]; ok {
 		if strs := toStringSlice(val); len(strs) > 0 {
-			tx = tx.Where("entity IN ?", strs)
+			query = query.Where("actual_transaction_entities.entity IN ?", strs)
 		}
 	}
 	if val, ok := filter["branches"]; ok {
 		if strs := toStringSlice(val); len(strs) > 0 {
-			tx = tx.Where("branch IN ?", strs)
+			query = query.Where("actual_transaction_entities.branch IN ?", strs)
 		}
 	}
 	if val, ok := filter["departments"]; ok {
 		if strs := toStringSlice(val); len(strs) > 0 {
-			tx = tx.Where("department IN ?", strs)
+			query = query.Where("actual_transaction_entities.department IN ?", strs)
 		}
 	}
-	if yVal, ok := filter["year"].(string); ok && yVal != "" {
-		tx = tx.Where("year = ?", strings.ReplaceAll(yVal, "FY", ""))
+	if val, ok := filter["conso_gls"]; ok {
+		if strs := toStringSlice(val); len(strs) > 0 {
+			query = query.Where("actual_transaction_entities.conso_gl IN ?", strs)
+		}
+	} else if val, ok := filter["budget_gls"]; ok {
+		if strs := toStringSlice(val); len(strs) > 0 {
+			query = query.Where("actual_transaction_entities.conso_gl IN ?", strs)
+		}
 	}
 
-	tx.Count(&total)
+	if val, ok := filter["months"]; ok {
+		mstrs := toStringSlice(val)
+		if len(mstrs) > 0 {
+			query = query.Where("UPPER(TO_CHAR(actual_transaction_entities.posting_date::DATE, 'MON')) IN ?", mstrs)
+		} else {
+			query = query.Where("1 = 0")
+		}
+	}
 
-	// Pagination
+	if val, ok := filter["start_date"].(string); ok && val != "" {
+		query = query.Where("actual_transaction_entities.posting_date >= ?", val)
+	}
+	if val, ok := filter["end_date"].(string); ok && val != "" {
+		query = query.Where("actual_transaction_entities.posting_date <= ?", val)
+	}
+	if val, ok := filter["year"].(string); ok && val != "" && val != "All" {
+		query = query.Where("actual_transaction_entities.year = ?", strings.ReplaceAll(val, "FY", ""))
+	}
+
+	// 3. Pagination & Count
 	page := 1
-	limit := 50
-	if p, ok := filter["page"].(int); ok {
-		page = p
+	limit := 10
+	if p, ok := filter["page"].(float64); ok {
+		page = int(p)
 	}
-	if l, ok := filter["limit"].(int); ok {
-		limit = l
+	if l, ok := filter["limit"].(float64); ok {
+		limit = int(l)
 	}
-	tx.Offset((page - 1) * limit).Limit(limit).Find(&txs)
+	offset := (page - 1) * limit
 
-	// Map to DTO
-	var dtos []models.ActualTransactionDTO
-	for _, t := range txs {
-		dtos = append(dtos, models.ActualTransactionDTO{
-			Source:        t.Source,
-			PostingDate:   t.PostingDate,
-			DocNo:         t.DocNo,
-			Vendor:        t.VendorName,
-			Description:   t.Description,
-			GLAccountNo:   t.ConsoGL,
-			GLAccountName: "-",
-			Amount:        t.Amount,
-			Department:    t.Department,
-			Company:       t.Entity,
-			Branch:        t.Branch,
-		})
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, err
+	}
+
+	var results []models.ActualTransactionDTO
+	if err := query.Order("actual_transaction_entities.posting_date ASC, actual_transaction_entities.doc_no ASC").
+		Limit(limit).Offset(offset).Scan(&results).Error; err != nil {
+		return nil, err
 	}
 
 	return &models.PaginatedActualTransactionDTO{
-		Data:       dtos,
+		Data:       results,
 		TotalCount: total,
 		Page:       page,
 		Limit:      limit,

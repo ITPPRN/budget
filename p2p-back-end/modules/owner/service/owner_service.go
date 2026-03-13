@@ -184,15 +184,17 @@ func (s *ownerService) GetOrganizationStructure(user *models.UserInfo) ([]models
 func (s *ownerService) GetOwnerFilterLists(user *models.UserInfo) (*models.OwnerFilterListsDTO, error) {
 	years, err := s.repo.GetActualYears()
 	if err != nil {
-		logs.Errorf("[ERROR] OwnerService: Failed to get actual years: %v", err)
+		logs.Errorf("[ERROR] OwnerService: GetOwnerFilterLists Failed: %v", err)
 	}
-
-	lists := &models.OwnerFilterListsDTO{
-		Companies: []string{"HMW", "ACG", "CLIK"}, // Hardcoded defaults for now
+	return &models.OwnerFilterListsDTO{
+		Companies: []string{"HMW", "ACG", "CLIK"},
 		Branches:  []string{},
 		Years:     years,
-	}
-	return lists, nil
+	}, nil
+}
+
+func (s *ownerService) GetActualYears(user *models.UserInfo) ([]string, error) {
+	return s.repo.GetActualYears()
 }
 
 func (s *ownerService) injectPermissions(user *models.UserInfo, filter map[string]interface{}) map[string]interface{} {

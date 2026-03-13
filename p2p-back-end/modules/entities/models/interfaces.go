@@ -279,6 +279,7 @@ type OwnerService interface {
 	GetFilterOptions(user *UserInfo) (interface{}, error)
 	GetOrganizationStructure(user *UserInfo) ([]OrganizationDTO, error)
 	GetOwnerFilterLists(user *UserInfo) (*OwnerFilterListsDTO, error)
+	GetActualYears(user *UserInfo) ([]string, error)
 }
 
 // --- Organization ---

@@ -144,7 +144,7 @@ func (s *actualService) SyncActuals(year string, months []string) error {
 
 			processRowsBatch := func(rows []models.ActualTransactionDTO) {
 				for _, row := range rows {
-					mapping, ok := mappingMap[row.GLAccountNo]
+					mapping, ok := mappingMap[row.EntityGL]
 					if !ok {
 						continue
 					}
@@ -169,7 +169,7 @@ func (s *actualService) SyncActuals(year string, months []string) error {
 						Entity:      company,
 						Branch:      branch,
 						Department:  deptCode,
-						EntityGL:    row.GLAccountNo,
+						EntityGL:    row.EntityGL,
 						ConsoGL:     mapping.ConsoGL,
 						Year:        year,
 					})
@@ -180,7 +180,7 @@ func (s *actualService) SyncActuals(year string, months []string) error {
 						if mon, ok := monthToCodeMap[monCode]; ok {
 							k := AggKey{
 								Entity: company, Branch: branch, Dept: deptCode, NavCode: row.Department,
-								EntityGL: row.GLAccountNo, ConsoGL: mapping.ConsoGL, GLName: mapping.AccountName,
+								EntityGL: row.EntityGL, ConsoGL: mapping.ConsoGL, GLName: mapping.AccountName,
 								VendorName: row.Vendor, Month: mon,
 							}
 							mergedFactMap[k] = mergedFactMap[k].Add(row.Amount)
