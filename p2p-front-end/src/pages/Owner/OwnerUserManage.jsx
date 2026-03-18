@@ -21,6 +21,9 @@ const OwnerUserManagePage = () => {
     const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState(10);
     const [search, setSearch] = useState('');
+    const [statusFilter, setStatusFilter] = useState('ALL');
+    const [deptFilter, setDeptFilter] = useState('ALL');
+    const [roleFilter, setRoleFilter] = useState('ALL');
 
     // Modal State
     const [openModal, setOpenModal] = useState(false);
@@ -58,7 +61,14 @@ const OwnerUserManagePage = () => {
             // Owner logic: might be same endpoint but backend filters, or different endpoint?
             // For now using same endpoint, assuming backend handles security based on token
             const response = await api.get('/auth/manage/users', {
-                params: { page, size: pageSize, search: search }
+                params: { 
+                    page, 
+                    size: pageSize, 
+                    search: search,
+                    status: statusFilter,
+                    department_code: deptFilter,
+                    role: roleFilter
+                }
             });
             const { users, total } = response.data.data || response.data;
             setUsers(users || []);
@@ -73,7 +83,7 @@ const OwnerUserManagePage = () => {
 
     useEffect(() => {
         fetchUsers();
-    }, [page, pageSize, search]);
+    }, [page, pageSize, search, statusFilter, deptFilter, roleFilter]);
 
     const handleSearchKeyPress = (e) => {
         if (e.key === 'Enter') {
@@ -101,7 +111,7 @@ const OwnerUserManagePage = () => {
         setPermissions([]); // Clear stale data first
         setOpenModal(true);
         try {
-            const response = await api.get(`/auth/manage/users/${user.userId}/permissions`);
+            const response = await api.get(`/auth/manage/users/${user.id}/permissions`);
             setPermissions(Array.isArray(response.data.data) ? response.data.data : []);
         } catch (error) {
             console.error('Failed to fetch user permissions:', error);
@@ -130,7 +140,7 @@ const OwnerUserManagePage = () => {
         setIsSaving(true);
         try {
             const finalPermissions = permissions.filter(p => p.role && p.role !== '');
-            await api.put(`/auth/manage/users/${selectedUser.userId}/permissions`, finalPermissions);
+            await api.put(`/auth/manage/users/${selectedUser.id}/permissions`, finalPermissions);
             toast.success('บันทึกสิทธิ์เรียบร้อยแล้ว');
             handleCloseModal();
             fetchUsers();
@@ -180,25 +190,91 @@ const OwnerUserManagePage = () => {
             <Paper sx={{ p: 2, mb: 3, borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
                 <Grid container spacing={2} alignItems="flex-end">
                     <Grid item xs={12} md={6}>
-                        <Typography variant="caption" sx={{ fontWeight: 700, mb: 1, display: 'block', color: '#64748b' }}>ค้นหาผู้ใช้</Typography>
-                        <TextField
-                            fullWidth size="small" placeholder="ค้นหาด้วยชื่อ หรือ รหัสพนักงาน..."
-                            value={search} onChange={(e) => setSearch(e.target.value)}
-                            onKeyPress={handleSearchKeyPress}
-                            InputProps={{
-                                startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" sx={{ color: '#94a3b8' }} /></InputAdornment>,
-                                sx: { borderRadius: '8px', bgcolor: '#f1f5f9', '& fieldset': { border: 'none' } }
-                            }}
-                        />
+                        <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-end' }}>
+                            <Box sx={{ flexGrow: 1 }}>
+                                <Typography variant="caption" sx={{ fontWeight: 700, mb: 1, display: 'block', color: '#64748b' }}>ค้นหาผู้ใช้</Typography>
+                                <TextField
+                                    fullWidth size="small" placeholder="ค้นหาด้วยชื่อ หรือ รหัสพนักงาน..."
+                                    value={search} onChange={(e) => setSearch(e.target.value)}
+                                    onKeyPress = {handleSearchKeyPress}
+                                    InputProps={{
+                                        startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" sx={{ color: '#94a3b8' }} /></InputAdornment>,
+                                        sx: { borderRadius: '8px', bgcolor: '#f1f5f9', '& fieldset': { border: 'none' }, fontSize: '14px' }
+                                    }}
+                                />
+                            </Box>
+                            <Button
+                                variant="contained"
+                                onClick={() => { setPage(1); fetchUsers(); }}
+                                sx={{ bgcolor: '#0288d1', height: '40px', borderRadius: '8px', fontWeight: 'bold', px: 3, '&:hover': { bgcolor: '#0277bd' } }}
+                            >
+                                ค้นหา
+                            </Button>
+                        </Box>
                     </Grid>
-                    <Grid item xs={12} md={2}>
-                        <Button
-                            variant="contained"
-                            fullWidth
-                            onClick={() => { setPage(1); fetchUsers(); }}
-                            sx={{ bgcolor: '#0288d1', py: 1, borderRadius: '8px', fontWeight: 'bold', '&:hover': { bgcolor: '#0277bd' } }}
+
+                    <Grid item xs={12} md={1.4}>
+                        <Typography variant="caption" sx={{ fontWeight: 700, mb: 1, display: 'block', color: '#64748b' }}>สถานะ</Typography>
+                        <Select
+                            fullWidth size="small"
+                            value={statusFilter}
+                            onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+                            sx={{ borderRadius: '8px', bgcolor: '#f1f5f9', '& .MuiOutlinedInput-notchedOutline': { border: 'none' }, fontSize: '13px' }}
                         >
-                            ค้นหา
+                            <MenuItem value="ALL">ทั้งหมด</MenuItem>
+                            <MenuItem value="ACTIVE">มีสิทธิ์เข้าถึง</MenuItem>
+                            <MenuItem value="INACTIVE">ไม่มีสิทธิ์เข้าถึง</MenuItem>
+                        </Select>
+                    </Grid>
+
+                    <Grid item xs={12} md={1.4}>
+                        <Typography variant="caption" sx={{ fontWeight: 700, mb: 1, display: 'block', color: '#64748b' }}>แผนก</Typography>
+                        <Select
+                            fullWidth size="small"
+                            value={deptFilter}
+                            onChange={(e) => { setDeptFilter(e.target.value); setPage(1); }}
+                            sx={{ borderRadius: '8px', bgcolor: '#f1f5f9', '& .MuiOutlinedInput-notchedOutline': { border: 'none' }, fontSize: '13px' }}
+                        >
+                            <MenuItem value="ALL">ทั้งหมด</MenuItem>
+                            {departments.map(d => (
+                                <MenuItem key={d.id} value={d.code}>{d.code}</MenuItem>
+                            ))}
+                        </Select>
+                    </Grid>
+
+                    <Grid item xs={12} md={1}>
+                        {/* Spacer to shift Role filter to the right */}
+                    </Grid>
+
+                    <Grid item xs={12} md={1.2}>
+                        <Typography variant="caption" sx={{ fontWeight: 700, mb: 1, display: 'block', color: '#64748b' }}>สิทธิ์</Typography>
+                        <Select
+                            fullWidth size="small"
+                            value={roleFilter}
+                            onChange={(e) => { setRoleFilter(e.target.value); setPage(1); }}
+                            sx={{ borderRadius: '8px', bgcolor: '#f1f5f9', '& .MuiOutlinedInput-notchedOutline': { border: 'none' }, fontSize: '13px' }}
+                        >
+                            <MenuItem value="ALL">ทั้งหมด</MenuItem>
+                            <MenuItem value="ADMIN">ADMIN</MenuItem>
+                            <MenuItem value="OWNER">OWNER</MenuItem>
+                            <MenuItem value="DELEGATE">DELEGATE</MenuItem>
+                        </Select>
+                    </Grid>
+
+                    <Grid item xs={12} md={1}>
+                        <Button
+                            variant="outlined"
+                            fullWidth
+                            onClick={() => { 
+                                setSearch('');
+                                setStatusFilter('ALL');
+                                setDeptFilter('ALL');
+                                setRoleFilter('ALL');
+                                setPage(1);
+                            }}
+                            sx={{ height: '40px', borderRadius: '8px', fontWeight: 'bold', borderColor: '#cbd5e1', color: '#64748b' }}
+                        >
+                            ล้าง
                         </Button>
                     </Grid>
                 </Grid>
@@ -224,11 +300,11 @@ const OwnerUserManagePage = () => {
                         ) : users.length === 0 ? (
                             <TableRow><TableCell colSpan={6} align="center" sx={{ py: 6 }}><Typography color="text.secondary">ไม่พบข้อมูลสมาชิก</Typography></TableCell></TableRow>
                         ) : users.map((user) => (
-                            <TableRow key={user.userId} hover sx={{ '&:last-child td, &:last-child th': { border: 0 } }}>
-                                <TableCell sx={{ fontWeight: 700, color: '#334155' }}>{user.userName}</TableCell>
+                            <TableRow key={user.id} hover sx={{ '&:last-child td, &:last-child th': { border: 0 } }}>
+                                <TableCell sx={{ fontWeight: 700, color: '#334155' }}>{user.username}</TableCell>
                                 <TableCell sx={{ color: '#475569' }}>
-                                    {user.name}
-                                    {user.userId === currentUser?.userId && (
+                                    {user.name_th}
+                                    {user.id === currentUser?.id && (
                                         <Chip label="คุณ" size="small" sx={{ ml: 1, height: 20, fontSize: '10px', bgcolor: '#f1f5f9', color: '#64748b' }} />
                                     )}
                                 </TableCell>
@@ -240,7 +316,7 @@ const OwnerUserManagePage = () => {
                                             user.permissions?.some(p => p.is_active && p.role?.toUpperCase() === 'OWNER');
                                         const isTargetDelegate = (user.roles?.some(r => r.toUpperCase() === 'DELEGATE')) ||
                                             (user.permissions?.some(p => p.is_active && p.role?.toUpperCase() === 'DELEGATE'));
-                                        const isSelf = user.userId === currentUser?.userId;
+                                        const isSelf = user.id === currentUser?.id;
 
                                         // Hierarchical Rules (Synchronized with UserManage.jsx):
                                         // 1. Delegates can NEVER manage anyone.
@@ -279,7 +355,7 @@ const OwnerUserManagePage = () => {
                                 </TableCell>
                                 <TableCell>{getStatusChip(user)}</TableCell>
                                 <TableCell sx={{ color: '#64748b' }}>
-                                    {user.department || '-'}
+                                    {user.department_code || user.department || '-'}
                                 </TableCell>
                                 <TableCell sx={{ color: '#64748b' }}>
                                     {(() => {
@@ -369,7 +445,7 @@ const OwnerUserManagePage = () => {
                         <Typography sx={{ fontWeight: 800, fontSize: '0.85rem', letterSpacing: 0.5 }}>ACCESS CONTROL (OWNER)</Typography>
                     </Box>
                     <Typography sx={{ flexGrow: 1, fontWeight: 700 }}>
-                        {selectedUser?.userName} - {selectedUser?.name}
+                        {selectedUser?.username} - {selectedUser?.name_th}
                     </Typography>
                     <IconButton onClick={handleCloseModal} sx={{ color: 'white' }}><CloseIcon /></IconButton>
                 </DialogTitle>

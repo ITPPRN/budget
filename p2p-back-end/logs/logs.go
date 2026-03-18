@@ -23,12 +23,20 @@ func Loginit() {
 	if err != nil {
 		panic(err)
 	}
+
 	defer func() {
 		if err := Logger.Sync(); err != nil {
-            handleSyncError(err)
-        }
+			handleSyncError(err)
+		}
 	}()
+}
 
+// Sync flushes any buffered log entries.
+func Sync() error {
+	if Logger != nil {
+		return Logger.Sync()
+	}
+	return nil
 }
 
 func handleSyncError(err error) {
@@ -38,6 +46,7 @@ func handleSyncError(err error) {
 		"invalid argument",
 		"bad file descriptor",
 		"enotty",
+		"the handle is invalid",
 	}
 
 	for _, msg := range ignoredErrors {

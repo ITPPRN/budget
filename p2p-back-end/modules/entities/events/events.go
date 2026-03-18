@@ -5,20 +5,22 @@ type Event interface {
 }
 
 type MessageUserEvent struct {
-	EventName string      `json:"event_name"`
-	Data      interface{} `json:"data"`
+	Users []UserEvent `json:"users"`
 }
 
-func (e *MessageUserEvent) String() string {
-	return e.EventName
+type UserEvent struct {
+	ID           uint   `json:"id"`
+	Username     string `json:"username"`
+	NameTh       string `json:"name_th"`
+	NameEn       string `json:"name_en"`
+	CompanyID    uint   `json:"company_id"`
+	DepartmentID uint   `json:"department_id"`
+	SectionID    uint   `json:"section_id"`
+	PositionID   uint   `json:"position_id"`
 }
 
 type MessageCompaniesEvent struct {
 	Companies []CompanyEvent `json:"companies"`
-}
-
-func (e *MessageCompaniesEvent) String() string {
-	return "autocorp.company.change"
 }
 
 type CompanyEvent struct {
@@ -36,22 +38,14 @@ type MessageDepartmentEvent struct {
 	Departments []DepartmentEvent `json:"departments"`
 }
 
-func (e *MessageDepartmentEvent) String() string {
-	return "autocorp.department.change"
-}
-
 type DepartmentEvent struct {
 	ID   uint   `json:"id"`
-	Name string `json:"name"`
 	Code string `json:"code"`
+	Name string `json:"name"`
 }
 
 type MessageSectionEvent struct {
 	Sections []SectionEvent `json:"sections"`
-}
-
-func (e *MessageSectionEvent) String() string {
-	return "autocorp.section.change"
 }
 
 type SectionEvent struct {
@@ -65,26 +59,58 @@ type MessagePositionEvent struct {
 	Positions []PositionEvent `json:"positions"`
 }
 
-func (e *MessagePositionEvent) String() string {
-	return "autocorp.position.change"
-}
-
 type PositionEvent struct {
 	ID   uint   `json:"id"`
 	Name string `json:"name"`
 	Code string `json:"code"`
 }
 
-// --- Sync Request Events (Begin) ---
+func (MessageUserEvent) String() string {
+	return "autocorp.user.change"
+}
 
-type RequestCompanySyncEvent struct{}
+func (MessageCompaniesEvent) String() string {
+	return "autocorp.company.change"
+}
 
-func (e *RequestCompanySyncEvent) String() string { return "autocorp.company.begin" }
+func (MessageDepartmentEvent) String() string {
+	return "autocorp.department.change"
+}
 
-type RequestDepartmentSyncEvent struct{}
+func (MessageSectionEvent) String() string {
+	return "autocorp.section.change"
+}
 
-func (e *RequestDepartmentSyncEvent) String() string { return "autocorp.department.begin" }
+func (MessagePositionEvent) String() string {
+	return "autocorp.position.change"
+}
 
-type RequestUserSyncEvent struct{}
+type MessageCompaniesBeginEvent struct{}
 
-func (e *RequestUserSyncEvent) String() string { return "autocorp.user.begin" }
+func (MessageCompaniesBeginEvent) String() string {
+	return "autocorp.company.begin"
+}
+
+type MessageDepartmentBeginEvent struct{}
+
+func (MessageDepartmentBeginEvent) String() string {
+	return "autocorp.department.begin"
+}
+
+type MessageUserBeginEvent struct{}
+
+func (MessageUserBeginEvent) String() string {
+	return "autocorp.user.begin"
+}
+
+type MessageSectionBeginEvent struct{}
+
+func (MessageSectionBeginEvent) String() string {
+	return "autocorp.section.begin"
+}
+
+type MessagePositionBeginEvent struct{}
+
+func (MessagePositionBeginEvent) String() string {
+	return "autocorp.position.begin"
+}

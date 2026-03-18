@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"mime/multipart"
 	"sort"
@@ -21,14 +22,13 @@ func NewMasterDataService(repo models.MasterDataRepository) models.MasterDataSer
 	return &masterDataService{repo: repo}
 }
 
-func (s *masterDataService) ListGLMappings() ([]models.GlMappingEntity, error) {
-	mappings, err := s.repo.ListGLMappings()
+func (s *masterDataService) ListGLMappings(ctx context.Context) ([]models.GlMappingEntity, error) {
+	mappings, err := s.repo.ListGLMappings(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("masterDataSrv.ListGLMappings: %w", err)
 	}
 
 	sort.Slice(mappings, func(i, j int) bool {
-		// Sort by Entity, then GL Name or Code? Let's use AccountName as primary
 		if mappings[i].Entity != mappings[j].Entity {
 			return utils.NaturalLess(mappings[i].Entity, mappings[j].Entity)
 		}
@@ -38,83 +38,72 @@ func (s *masterDataService) ListGLMappings() ([]models.GlMappingEntity, error) {
 	return mappings, nil
 }
 
-func (s *masterDataService) GetGLMappingByID(id string) (*models.GlMappingEntity, error) {
-	return s.repo.GetGLMappingByID(id)
+func (s *masterDataService) GetGLMappingByID(ctx context.Context, id string) (*models.GlMappingEntity, error) {
+	return s.repo.GetGLMappingByID(ctx, id)
 }
 
-func (s *masterDataService) CreateGLMapping(mapping *models.GlMappingEntity) error {
+func (s *masterDataService) CreateGLMapping(ctx context.Context, mapping *models.GlMappingEntity) error {
 	mapping.ID = uuid.New()
 	mapping.Entity = strings.ToUpper(strings.TrimSpace(mapping.Entity))
-	return s.repo.CreateGLMapping(mapping)
+	return s.repo.CreateGLMapping(ctx, mapping)
 }
 
-func (s *masterDataService) UpdateGLMapping(mapping *models.GlMappingEntity) error {
+func (s *masterDataService) UpdateGLMapping(ctx context.Context, mapping *models.GlMappingEntity) error {
 	mapping.Entity = strings.ToUpper(strings.TrimSpace(mapping.Entity))
-	return s.repo.UpdateGLMapping(mapping)
+	return s.repo.UpdateGLMapping(ctx, mapping)
 }
 
-func (s *masterDataService) DeleteGLMapping(id string) error {
-	return s.repo.DeleteGLMapping(id)
+func (s *masterDataService) DeleteGLMapping(ctx context.Context, id string) error {
+	return s.repo.DeleteGLMapping(ctx, id)
 }
 
-func (s *masterDataService) ImportGLMapping(fileHeader *multipart.FileHeader) error {
+func (s *masterDataService) ImportGLMapping(ctx context.Context, fileHeader *multipart.FileHeader) error {
 	file, err := fileHeader.Open()
 	if err != nil {
-		return err
+		return fmt.Errorf("masterDataSrv.ImportGLMapping: %w", err)
 	}
 	defer file.Close()
 
 	ext := strings.ToLower(fileHeader.Filename[strings.LastIndex(fileHeader.Filename, ".")+1:])
 	if ext != "xlsx" {
-		return fmt.Errorf("only .xlsx files are supported")
+		return fmt.Errorf("masterDataSrv.ImportGLMapping: only .xlsx files are supported")
 	}
 
 	f, err := excelize.OpenReader(file)
 	if err != nil {
-		return fmt.Errorf("failed to read excel file: %v", err)
+		return fmt.Errorf("masterDataSrv.ImportGLMapping: failed to read excel file: %v", err)
 	}
 	defer f.Close()
 
-	// 1. Use the first visible sheet
 	sheets := f.GetSheetList()
 	if len(sheets) == 0 {
-		return fmt.Errorf("excel file has no sheets")
+		return fmt.Errorf("masterDataSrv.ImportGLMapping: excel file has no sheets")
 	}
 	sheetName := sheets[0]
 
 	rows, err := f.GetRows(sheetName)
 	if err != nil {
-		return fmt.Errorf("failed to read rows from sheet '%s': %v", sheetName, err)
+		return fmt.Errorf("masterDataSrv.ImportGLMapping: failed to read rows: %v", err)
 	}
-
 	if len(rows) < 1 {
-		return fmt.Errorf("excel file is empty")
+		return fmt.Errorf("masterDataSrv.ImportGLMapping: excel file is empty")
 	}
 
-	// 2. Validate Header (Row 1)
 	header := rows[0]
 	requiredHeaders := []string{"Entity", "Entity GL", "Conso GL", "Account Name"}
-	if len(header) != len(requiredHeaders) {
-		return fmt.Errorf("invalid column count: expected %d columns (Entity, Entity GL, Conso GL, Account Name)", len(requiredHeaders))
+	if len(header) < len(requiredHeaders) {
+		return fmt.Errorf("masterDataSrv.ImportGLMapping: invalid column count")
 	}
 
-	for i, h := range requiredHeaders {
-		if strings.TrimSpace(header[i]) != h {
-			return fmt.Errorf("invalid column at position %d: expected '%s', got '%s'", i+1, h, header[i])
-		}
-	}
-
-	// 3. Process Data Rows (starting from index 1)
 	importCount := 0
 	skipCount := 0
 
 	for i := 1; i < len(rows); i++ {
 		row := rows[i]
-		if len(row) == 0 {
+		if len(row) < 3 {
 			continue
 		}
 
-		// Pad row to ensure we don't crash if Account Name is missing in raw row slice
 		padded := make([]string, 4)
 		copy(padded, row)
 
@@ -124,14 +113,13 @@ func (s *masterDataService) ImportGLMapping(fileHeader *multipart.FileHeader) er
 		accountName := strings.TrimSpace(padded[3])
 
 		if entity == "" || entityGL == "" || consoGL == "" {
-			continue // Skip incomplete major fields
+			continue
 		}
 
-		// 4. Exact duplicate check (Check all 4 fields)
-		exists, err := s.repo.CheckExactGLMapping(entity, entityGL, consoGL, accountName)
+		exists, err := s.repo.CheckExactGLMapping(ctx, entity, entityGL, consoGL, accountName)
 		if err == nil && exists {
 			skipCount++
-			continue // Skip perfect duplicate
+			continue
 		}
 
 		mapping := models.GlMappingEntity{
@@ -143,20 +131,20 @@ func (s *masterDataService) ImportGLMapping(fileHeader *multipart.FileHeader) er
 			IsActive:    true,
 		}
 
-		if err := s.repo.CreateGLMapping(&mapping); err != nil {
-			return fmt.Errorf("failed to create mapping at row %d: %v", i+1, err)
+		if err := s.repo.CreateGLMapping(ctx, &mapping); err != nil {
+			return fmt.Errorf("masterDataSrv.ImportGLMapping: failed row %d: %w", i+1, err)
 		}
 		importCount++
 	}
 
-	fmt.Printf("[Import GL Mapping] Imported: %d, Skipped (Duplicate): %d\n", importCount, skipCount)
+	fmt.Printf("[Import GL Mapping] Imported: %d, Skipped: %d\n", importCount, skipCount)
 	return nil
 }
 
-func (s *masterDataService) GetBudgetStructureTree() (interface{}, error) {
-	entities, err := s.repo.GetBudgetStructure()
+func (s *masterDataService) GetBudgetStructureTree(ctx context.Context) (interface{}, error) {
+	entities, err := s.repo.GetBudgetStructure(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("masterDataSrv.GetBudgetStructureTree: %w", err)
 	}
 
 	// Build Tree from flat data (Group1 -> Group2 -> Group3 -> Leaf(ConsoGL))
@@ -228,10 +216,10 @@ func (s *masterDataService) GetBudgetStructureTree() (interface{}, error) {
 	return roots, nil
 }
 
-func (s *masterDataService) ListBudgetStructure() ([]models.BudgetStructureEntity, error) {
-	entities, err := s.repo.GetBudgetStructure()
+func (s *masterDataService) ListBudgetStructure(ctx context.Context) ([]models.BudgetStructureEntity, error) {
+	entities, err := s.repo.GetBudgetStructure(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("masterDataSrv.ListBudgetStructure: %w", err)
 	}
 
 	sort.Slice(entities, func(i, j int) bool {
@@ -241,26 +229,26 @@ func (s *masterDataService) ListBudgetStructure() ([]models.BudgetStructureEntit
 	return entities, nil
 }
 
-func (s *masterDataService) GetBudgetStructureByID(id uint) (*models.BudgetStructureEntity, error) {
-	return s.repo.GetBudgetStructureByID(id)
+func (s *masterDataService) GetBudgetStructureByID(ctx context.Context, id uint) (*models.BudgetStructureEntity, error) {
+	return s.repo.GetBudgetStructureByID(ctx, id)
 }
 
-func (s *masterDataService) CreateBudgetStructure(entity *models.BudgetStructureEntity) error {
-	return s.repo.CreateBudgetStructure(entity)
+func (s *masterDataService) CreateBudgetStructure(ctx context.Context, entity *models.BudgetStructureEntity) error {
+	return s.repo.CreateBudgetStructure(ctx, entity)
 }
 
-func (s *masterDataService) UpdateBudgetStructure(entity *models.BudgetStructureEntity) error {
-	return s.repo.UpdateBudgetStructure(entity)
+func (s *masterDataService) UpdateBudgetStructure(ctx context.Context, entity *models.BudgetStructureEntity) error {
+	return s.repo.UpdateBudgetStructure(ctx, entity)
 }
 
-func (s *masterDataService) DeleteBudgetStructure(id uint) error {
-	return s.repo.DeleteBudgetStructure(id)
+func (s *masterDataService) DeleteBudgetStructure(ctx context.Context, id uint) error {
+	return s.repo.DeleteBudgetStructure(ctx, id)
 }
 
-func (s *masterDataService) GetUserConfigs(userID string) (map[string]string, error) {
-	configs, err := s.repo.GetUserConfigs(userID)
+func (s *masterDataService) GetUserConfigs(ctx context.Context, userID string) (map[string]string, error) {
+	configs, err := s.repo.GetUserConfigs(ctx, userID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("masterDataSrv.GetUserConfigs: %w", err)
 	}
 
 	res := make(map[string]string)
@@ -270,13 +258,13 @@ func (s *masterDataService) GetUserConfigs(userID string) (map[string]string, er
 	return res, nil
 }
 
-func (s *masterDataService) SetUserConfig(userID string, key string, value string) error {
+func (s *masterDataService) SetUserConfig(ctx context.Context, userID string, key string, value string) error {
 	config := &models.UserConfigEntity{
 		UserID:    userID,
 		ConfigKey: key,
 		Value:     value,
 	}
-	return s.repo.UpdateUserConfig(config)
+	return s.repo.UpdateUserConfig(ctx, config)
 }
 
 

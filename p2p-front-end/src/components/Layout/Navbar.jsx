@@ -38,14 +38,14 @@ const Navbar = ({ user, onLogout, onToggle }) => {
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                 <Box sx={{ display: { xs: 'none', sm: 'flex' }, flexDirection: 'column', alignItems: 'flex-end' }}>
                   <Typography variant="subtitle2" sx={{ fontWeight: 700, color: 'white', lineHeight: 1.2 }}>
-                    {user.name || user.userName || 'ผู้ใช้งาน'} | {displayRole}
+                    {user.name_th || user.name || user.username || 'ผู้ใช้งาน'} | {displayRole}
                   </Typography>
                   <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.85)', fontWeight: 600, fontSize: '0.7rem', letterSpacing: 0.5 }}>
                     {user.department_code || '-'}
                   </Typography>
                 </Box>
                 <Avatar sx={{ bgcolor: 'secondary.main', width: 34, height: 34, fontSize: '0.9rem', fontWeight: 'bold', border: '1px solid rgba(255,255,255,0.2)' }}>
-                  {(user.name || user.userName || 'U').charAt(0).toUpperCase()}
+                  {(user.name_th || user.name || user.username || 'U').charAt(0).toUpperCase()}
                 </Avatar>
               </Box>
             );

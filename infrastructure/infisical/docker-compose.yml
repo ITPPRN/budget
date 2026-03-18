@@ -66,4 +66,4 @@ networks:
   infisical_net:
     driver: bridge
 
-    # docker compose up -d
+# docker compose up -d

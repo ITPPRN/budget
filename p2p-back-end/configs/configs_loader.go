@@ -16,55 +16,61 @@ func LoadConfigs(cfg *Config) {
 	clientSecret := os.Getenv("INFISICAL_CLIENT_SECRET")
 	projectID := os.Getenv("INFISICAL_PROJECT_ID")
 
-	client := infisical.NewInfisicalClient(
-		context.Background(),
-		infisical.Config{
-			SiteUrl: infisicalURL, // ตัวเลือก, ค่าเริ่มต้นคือ https://app.infisical.com
-		})
-
-	_, err := client.Auth().UniversalAuthLogin(clientID, clientSecret)
-	if err != nil {
-		fmt.Printf("การยืนยันตัวตนล้มเหลว: %v", err)
-		os.Exit(1)
+	infisicalEnv := os.Getenv("INFISICAL_ENV")
+	if infisicalEnv == "" {
+		infisicalEnv = "dev"
 	}
 
-	apiKeySecrets, err := client.Secrets().List(
-		infisical.ListSecretsOptions{
-			ProjectID:   projectID,
-			SecretPath:  "/backend",
-			Environment: "dev",
-		},
-	)
-	if err != nil {
-		logs.Error(err)
+	var apiKeySecrets []infisical.Secret
+	var err error
+
+	// 1. พยายามเชื่อมต่อ Infisical (เฉพาะเมื่อมี Credentials ครบ)
+	if clientID != "" && clientSecret != "" && projectID != "" {
+		client := infisical.NewInfisicalClient(context.Background(), infisical.Config{
+			SiteUrl: infisicalURL,
+		})
+
+		_, err = client.Auth().UniversalAuthLogin(clientID, clientSecret)
+		if err != nil {
+			logs.Warn(fmt.Sprintf("Infisical Auth Failed: %v. Falling back to System Env.", err))
+		} else {
+			apiKeySecrets, err = client.Secrets().List(infisical.ListSecretsOptions{
+				ProjectID:   projectID,
+				SecretPath:  "/backend",
+				Environment: infisicalEnv,
+			})
+			if err != nil {
+				logs.Warn(fmt.Sprintf("Could not list secrets from Infisical: %v", err))
+			}
+		}
+	} else {
+		logs.Info("Infisical credentials not found. Using System Environment Variables only.")
 	}
 
 	setData := func(key CfgKey) string {
+		// ชั้นที่ 1: หาใน Infisical
 		for _, secret := range apiKeySecrets {
 			if secret.SecretKey == string(key) {
 				return secret.SecretValue
 			}
 		}
-		logs.Error(fmt.Sprintf("ไม่พบคีย์ %s ใน Secrets ของ Infisical", key))
+
+		// ชั้นที่ 2: ถ้าไม่เจอ หรือ Infisical ใช้ไม่ได้ ให้หาใน Environment Variable (จาก .env หรือ Docker -e)
+		val := os.Getenv(string(key))
+		if val != "" {
+			return val
+		}
+
+		logs.Warn(fmt.Sprintf("Key [%s] not found in Infisical or System Env", key))
 		return ""
 	}
-
-	// setJWTPublicKEY := func() {
-	// 	cfg.KeyCloak.PublicKey = setData(PublicKey)
-	// 	key := string(PublicKey)
-	// 	err := os.Setenv(key, cfg.KeyCloak.PublicKey)
-	// 	if err != nil {
-	// 		fmt.Println("Error setting environment variable:", err)
-	// 		return
-	// 	}
-	// }
-	// setJWTPublicKEY()
 
 	// การตั้งค่าสำหรับแอปพลิเคชัน
 	cfg.App.Port = setData(FiberPort)
 	cfg.App.Mode = setData(FiberMode)
+	cfg.App.InternalSecret = setData(InternalSecret)
 
-	// การตั้งค่าสำหรับ PostgreSQL
+	// การตั้งค่าสำหรับ PostgreSQL (Database หลัก)
 	cfg.Postgres.Host = setData(PostgresHost)
 	cfg.Postgres.Port = setData(PostgresPort)
 	cfg.Postgres.Username = setData(PostgresUsername)
@@ -73,19 +79,26 @@ func LoadConfigs(cfg *Config) {
 	cfg.Postgres.Schema = setData(PostgresSchema)
 	cfg.Postgres.SslMode = setData(PostgresSslMode)
 
+	// การตั้งค่าสำหรับ Redis
 	cfg.Redis.Host = setData(RedisHost)
 	cfg.Redis.Port = setData(RedisPort)
 	cfg.Redis.Password = setData(RedisPassword)
 
+	// การตั้งค่าสำหรับ Keycloak
 	cfg.KeyCloak.Host = setData(KeyCloakHost)
 	cfg.KeyCloak.Port = setData(KeyCloakPort)
-	cfg.KeyCloak.AdminUsername = setData(AdminUsername)
-	cfg.KeyCloak.AdminPassword = setData(AdminPassword)
+	cfg.KeyCloak.RealmName = setData(RealmName)
 	cfg.KeyCloak.ClientID = setData(ClientID)
 	cfg.KeyCloak.ClientSecret = setData(ClientSecret)
-	cfg.KeyCloak.RealmName = setData(RealmName)
+	cfg.KeyCloak.AdminUsername = setData(AdminUsername)
+	cfg.KeyCloak.AdminPassword = setData(AdminPassword)
 
-	cfg.RabbitMQ.URL = setData(RabbitMQURL)
+	// การตั้งค่าสำหรับ RabbitMQ
+	cfg.RabbitMQ.Host = setData(RabbitMqHost)
+	cfg.RabbitMQ.Port = setData(RabbitMqPort)
+	cfg.RabbitMQ.Username = setData(RabbitMqUsername)
+	cfg.RabbitMQ.Password = setData(RabbitMqPassword)
+	cfg.RabbitMQ.VHost = setData(RabbitMqVHost)
 
 	printLog(cfg)
 }
@@ -96,26 +109,21 @@ func printLog(cfg *Config) {
 		FiberMode:        cfg.App.Mode,
 		RedisHost:        cfg.Redis.Host,
 		RedisPort:        cfg.Redis.Port,
-		RedisPassword:    cfg.Redis.Password,
+		InternalSecret:   cfg.App.InternalSecret,
 		PostgresHost:     cfg.Postgres.Host,
 		PostgresPort:     cfg.Postgres.Port,
 		PostgresUsername: cfg.Postgres.Username,
-		PostgresPassword: cfg.Postgres.Password,
 		PostgresDatabase: cfg.Postgres.DatabaseName,
-		PostgresSslMode:  cfg.Postgres.SslMode,
-		PostgresSchema:   cfg.Postgres.Schema,
 		KeyCloakHost:     cfg.KeyCloak.Host,
 		KeyCloakPort:     cfg.KeyCloak.Port,
-		ClientID:         cfg.KeyCloak.ClientID,
-		ClientSecret:     cfg.KeyCloak.ClientSecret,
 		RealmName:        cfg.KeyCloak.RealmName,
-		AdminUsername:    cfg.KeyCloak.AdminUsername,
-		AdminPassword:    cfg.KeyCloak.AdminPassword,
-		RabbitMQURL:      cfg.RabbitMQ.URL,
+		RabbitMqHost:     cfg.RabbitMQ.Host,
+		RabbitMqPort:     cfg.RabbitMQ.Port,
+		RabbitMqUsername: cfg.RabbitMQ.Username,
+		RabbitMqVHost:    cfg.RabbitMQ.VHost,
 	}
 
 	for key, value := range fields {
 		logs.Debugf("%s: %v", key, value)
 	}
-
 }

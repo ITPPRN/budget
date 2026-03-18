@@ -26,6 +26,8 @@ var (
 	// Global variables to store configuration pulled from Infisical
 	keycloakIssuer   string
 	keycloakClientID string
+
+	internalSecret string // Secret for internal service-to-service communication
 )
 
 // InitKeycloakValidator fetches the Public Keys from Keycloak and caches them.
@@ -56,6 +58,11 @@ func InitKeycloakValidator(host string, port string, realm string, clientID stri
 	})
 }
 
+// InitInternalSecret sets the secret for internal communication validation.
+func InitInternalSecret(secret string) {
+	internalSecret = secret
+}
+
 func JwtAuthentication(authSrv models.AuthService, handler models.TokenHandler) fiber.Handler {
 	// We assume InitKeycloakValidator has been called in main()
 
@@ -73,8 +80,8 @@ func JwtAuthentication(authSrv models.AuthService, handler models.TokenHandler) 
 		}
 
 		user := &models.UserInfo{
-			UserId:   claims.ID,
-			UserName: claims.Username,
+			ID:       claims.ID,
+			Username: claims.Username,
 			Email:    claims.Email,
 			Roles:    claims.RealmAccess.Roles,
 			Name:     claims.Name,
@@ -82,20 +89,20 @@ func JwtAuthentication(authSrv models.AuthService, handler models.TokenHandler) 
 
 		// 🛠️ NEW FIX: Always fetch full profile from Local DB (following Senior's RabbitMQ logic)
 		if authSrv != nil {
-			profile, err := authSrv.GetUserProfile(user.UserId)
+			profile, err := authSrv.GetUserProfile(c.UserContext(), user.ID)
 			if err == nil && profile != nil {
 				// Use the enriched profile from Local DB which contains Departments & fine-grained Roles
 				user = profile
 			} else {
-				logs.Warnf("JwtAuthentication: User %s authenticated but profile missing from Local DB: %v", user.UserName, err)
+				logs.Warnf("JwtAuthentication: User %s authenticated but profile missing from Local DB: %v", user.Username, err)
 			}
 		}
 
 		// ✅ เก็บไว้ใน Context เผื่อ handler อื่นจะใช้ได้ง่าย
 		c.Locals("user", user)
-		c.Locals("userID", user.UserId)
+		c.Locals("userID", user.ID)
 
-		logs.Info(fmt.Sprintf("JwtAuthentication Success: UserID=%s Roles=%v", user.UserId, user.Roles))
+		logs.Info(fmt.Sprintf("JwtAuthentication Success: UserID=%s Roles=%v", user.ID, user.Roles))
 
 
 		if handler == nil {
@@ -209,8 +216,8 @@ func GetUserInfo(tokenString string) (*models.UserInfo, error) {
 	// Since jwx handles expiration, we just proceed
 
 	userInfo := &models.UserInfo{
-		UserId:   claims.ID,
-		UserName: claims.Username,
+		ID:       claims.ID,
+		Username: claims.Username,
 		Email:    claims.Email,
 		Roles:    claims.RealmAccess.Roles,
 		Name:     claims.Name,
@@ -228,4 +235,23 @@ func getUsername(claims map[string]interface{}) string {
 	}
 	// logs.Warnf("Debug Claims: %+v", claims) // Uncomment to debug if needed
 	return ""
+}
+func InternalAuth(handler fiber.Handler) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		// Log for visibility
+		logs.Infof("InternalAuth: Accessing internal route: %s", c.Path())
+
+		// Validate internal secret from header
+		providedSecret := c.Get("X-Internal-Secret")
+		if providedSecret == "" || providedSecret != internalSecret {
+			logs.Warnf("InternalAuth: Unauthorized access attempt from %s", c.IP())
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"status":      "Unauthorized",
+				"status_code": fiber.StatusUnauthorized,
+				"message":     "Invalid or missing internal secret",
+			})
+		}
+
+		return handler(c)
+	}
 }

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -29,13 +30,13 @@ type HeaderKey struct {
 	Entity, Branch, Dept, NavCode, EntityGL, ConsoGL, GLName, VendorName string
 }
 
-func (s *actualService) SyncActuals(year string, months []string) error {
+func (s *actualService) SyncActuals(ctx context.Context, year string, months []string) error {
 	fmt.Printf("[DEBUG] SyncActuals: Start DB Sync (Optimized Batch) for Year %s, Months %v...\n", year, months)
 
 	// 1. Fetch Mapping Metadata (GL Whitening)
-	mappings, err := s.masterSrv.ListGLMappings()
+	mappings, err := s.masterSrv.ListGLMappings(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("actualService.SyncActuals: %w", err)
 	}
 	mappingMap := make(map[string]models.GlMappingEntity)
 	for _, m := range mappings {
@@ -95,7 +96,7 @@ func (s *actualService) SyncActuals(year string, months []string) error {
 
 	// 3. GL Profile Map for Fact Building (Safe memory size)
 	glProfileMap := make(map[string]string)
-	structures, _ := s.masterSrv.ListBudgetStructure()
+	structures, _ := s.masterSrv.ListBudgetStructure(ctx)
 	for _, st := range structures {
 		if st.ConsoGL != "" {
 			glProfileMap[st.ConsoGL] = st.Group1
@@ -106,20 +107,20 @@ func (s *actualService) SyncActuals(year string, months []string) error {
 	return s.repo.WithTrx(func(trxRepo models.ActualRepository) error {
 		if fullYearSync {
 			// Wipe whole year once
-			if err := trxRepo.DeleteActualFactsByYear(year); err != nil {
-				return err
+			if err := trxRepo.DeleteActualFactsByYear(ctx, year); err != nil {
+				return fmt.Errorf("transaction.DeleteFactsByYear: %w", err)
 			}
-			if err := trxRepo.DeleteActualTransactionsByYear(year); err != nil {
-				return err
+			if err := trxRepo.DeleteActualTransactionsByYear(ctx, year); err != nil {
+				return fmt.Errorf("transaction.DeleteTxsByYear: %w", err)
 			}
 		} else {
 			// Wipe target months only
 			for _, m := range targetMonths {
-				if err := trxRepo.DeleteActualFactsByMonth(year, m); err != nil {
-					return err
+				if err := trxRepo.DeleteActualFactsByMonth(ctx, year, m); err != nil {
+					return fmt.Errorf("transaction.DeleteFactsByMonth(%s): %w", m, err)
 				}
-				if err := trxRepo.DeleteActualTransactionsByMonth(year, m); err != nil {
-					return err
+				if err := trxRepo.DeleteActualTransactionsByMonth(ctx, year, m); err != nil {
+					return fmt.Errorf("transaction.DeleteTxsByMonth(%s): %w", m, err)
 				}
 			}
 		}
@@ -131,13 +132,13 @@ func (s *actualService) SyncActuals(year string, months []string) error {
 			fmt.Printf("[Sync] Processing Month: %s\n", mName)
 
 			// Fetch one month
-			hmwRows, err := trxRepo.GetRawTransactionsHMW(year, []string{mName})
+			hmwRows, err := trxRepo.GetRawTransactionsHMW(ctx, year, []string{mName})
 			if err != nil {
-				return err
+				return fmt.Errorf("transaction.GetHMWRows(%s): %w", mName, err)
 			}
-			clikRows, err := trxRepo.GetRawTransactionsCLIK(year, []string{mName})
+			clikRows, err := trxRepo.GetRawTransactionsCLIK(ctx, year, []string{mName})
 			if err != nil {
-				return err
+				return fmt.Errorf("transaction.GetCLIKRows(%s): %w", mName, err)
 			}
 
 			var transactions []models.ActualTransactionEntity
@@ -153,7 +154,7 @@ func (s *actualService) SyncActuals(year string, months []string) error {
 					branch := mapToCode(row.Branch, branchNameMap)
 					deptCode := row.Department
 					lookupDept := normalize(row.Department)
-					if masterDept, err := s.depSrv.GetMasterDepartment(lookupDept, company); err == nil && masterDept != nil {
+					if masterDept, err := s.depSrv.GetMasterDepartment(ctx, lookupDept, company); err == nil && masterDept != nil {
 						deptCode = masterDept.Code
 					}
 
@@ -194,8 +195,8 @@ func (s *actualService) SyncActuals(year string, months []string) error {
 
 			// 3. Save Transactions IMMEDIATELY to free memory
 			if len(transactions) > 0 {
-				if err := trxRepo.CreateActualTransactions(transactions); err != nil {
-					return err
+				if err := trxRepo.CreateActualTransactions(ctx, transactions); err != nil {
+					return fmt.Errorf("transaction.CreateTransactions(%s): %w", mName, err)
 				}
 				transactions = nil // Help GC
 			}
@@ -248,8 +249,8 @@ func (s *actualService) SyncActuals(year string, months []string) error {
 				if end > len(headers) {
 					end = len(headers)
 				}
-				if err := trxRepo.CreateActualFacts(headers[i:end]); err != nil {
-					return err
+				if err := trxRepo.CreateActualFacts(ctx, headers[i:end]); err != nil {
+					return fmt.Errorf("transaction.CreateFactsChunk: %w", err)
 				}
 			}
 		}
@@ -257,13 +258,16 @@ func (s *actualService) SyncActuals(year string, months []string) error {
 	})
 }
 
-func (s *actualService) DeleteActualFacts(year string) error {
+func (s *actualService) DeleteActualFacts(ctx context.Context, year string) error {
 	if year == "" {
-		return fmt.Errorf("year is required")
+		return fmt.Errorf("actualService.DeleteActualFacts: year is required")
 	}
-	return s.repo.DeleteActualFactsByYear(year)
+	if err := s.repo.DeleteActualFactsByYear(ctx, year); err != nil {
+		return fmt.Errorf("actualService.DeleteActualFacts: %w", err)
+	}
+	return nil
 }
 
-func (s *actualService) GetRawDate() (string, error) {
-	return s.repo.GetRawDate()
+func (s *actualService) GetRawDate(ctx context.Context) (string, error) {
+	return s.repo.GetRawDate(ctx)
 }

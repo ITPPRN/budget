@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -41,19 +42,18 @@ func toStringSlice(val interface{}) []string {
 	return nil
 }
 
-func (r *dashboardRepository) GetBudgetFilterOptions() ([]models.BudgetFactEntity, error) {
-	fmt.Println("[DEBUG] Repo: GetBudgetFilterOptions START")
+func (r *dashboardRepository) GetBudgetFilterOptions(ctx context.Context) ([]models.BudgetFactEntity, error) {
 	var results []models.BudgetFactEntity
-	// เลือกข้อมูลที่ไม่ซ้ำกันเพื่อสร้างลำดับชั้น (Hierarchy)
-	err := r.db.Model(&models.BudgetFactEntity{}).
+	if err := r.db.WithContext(ctx).Model(&models.BudgetFactEntity{}).
 		Distinct("\"group\"", "department", "entity_gl", "conso_gl", "gl_name").
 		Order("\"group\", department, entity_gl, conso_gl").
-		Find(&results).Error
-	fmt.Printf("[DEBUG] Repo: GetBudgetFilterOptions END - Count: %d, Err: %v\n", len(results), err)
-	return results, err
+		Find(&results).Error; err != nil {
+		return nil, fmt.Errorf("dashboardRepo.GetBudgetFilterOptions: %w", err)
+	}
+	return results, nil
 }
 
-func (r *dashboardRepository) GetOrganizationStructure() ([]models.BudgetFactEntity, error) {
+func (r *dashboardRepository) GetOrganizationStructure(ctx context.Context) ([]models.BudgetFactEntity, error) {
 	var results []models.BudgetFactEntity
 	// รวม Entity และ Branch ที่ไม่ซ้ำกันจากทั้งตาราง Budget และ Actual
 	// GORM ไม่รองรับ UNION ในการ Scan struct โดยตรงได้ง่ายๆ
@@ -66,13 +66,15 @@ func (r *dashboardRepository) GetOrganizationStructure() ([]models.BudgetFactEnt
         ORDER BY entity, branch, department
     `
 
-	err := r.db.Raw(query).Scan(&results).Error
-	return results, err
+	if err := r.db.WithContext(ctx).Raw(query).Scan(&results).Error; err != nil {
+		return nil, fmt.Errorf("dashboardRepo.GetOrganizationStructure: %w", err)
+	}
+	return results, nil
 }
 
-func (r *dashboardRepository) GetBudgetDetails(filter map[string]interface{}) ([]models.BudgetDetailDTO, error) {
+func (r *dashboardRepository) GetBudgetDetails(ctx context.Context, filter map[string]interface{}) ([]models.BudgetDetailDTO, error) {
 	var results []models.BudgetDetailDTO
-	query := r.db.Model(&models.BudgetFactEntity{})
+	query := r.db.WithContext(ctx).Model(&models.BudgetFactEntity{})
 
 	// Dynamic Filtering Helper
 	applyFilter := func(key string, dbCol string) {
@@ -128,7 +130,7 @@ func (r *dashboardRepository) GetBudgetDetails(filter map[string]interface{}) ([
 		Scan(&flatData).Error
 
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("dashboardRepo.GetBudgetDetails: %w", err)
 	}
 
 	// Map flat results to nested DTO
@@ -159,9 +161,9 @@ func (r *dashboardRepository) GetBudgetDetails(filter map[string]interface{}) ([
 	return results, nil
 }
 
-func (r *dashboardRepository) GetActualDetails(filter map[string]interface{}) ([]models.ActualFactEntity, error) {
+func (r *dashboardRepository) GetActualDetails(ctx context.Context, filter map[string]interface{}) ([]models.ActualFactEntity, error) {
 	var results []models.ActualFactEntity
-	query := r.db.Model(&models.ActualFactEntity{}).Preload("ActualAmounts")
+	query := r.db.WithContext(ctx).Model(&models.ActualFactEntity{}).Preload("ActualAmounts")
 
 	// Dynamic Filtering Helper
 	applyFilter := func(key string, dbCol string) {
@@ -206,14 +208,14 @@ func (r *dashboardRepository) GetActualDetails(filter map[string]interface{}) ([
 	}
 
 	// เรียงลำดับข้อมูล
-	err := query.Order("department, conso_gl, gl_name").Find(&results).Error
-	return results, err
+	if err := query.Order("department, conso_gl, gl_name").Find(&results).Error; err != nil {
+		return nil, fmt.Errorf("dashboardRepo.GetActualDetails: %w", err)
+	}
+	return results, nil
 }
 
-func (r *dashboardRepository) GetActualTransactions(filter map[string]interface{}) (*models.PaginatedActualTransactionDTO, error) {
-	fmt.Printf("[DEBUG] GetActualTransactions (Centralized): %+v\n", filter)
-
-	query := r.db.Model(&models.ActualTransactionEntity{}).
+func (r *dashboardRepository) GetActualTransactions(ctx context.Context, filter map[string]interface{}) (*models.PaginatedActualTransactionDTO, error) {
+	query := r.db.WithContext(ctx).Model(&models.ActualTransactionEntity{}).
 		Select(`
 			actual_transaction_entities.source,
 			actual_transaction_entities.posting_date,
@@ -291,16 +293,14 @@ func (r *dashboardRepository) GetActualTransactions(filter map[string]interface{
 
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
-		fmt.Printf("[ERROR] GetActualTransactions Count: %v\n", err)
-		return nil, err
+		return nil, fmt.Errorf("dashboardRepo.GetActualTransactions.Count: %w", err)
 	}
 	fmt.Printf("[DEBUG] GetActualTransactions Total Found: %d\n", total)
 
 	var results []models.ActualTransactionDTO
 	if err := query.Order("actual_transaction_entities.posting_date ASC, actual_transaction_entities.doc_no ASC").
 		Limit(limit).Offset(offset).Scan(&results).Error; err != nil {
-		fmt.Printf("[ERROR] GetActualTransactions Scan: %v\n", err)
-		return nil, err
+		return nil, fmt.Errorf("dashboardRepo.GetActualTransactions.Scan: %w", err)
 	}
 
 	if len(results) > 0 {
@@ -315,7 +315,7 @@ func (r *dashboardRepository) GetActualTransactions(filter map[string]interface{
 	}, nil
 }
 
-func (r *dashboardRepository) GetDashboardAggregates(filter map[string]interface{}) (*models.DashboardSummaryDTO, error) {
+func (r *dashboardRepository) GetDashboardAggregates(ctx context.Context, filter map[string]interface{}) (*models.DashboardSummaryDTO, error) {
 	summary := &models.DashboardSummaryDTO{
 		DepartmentData: []models.DepartmentStatDTO{},
 		ChartData:      []models.MonthlyStatDTO{},
@@ -441,8 +441,8 @@ func (r *dashboardRepository) GetDashboardAggregates(filter map[string]interface
 	var budgetDept []DeptResult
 	tx1 := r.db.Model(&models.BudgetFactEntity{}).Select(selectCol + ", SUM(year_total) as total")
 	tx1 = applyFilter(tx1, "budget_fact_entities")
-	if err := tx1.Group(groupBy).Scan(&budgetDept).Error; err != nil {
-		return nil, err
+	if err := tx1.WithContext(ctx).Group(groupBy).Scan(&budgetDept).Error; err != nil {
+		return nil, fmt.Errorf("dashboardRepo.GetDashboardAggregates.Budget: %w", err)
 	}
 	fmt.Printf("[DEBUG] Aggregates Budget Count: %d, SQL: %s\n", len(budgetDept), tx1.ToSQL(func(tx *gorm.DB) *gorm.DB { return tx }))
 
@@ -469,8 +469,8 @@ func (r *dashboardRepository) GetDashboardAggregates(filter map[string]interface
 
 	tx2 = applyFilter(tx2, "actual_fact_entities")
 
-	if err := tx2.Group(groupBy).Scan(&actualDept).Error; err != nil {
-		return nil, err
+	if err := tx2.WithContext(ctx).Group(groupBy).Scan(&actualDept).Error; err != nil {
+		return nil, fmt.Errorf("dashboardRepo.GetDashboardAggregates.Actual: %w", err)
 	}
 	fmt.Printf("[DEBUG] Aggregates Actual Count: %d, SQL: %s\n", len(actualDept), tx2.ToSQL(func(tx *gorm.DB) *gorm.DB { return tx }))
 
@@ -610,8 +610,8 @@ func (r *dashboardRepository) GetDashboardAggregates(filter map[string]interface
 		Select("budget_amount_entities.month, SUM(budget_amount_entities.amount) as total").
 		Joins("JOIN budget_fact_entities ON budget_amount_entities.budget_fact_id = budget_fact_entities.id")
 	tx3 = applyFilter(tx3, "budget_fact_entities")
-	if err := tx3.Group("budget_amount_entities.month").Scan(&budgetMonth).Error; err != nil {
-		return nil, err
+	if err := tx3.WithContext(ctx).Group("budget_amount_entities.month").Scan(&budgetMonth).Error; err != nil {
+		return nil, fmt.Errorf("dashboardRepo.GetDashboardAggregates.ChartBudget: %w", err)
 	}
 
 	// Actual Amounts
@@ -634,8 +634,8 @@ func (r *dashboardRepository) GetDashboardAggregates(filter map[string]interface
 	}
 
 	tx4 = applyFilter(tx4, "actual_fact_entities")
-	if err := tx4.Group("actual_amount_entities.month").Scan(&actualMonth).Error; err != nil {
-		return nil, err
+	if err := tx4.WithContext(ctx).Group("actual_amount_entities.month").Scan(&actualMonth).Error; err != nil {
+		return nil, fmt.Errorf("dashboardRepo.GetDashboardAggregates.ChartActual: %w", err)
 	}
 
 	// Merge Chart Data
@@ -668,11 +668,13 @@ func (r *dashboardRepository) GetDashboardAggregates(filter map[string]interface
 	return summary, nil
 }
 
-func (r *dashboardRepository) GetActualYears() ([]string, error) {
+func (r *dashboardRepository) GetActualYears(ctx context.Context) ([]string, error) {
 	var years []string
-	err := r.db.Model(&models.ActualTransactionEntity{}).
+	if err := r.db.WithContext(ctx).Model(&models.ActualTransactionEntity{}).
 		Distinct().
 		Order("year DESC").
-		Pluck("year", &years).Error
-	return years, err
+		Pluck("year", &years).Error; err != nil {
+		return nil, fmt.Errorf("dashboardRepo.GetActualYears: %w", err)
+	}
+	return years, nil
 }

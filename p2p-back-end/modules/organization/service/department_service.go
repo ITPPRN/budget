@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"p2p-back-end/logs"
 	"p2p-back-end/modules/entities/models"
@@ -16,7 +17,7 @@ func NewDepartmentService(repo repository.DepartmentRepositoryDB) models.Departm
 }
 
 // ManageDepartments handles the incremental seeding of Department Data (Preserves IDs)
-func (s *departmentService) ManageDepartments() error {
+func (s *departmentService) ManageDepartments(ctx context.Context) error {
 	logs.Info("Starting Department Sync (Preserving Existing IDs)...")
 
 	// 1. Fetch Existing Departments to avoid duplicate inserts and ID changes
@@ -199,21 +200,51 @@ func (s *departmentService) ManageDepartments() error {
 	if len(usersToFix) > 0 {
 		logs.Infof("Repair: Checking %d users for missing or broken department links...", len(usersToFix))
 		for _, u := range usersToFix {
-			// Find their ACTIVE permissions to re-link them
+			fixed := false
+			// 1. Try to Fix based on ACTIVE permissions
 			var perms []models.UserPermissionEntity
 			s.repo.GetDB().Where("user_id = ? AND is_active = true", u.ID).Find(&perms)
 
 			if len(perms) > 0 {
-				// Resolve to Master Department Code
-				masterDept, err := s.GetMasterDepartment(perms[0].DepartmentCode, "ACG")
+				masterDept, err := s.GetMasterDepartment(ctx, perms[0].DepartmentCode, "ACG")
 				if err == nil && masterDept != nil {
-					logs.Infof("   -> Fixing user %s: Linking to Master [%s] %s (from Child %s)", u.Username, masterDept.Code, masterDept.Name, perms[0].DepartmentCode)
+					logs.Infof("   -> Fixing user %s: Linking to Master [%s] %s (from Permission Path %s)", u.Username, masterDept.Code, masterDept.Name, perms[0].DepartmentCode)
 					s.repo.GetDB().Model(&u).Update("department_id", masterDept.ID)
-				} else if targetDept, exists := existingDepts[perms[0].DepartmentCode]; exists {
-					// Fallback to direct match if no mapping found
-					logs.Infof("   -> Fixing user %s: Linking to Direct [%s] %s", u.Username, targetDept.Code, targetDept.Name)
-					s.repo.GetDB().Model(&u).Update("department_id", targetDept.ID)
+					fixed = true
 				}
+			}
+
+			// 2. Try to Fix based on SectionID mapping if not fixed by permissions
+			if !fixed && u.SectionID != nil {
+				var section models.Sections
+				if err := s.repo.GetDB().Where("id = ?", u.SectionID).First(&section).Error; err == nil {
+					// 2.1 Only try to fetch Child Dept if ID is valid (!= nil)
+					if section.DepartmentID != nil {
+						var childDept models.Departments
+						if err := s.repo.GetDB().Where("id = ?", section.DepartmentID).First(&childDept).Error; err == nil {
+							masterDept, err := s.GetMasterDepartment(ctx, childDept.Code, "ACG")
+							if err == nil && masterDept != nil {
+								logs.Infof("   -> Fixing user %s: Linking to Master [%s] %s (from Section %s -> Dept %s)", u.Username, masterDept.Code, masterDept.Name, section.Code, childDept.Code)
+								s.repo.GetDB().Model(&u).Update("department_id", masterDept.ID)
+								fixed = true
+							} else {
+								logs.Warnf("   -> Repair Note: Found Section %s for user %s, but Dept code %s has no Master mapping.", section.Code, u.Username, childDept.Code)
+							}
+						} else {
+							logs.Warnf("   -> Repair Note: Found Section %s for user %s, but linked Department ID %d not found in local DB.", section.Code, u.Username, section.DepartmentID)
+						}
+					} else {
+						logs.Warnf("   -> Repair Note: Section %s assigned to user %s has DepartmentID=0 (Master Data Gap).", section.Code, u.Username)
+					}
+				} else {
+					logs.Warnf("   -> Repair Note: SectionID %d on user %s not found in local DB.", u.SectionID, u.Username)
+				}
+			}
+
+			if !fixed {
+				// We leave it as NULL as per user request.
+				// This allows us to identify users with missing mapping (shows as '-' in UI)
+				logs.Warnf("   -> Fix Failed: User %s (%s) has no valid Permission Path or Section/Dept mapping.", u.Username, u.NameTh)
 			}
 		}
 	}
@@ -223,7 +254,7 @@ func (s *departmentService) ManageDepartments() error {
 }
 
 // GetMasterDepartment finds the Master Department using the mapping table
-func (s *departmentService) GetMasterDepartment(navCode, entity string) (*models.DepartmentEntity, error) {
+func (s *departmentService) GetMasterDepartment(ctx context.Context, navCode, entity string) (*models.DepartmentEntity, error) {
 	if navCode == "" {
 		// Return "None" directly to avoid "record not found" error on empty lookup
 		// and to ensure data isn't lost/blank in dashboard

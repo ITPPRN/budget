@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"mime/multipart"
@@ -24,12 +25,12 @@ func NewPLBudgetService(repo models.PLBudgetRepository, depSrv models.Department
 	return &plBudgetService{repo: repo, depSrv: depSrv}
 }
 
-func (s *plBudgetService) ImportBudget(fileHeader *multipart.FileHeader, userID string, versionName string) error {
+func (s *plBudgetService) ImportBudget(ctx context.Context, fileHeader *multipart.FileHeader, userID string, versionName string) error {
 	expectedHeaders := []string{"Entity", "Branch", "Entity GL", "Conso GL", "GROUP1", "GL Name", "Department", "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC", "YEARTOTAL"}
 	
 	rows, err := excel.ParseExcelToJSONStrict(fileHeader, expectedHeaders)
 	if err != nil {
-		return err // This error will now clearly state missing columns if validation fails
+		return fmt.Errorf("plService.ImportBudget: %w", err)
 	}
 	jsonData, _ := json.Marshal(rows)
 
@@ -42,22 +43,20 @@ func (s *plBudgetService) ImportBudget(fileHeader *multipart.FileHeader, userID 
 		Data: datatypes.JSON(jsonData),
 	}
 
-	return s.repo.CreateFileBudget(fileEntity)
+	return s.repo.CreateFileBudget(ctx, fileEntity)
 }
 
-func (s *plBudgetService) SyncBudget(fileID string) error {
+func (s *plBudgetService) SyncBudget(ctx context.Context, fileID string) error {
 	fmt.Printf("[DEBUG] SyncBudget: Starting for FileID %s\n", fileID)
-	fileEntity, err := s.repo.GetFileBudget(fileID)
+	fileEntity, err := s.repo.GetFileBudget(ctx, fileID)
 	if err != nil {
-		fmt.Printf("[DEBUG] SyncBudget: GetFileBudget failed: %v\n", err)
-		return fmt.Errorf("file record not found: %v", err)
+		return fmt.Errorf("plService.SyncBudget: %w", err)
 	}
 	fmt.Printf("[DEBUG] SyncBudget: Found File. Data Size: %d bytes\n", len(fileEntity.Data))
 
 	var rows [][]string
 	if err := json.Unmarshal(fileEntity.Data, &rows); err != nil {
-		fmt.Printf("[DEBUG] SyncBudget: Unmarshal failed: %v\n", err)
-		return fmt.Errorf("failed to parse stored json data: %v", err)
+		return fmt.Errorf("plService.SyncBudget: failed to parse stored json data: %w", err)
 	}
 	fmt.Printf("[DEBUG] SyncBudget: Unmarshaled %d rows\n", len(rows))
 
@@ -65,9 +64,8 @@ func (s *plBudgetService) SyncBudget(fileID string) error {
 	err = s.repo.WithTrx(func(trxRepo models.PLBudgetRepository) error {
 		// Delete All Existing Data
 		fmt.Println("[DEBUG] SyncBudget: Deleting old facts...")
-		if err := trxRepo.DeleteAllBudgetFacts(); err != nil {
-			fmt.Printf("[DEBUG] SyncBudget: DeleteAllBudgetFacts failed: %v\n", err)
-			return err
+		if err := trxRepo.DeleteAllBudgetFacts(ctx); err != nil {
+			return fmt.Errorf("transaction.DeleteAll: %w", err)
 		}
 
 		// Process & Insert
@@ -77,50 +75,47 @@ func (s *plBudgetService) SyncBudget(fileID string) error {
 			year = "2026" // Fallback to current fiscal year
 		}
 		fmt.Printf("[DEBUG] SyncBudget: Processing facts for Year %s...\n", year)
-		headers, err := s.processBudgetFact(rows, parsedUUID, year)
+		headers, err := s.processBudgetFact(ctx, rows, parsedUUID, year)
 		if err != nil {
-			fmt.Printf("[DEBUG] SyncBudget: processBudgetFact failed: %v\n", err)
-			return err
+			return fmt.Errorf("transaction.ProcessFact: %w", err)
 		}
 		fmt.Printf("[DEBUG] SyncBudget: To Insert %d headers\n", len(headers))
 
 		if len(headers) > 0 {
 			fmt.Println("[DEBUG] SyncBudget: Creating facts in DB...")
-			if err := trxRepo.CreateBudgetFacts(headers); err != nil {
-				fmt.Printf("[DEBUG] SyncBudget: CreateBudgetFacts failed: %v\n", err)
-				return err
+			if err := trxRepo.CreateBudgetFacts(ctx, headers); err != nil {
+				return fmt.Errorf("transaction.CreateFacts: %w", err)
 			}
 		}
 		return nil
 	})
 
 	if err != nil {
-		fmt.Printf("[DEBUG] SyncBudget: Transaction failed: %v\n", err)
-		return err
+		return fmt.Errorf("plService.SyncBudget: %w", err)
 	}
 	fmt.Println("[DEBUG] SyncBudget: Success")
 	return nil
 }
 
-func (s *plBudgetService) ClearBudget() error {
+func (s *plBudgetService) ClearBudget(ctx context.Context) error {
 	return s.repo.WithTrx(func(trxRepo models.PLBudgetRepository) error {
-		return trxRepo.DeleteAllBudgetFacts()
+		return trxRepo.DeleteAllBudgetFacts(ctx)
 	})
 }
 
-func (s *plBudgetService) ListBudgetFiles() ([]models.FileBudgetEntity, error) {
-	return s.repo.ListFileBudgets()
+func (s *plBudgetService) ListBudgetFiles(ctx context.Context) ([]models.FileBudgetEntity, error) {
+	return s.repo.ListFileBudgets(ctx)
 }
 
-func (s *plBudgetService) DeleteBudgetFile(id string) error {
-	return s.repo.DeleteFileBudget(id)
+func (s *plBudgetService) DeleteBudgetFile(ctx context.Context, id string) error {
+	return s.repo.DeleteFileBudget(ctx, id)
 }
 
-func (s *plBudgetService) RenameBudgetFile(id string, newName string) error {
-	return s.repo.UpdateFileBudget(id, newName)
+func (s *plBudgetService) RenameBudgetFile(ctx context.Context, id string, newName string) error {
+	return s.repo.UpdateFileBudget(ctx, id, newName)
 }
 
-func (s *plBudgetService) processBudgetFact(rows [][]string, fileID uuid.UUID, year string) ([]models.BudgetFactEntity, error) {
+func (s *plBudgetService) processBudgetFact(ctx context.Context, rows [][]string, fileID uuid.UUID, year string) ([]models.BudgetFactEntity, error) {
 	if len(rows) < 2 {
 		// User requested to allow empty files (just header) to clear data
 		fmt.Println("[DEBUG] ProcessBudget: File has only header or empty. Returning empty list (Clear Data).")
@@ -197,7 +192,7 @@ func (s *plBudgetService) processBudgetFact(rows [][]string, fileID uuid.UUID, y
 		dept := rawDept // Default to original
 		originalDept := rawDept
 
-		if master, err := s.depSrv.GetMasterDepartment(deptLookup, entity); err == nil && master != nil {
+		if master, err := s.depSrv.GetMasterDepartment(ctx, deptLookup, entity); err == nil && master != nil {
 			dept = master.Code
 		} else {
 			dept = strings.TrimSpace(rawDept)

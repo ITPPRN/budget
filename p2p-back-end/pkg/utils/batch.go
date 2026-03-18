@@ -1,15 +1,18 @@
 package utils
 
+import "context"
+
 func BatchSync[T any, K any](
+	ctx context.Context,
 	startID K,
 	limit int,
-	fetchFunc func(lastID K, limit int) ([]T, error),
-	saveFunc func(data []T) error,
+	fetchFunc func(ctx context.Context, lastID K, limit int) ([]T, error),
+	saveFunc func(ctx context.Context, data []T) error,
 	idFunc func(item T) K,
 ) error {
 	lastID := startID
 	for {
-		data, err := fetchFunc(lastID, limit)
+		data, err := fetchFunc(ctx, lastID, limit)
 		if err != nil {
 			return err
 		}
@@ -18,7 +21,7 @@ func BatchSync[T any, K any](
 			break
 		}
 
-		if err := saveFunc(data); err != nil {
+		if err := saveFunc(ctx, data); err != nil {
 			return err
 		}
 

@@ -32,7 +32,7 @@ func (c *ownerController) GetDashboardSummary(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
 	}
 
-	summary, err := c.ownerService.GetDashboardSummary(user, req)
+	summary, err := c.ownerService.GetDashboardSummary(ctx.UserContext(), user, req)
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -48,7 +48,7 @@ func (c *ownerController) GetDashboardSummary(ctx *fiber.Ctx) error {
 // GET /api/v1/owner/filter-options
 func (c *ownerController) GetFilterOptions(ctx *fiber.Ctx) error {
 	user := ctx.Locals("user").(*models.UserInfo)
-	opts, err := c.ownerService.GetFilterOptions(user)
+	opts, err := c.ownerService.GetFilterOptions(ctx.UserContext(), user)
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -57,7 +57,7 @@ func (c *ownerController) GetFilterOptions(ctx *fiber.Ctx) error {
 
 func (c *ownerController) GetOrganizationStructure(ctx *fiber.Ctx) error {
 	user := ctx.Locals("user").(*models.UserInfo)
-	structure, err := c.ownerService.GetOrganizationStructure(user)
+	structure, err := c.ownerService.GetOrganizationStructure(ctx.UserContext(), user)
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -68,7 +68,7 @@ func (c *ownerController) GetOrganizationStructure(ctx *fiber.Ctx) error {
 // GET /api/v1/owner/filter-lists
 func (c *ownerController) GetOwnerFilterLists(ctx *fiber.Ctx) error {
 	user := ctx.Locals("user").(*models.UserInfo)
-	lists, err := c.ownerService.GetOwnerFilterLists(user)
+	lists, err := c.ownerService.GetOwnerFilterLists(ctx.UserContext(), user)
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -84,7 +84,7 @@ func (c *ownerController) GetActualTransactions(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
 	}
 
-	txs, err := c.ownerService.GetActualTransactions(user, req)
+	txs, err := c.ownerService.GetActualTransactions(ctx.UserContext(), user, req)
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -93,7 +93,7 @@ func (c *ownerController) GetActualTransactions(ctx *fiber.Ctx) error {
 
 func (c *ownerController) GetActualYears(ctx *fiber.Ctx) error {
 	user := ctx.Locals("user").(*models.UserInfo)
-	years, err := c.ownerService.GetActualYears(user)
+	years, err := c.ownerService.GetActualYears(ctx.UserContext(), user)
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}

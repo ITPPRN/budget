@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"context"
+	"fmt"
 	"p2p-back-end/modules/entities/models"
 	"sort"
 
@@ -27,42 +29,52 @@ func (r *capexRepositoryDB) WithTrx(trxHandle func(repo models.CapexRepository) 
 // File Create Methods
 // ---------------------------------------------------------
 
-func (r *capexRepositoryDB) CreateFileCapexBudget(file *models.FileCapexBudgetEntity) error {
-	return r.db.Create(file).Error
+func (r *capexRepositoryDB) CreateFileCapexBudget(ctx context.Context, file *models.FileCapexBudgetEntity) error {
+	if err := r.db.WithContext(ctx).Create(file).Error; err != nil {
+		return fmt.Errorf("capexRepo.CreateFileCapexBudget: %w", err)
+	}
+	return nil
 }
 
-func (r *capexRepositoryDB) CreateFileCapexActual(file *models.FileCapexActualEntity) error {
-	return r.db.Create(file).Error
+func (r *capexRepositoryDB) CreateFileCapexActual(ctx context.Context, file *models.FileCapexActualEntity) error {
+	if err := r.db.WithContext(ctx).Create(file).Error; err != nil {
+		return fmt.Errorf("capexRepo.CreateFileCapexActual: %w", err)
+	}
+	return nil
 }
 
 // ---------------------------------------------------------
 // Fact Create Methods
 // ---------------------------------------------------------
 
-func (r *capexRepositoryDB) CreateCapexBudgetFacts(headers []models.CapexBudgetFactEntity) error {
-	if err := r.db.Omit("CapexBudgetAmounts").CreateInBatches(&headers, 1000).Error; err != nil {
-		return err
+func (r *capexRepositoryDB) CreateCapexBudgetFacts(ctx context.Context, headers []models.CapexBudgetFactEntity) error {
+	if err := r.db.WithContext(ctx).Omit("CapexBudgetAmounts").CreateInBatches(&headers, 1000).Error; err != nil {
+		return fmt.Errorf("capexRepo.CreateCapexBudgetFacts.Headers: %w", err)
 	}
 	var allAmounts []models.CapexBudgetAmountEntity
 	for _, h := range headers {
 		allAmounts = append(allAmounts, h.CapexBudgetAmounts...)
 	}
 	if len(allAmounts) > 0 {
-		return r.db.CreateInBatches(&allAmounts, 1000).Error
+		if err := r.db.WithContext(ctx).CreateInBatches(&allAmounts, 1000).Error; err != nil {
+			return fmt.Errorf("capexRepo.CreateCapexBudgetFacts.Amounts: %w", err)
+		}
 	}
 	return nil
 }
 
-func (r *capexRepositoryDB) CreateCapexActualFacts(headers []models.CapexActualFactEntity) error {
-	if err := r.db.Omit("CapexActualAmounts").CreateInBatches(&headers, 1000).Error; err != nil {
-		return err
+func (r *capexRepositoryDB) CreateCapexActualFacts(ctx context.Context, headers []models.CapexActualFactEntity) error {
+	if err := r.db.WithContext(ctx).Omit("CapexActualAmounts").CreateInBatches(&headers, 1000).Error; err != nil {
+		return fmt.Errorf("capexRepo.CreateCapexActualFacts.Headers: %w", err)
 	}
 	var allAmounts []models.CapexActualAmountEntity
 	for _, h := range headers {
 		allAmounts = append(allAmounts, h.CapexActualAmounts...)
 	}
 	if len(allAmounts) > 0 {
-		return r.db.CreateInBatches(&allAmounts, 1000).Error
+		if err := r.db.WithContext(ctx).CreateInBatches(&allAmounts, 1000).Error; err != nil {
+			return fmt.Errorf("capexRepo.CreateCapexActualFacts.Amounts: %w", err)
+		}
 	}
 	return nil
 }
@@ -71,34 +83,38 @@ func (r *capexRepositoryDB) CreateCapexActualFacts(headers []models.CapexActualF
 // File List Methods
 // ---------------------------------------------------------
 
-func (r *capexRepositoryDB) ListFileCapexBudgets() ([]models.FileCapexBudgetEntity, error) {
+func (r *capexRepositoryDB) ListFileCapexBudgets(ctx context.Context) ([]models.FileCapexBudgetEntity, error) {
 	var files []models.FileCapexBudgetEntity
-	err := r.db.Order("upload_at desc").Find(&files).Error
-	return files, err
+	if err := r.db.WithContext(ctx).Order("upload_at desc").Find(&files).Error; err != nil {
+		return nil, fmt.Errorf("capexRepo.ListFileCapexBudgets: %w", err)
+	}
+	return files, nil
 }
 
-func (r *capexRepositoryDB) ListFileCapexActuals() ([]models.FileCapexActualEntity, error) {
+func (r *capexRepositoryDB) ListFileCapexActuals(ctx context.Context) ([]models.FileCapexActualEntity, error) {
 	var files []models.FileCapexActualEntity
-	err := r.db.Order("upload_at desc").Find(&files).Error
-	return files, err
+	if err := r.db.WithContext(ctx).Order("upload_at desc").Find(&files).Error; err != nil {
+		return nil, fmt.Errorf("capexRepo.ListFileCapexActuals: %w", err)
+	}
+	return files, nil
 }
 
 // ---------------------------------------------------------
 // Get Single File
 // ---------------------------------------------------------
 
-func (r *capexRepositoryDB) GetFileCapexBudget(id string) (*models.FileCapexBudgetEntity, error) {
+func (r *capexRepositoryDB) GetFileCapexBudget(ctx context.Context, id string) (*models.FileCapexBudgetEntity, error) {
 	var file models.FileCapexBudgetEntity
-	if err := r.db.First(&file, "id = ?", id).Error; err != nil {
-		return nil, err
+	if err := r.db.WithContext(ctx).First(&file, "id = ?", id).Error; err != nil {
+		return nil, fmt.Errorf("capexRepo.GetFileCapexBudget: %w", err)
 	}
 	return &file, nil
 }
 
-func (r *capexRepositoryDB) GetFileCapexActual(id string) (*models.FileCapexActualEntity, error) {
+func (r *capexRepositoryDB) GetFileCapexActual(ctx context.Context, id string) (*models.FileCapexActualEntity, error) {
 	var file models.FileCapexActualEntity
-	if err := r.db.First(&file, "id = ?", id).Error; err != nil {
-		return nil, err
+	if err := r.db.WithContext(ctx).First(&file, "id = ?", id).Error; err != nil {
+		return nil, fmt.Errorf("capexRepo.GetFileCapexActual: %w", err)
 	}
 	return &file, nil
 }
@@ -107,61 +123,75 @@ func (r *capexRepositoryDB) GetFileCapexActual(id string) (*models.FileCapexActu
 // Delete Files
 // ---------------------------------------------------------
 
-func (r *capexRepositoryDB) DeleteFileCapexBudget(id string) error {
-	return r.db.Delete(&models.FileCapexBudgetEntity{}, "id = ?", id).Error
+func (r *capexRepositoryDB) DeleteFileCapexBudget(ctx context.Context, id string) error {
+	if err := r.db.WithContext(ctx).Delete(&models.FileCapexBudgetEntity{}, "id = ?", id).Error; err != nil {
+		return fmt.Errorf("capexRepo.DeleteFileCapexBudget: %w", err)
+	}
+	return nil
 }
 
-func (r *capexRepositoryDB) DeleteFileCapexActual(id string) error {
-	return r.db.Delete(&models.FileCapexActualEntity{}, "id = ?", id).Error
+func (r *capexRepositoryDB) DeleteFileCapexActual(ctx context.Context, id string) error {
+	if err := r.db.WithContext(ctx).Delete(&models.FileCapexActualEntity{}, "id = ?", id).Error; err != nil {
+		return fmt.Errorf("capexRepo.DeleteFileCapexActual: %w", err)
+	}
+	return nil
 }
 
-func (r *capexRepositoryDB) DeleteCapexBudgetFactsByFileID(fileID string) error {
-	return r.db.Where("file_capex_budget_id = ?", fileID).Delete(&models.CapexBudgetFactEntity{}).Error
+func (r *capexRepositoryDB) DeleteCapexBudgetFactsByFileID(ctx context.Context, fileID string) error {
+	if err := r.db.WithContext(ctx).Where("file_capex_budget_id = ?", fileID).Delete(&models.CapexBudgetFactEntity{}).Error; err != nil {
+		return fmt.Errorf("capexRepo.DeleteCapexBudgetFactsByFileID: %w", err)
+	}
+	return nil
 }
 
-func (r *capexRepositoryDB) DeleteCapexActualFactsByFileID(fileID string) error {
-	return r.db.Where("file_capex_actual_id = ?", fileID).Delete(&models.CapexActualFactEntity{}).Error
+func (r *capexRepositoryDB) DeleteCapexActualFactsByFileID(ctx context.Context, fileID string) error {
+	if err := r.db.WithContext(ctx).Where("file_capex_actual_id = ?", fileID).Delete(&models.CapexActualFactEntity{}).Error; err != nil {
+		return fmt.Errorf("capexRepo.DeleteCapexActualFactsByFileID: %w", err)
+	}
+	return nil
 }
 
 // ---------------------------------------------------------
 // Delete Facts
 // ---------------------------------------------------------
 
-func (r *capexRepositoryDB) DeleteAllCapexBudgetFacts() error {
-	// Cascade delete via GORM hooks or database constraints is preferred,
-	// but manual cleanup ensures consistency if constraints missing.
-	// For simplicity and speed, we rely on cascade or separate truncation if needed.
-	// Here we just delete Parent, assuming DB handles children or we risk orphans.
-	// Given previous implementation styles, DELETE FROM amounts might be needed first.
-	// Let's trust GORM association handling or direct SQL if constraints exist.
-	// Safest: Delete amounts then headers.
-	// Efficient: Truncate?
-	// Consistent with budget_db:
-	// "DeleteAll" usually implies clearing EVERYTHING for a full refresh.
-	return r.db.Exec("TRUNCATE TABLE capex_budget_fact_entities, capex_budget_amount_entities RESTART IDENTITY CASCADE").Error
+func (r *capexRepositoryDB) DeleteAllCapexBudgetFacts(ctx context.Context) error {
+	if err := r.db.WithContext(ctx).Exec("TRUNCATE TABLE capex_budget_fact_entities, capex_budget_amount_entities RESTART IDENTITY CASCADE").Error; err != nil {
+		return fmt.Errorf("capexRepo.DeleteAllCapexBudgetFacts: %w", err)
+	}
+	return nil
 }
 
-func (r *capexRepositoryDB) DeleteAllCapexActualFacts() error {
-	return r.db.Exec("TRUNCATE TABLE capex_actual_fact_entities, capex_actual_amount_entities RESTART IDENTITY CASCADE").Error
+func (r *capexRepositoryDB) DeleteAllCapexActualFacts(ctx context.Context) error {
+	if err := r.db.WithContext(ctx).Exec("TRUNCATE TABLE capex_actual_fact_entities, capex_actual_amount_entities RESTART IDENTITY CASCADE").Error; err != nil {
+		return fmt.Errorf("capexRepo.DeleteAllCapexActualFacts: %w", err)
+	}
+	return nil
 }
 
 // ---------------------------------------------------------
 // Update Files (Rename)
 // ---------------------------------------------------------
 
-func (r *capexRepositoryDB) UpdateFileCapexBudget(id string, filename string) error {
-	return r.db.Model(&models.FileCapexBudgetEntity{}).Where("id = ?", id).Update("file_name", filename).Error
+func (r *capexRepositoryDB) UpdateFileCapexBudget(ctx context.Context, id string, filename string) error {
+	if err := r.db.WithContext(ctx).Model(&models.FileCapexBudgetEntity{}).Where("id = ?", id).Update("file_name", filename).Error; err != nil {
+		return fmt.Errorf("capexRepo.UpdateFileCapexBudget: %w", err)
+	}
+	return nil
 }
 
-func (r *capexRepositoryDB) UpdateFileCapexActual(id string, filename string) error {
-	return r.db.Model(&models.FileCapexActualEntity{}).Where("id = ?", id).Update("file_name", filename).Error
+func (r *capexRepositoryDB) UpdateFileCapexActual(ctx context.Context, id string, filename string) error {
+	if err := r.db.WithContext(ctx).Model(&models.FileCapexActualEntity{}).Where("id = ?", id).Update("file_name", filename).Error; err != nil {
+		return fmt.Errorf("capexRepo.UpdateFileCapexActual: %w", err)
+	}
+	return nil
 }
 
 // ---------------------------------------------------------
 // Dashboard Aggregation
 // ---------------------------------------------------------
 
-func (r *capexRepositoryDB) GetCapexDashboardAggregates(filter map[string]interface{}) (*models.DashboardSummaryDTO, error) {
+func (r *capexRepositoryDB) GetCapexDashboardAggregates(ctx context.Context, filter map[string]interface{}) (*models.DashboardSummaryDTO, error) {
 	summary := &models.DashboardSummaryDTO{
 		DepartmentData: []models.DepartmentStatDTO{},
 		ChartData:      []models.MonthlyStatDTO{},
@@ -248,16 +278,16 @@ func (r *capexRepositoryDB) GetCapexDashboardAggregates(filter map[string]interf
 	var budgetDept []DeptResult
 	tx1 := r.db.Table("capex_budget_fact_entities").Select("department, SUM(year_total) as total")
 	tx1 = applyFilter(tx1, "capex_budget_fact_entities")
-	if err := tx1.Group("department").Scan(&budgetDept).Error; err != nil {
-		return nil, err
+	if err := tx1.WithContext(ctx).Group("department").Scan(&budgetDept).Error; err != nil {
+		return nil, fmt.Errorf("capexRepo.GetDashboardAggregates.Budget: %w", err)
 	}
 
 	// CAPEX Actual
 	var actualDept []DeptResult
 	tx2 := r.db.Table("capex_actual_fact_entities").Select("department, SUM(year_total) as total")
 	tx2 = applyFilter(tx2, "capex_actual_fact_entities")
-	if err := tx2.Group("department").Scan(&actualDept).Error; err != nil {
-		return nil, err
+	if err := tx2.WithContext(ctx).Group("department").Scan(&actualDept).Error; err != nil {
+		return nil, fmt.Errorf("capexRepo.GetDashboardAggregates.Actual: %w", err)
 	}
 
 	// Merge
@@ -385,8 +415,8 @@ func (r *capexRepositoryDB) GetCapexDashboardAggregates(filter map[string]interf
 		Select("capex_budget_amount_entities.month, SUM(capex_budget_amount_entities.amount) as total").
 		Joins("JOIN capex_budget_fact_entities ON capex_budget_amount_entities.capex_budget_fact_id = capex_budget_fact_entities.id")
 	tx3 = applyFilter(tx3, "capex_budget_fact_entities")
-	if err := tx3.Group("capex_budget_amount_entities.month").Scan(&budgetMonth).Error; err != nil {
-		return nil, err
+	if err := tx3.WithContext(ctx).Group("capex_budget_amount_entities.month").Scan(&budgetMonth).Error; err != nil {
+		return nil, fmt.Errorf("capexRepo.GetDashboardAggregates.ChartBudget: %w", err)
 	}
 
 	var actualMonth []MonthResult
@@ -394,8 +424,8 @@ func (r *capexRepositoryDB) GetCapexDashboardAggregates(filter map[string]interf
 		Select("capex_actual_amount_entities.month, SUM(capex_actual_amount_entities.amount) as total").
 		Joins("JOIN capex_actual_fact_entities ON capex_actual_amount_entities.capex_actual_fact_id = capex_actual_fact_entities.id")
 	tx4 = applyFilter(tx4, "capex_actual_fact_entities")
-	if err := tx4.Group("capex_actual_amount_entities.month").Scan(&actualMonth).Error; err != nil {
-		return nil, err
+	if err := tx4.WithContext(ctx).Group("capex_actual_amount_entities.month").Scan(&actualMonth).Error; err != nil {
+		return nil, fmt.Errorf("capexRepo.GetDashboardAggregates.ChartActual: %w", err)
 	}
 
 	monthMap := make(map[string]*models.MonthlyStatDTO)

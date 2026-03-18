@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"mime/multipart"
@@ -70,10 +71,10 @@ func getColSafe(row []string, idx int) string {
 
 var expectedCapexHeaders = []string{"Entity", "Department", "CAPEX No.", "CAPEX Name", "CAPEX Category", "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC", "YEARTOTAL"}
 
-func (s *capexService) ImportCapexBudget(fileHeader *multipart.FileHeader, userID string, versionName string) error {
+func (s *capexService) ImportCapexBudget(ctx context.Context, fileHeader *multipart.FileHeader, userID string, versionName string) error {
 	rows, err := excel.ParseExcelToJSONStrict(fileHeader, expectedCapexHeaders)
 	if err != nil {
-		return err
+		return fmt.Errorf("capexSrv.ImportCapexBudget.Parse: %w", err)
 	}
 	jsonData, _ := json.Marshal(rows)
 
@@ -89,13 +90,13 @@ func (s *capexService) ImportCapexBudget(fileHeader *multipart.FileHeader, userI
 		Data: datatypes.JSON(jsonData),
 	}
 
-	return s.repo.CreateFileCapexBudget(fileEntity)
+	return s.repo.CreateFileCapexBudget(ctx, fileEntity)
 }
 
-func (s *capexService) ImportCapexActual(fileHeader *multipart.FileHeader, userID string, versionName string) error {
+func (s *capexService) ImportCapexActual(ctx context.Context, fileHeader *multipart.FileHeader, userID string, versionName string) error {
 	rows, err := excel.ParseExcelToJSONStrict(fileHeader, expectedCapexHeaders)
 	if err != nil {
-		return err
+		return fmt.Errorf("capexSrv.ImportCapexActual.Parse: %w", err)
 	}
 	jsonData, _ := json.Marshal(rows)
 
@@ -111,7 +112,7 @@ func (s *capexService) ImportCapexActual(fileHeader *multipart.FileHeader, userI
 		Data: datatypes.JSON(jsonData),
 	}
 
-	return s.repo.CreateFileCapexActual(fileEntity)
+	return s.repo.CreateFileCapexActual(ctx, fileEntity)
 }
 
 // Redoing Sync to be strict
@@ -241,55 +242,59 @@ func (s *capexService) processCapexActualFact(rows [][]string, fileID uuid.UUID,
 }
 
 // Re-implement Sync with correct processor calls
-func (s *capexService) SyncCapexBudget(fileID string) error {
-	fileEntity, err := s.repo.GetFileCapexBudget(fileID)
+func (s *capexService) SyncCapexBudget(ctx context.Context, fileID string) error {
+	fileEntity, err := s.repo.GetFileCapexBudget(ctx, fileID)
 	if err != nil {
-		return fmt.Errorf("file record not found: %v", err)
+		return fmt.Errorf("capexSrv.SyncCapexBudget.FetchFile: %w", err)
 	}
 	var rows [][]string
 	if err := json.Unmarshal(fileEntity.Data, &rows); err != nil {
-		return fmt.Errorf("failed to parse stored json data: %v", err)
+		return fmt.Errorf("capexSrv.SyncCapexBudget.Unmarshal: %w", err)
 	}
 
 	return s.repo.WithTrx(func(trxRepo models.CapexRepository) error {
-		if err := trxRepo.DeleteAllCapexBudgetFacts(); err != nil {
-			return err
+		if err := trxRepo.DeleteAllCapexBudgetFacts(ctx); err != nil {
+			return fmt.Errorf("transaction.DeleteOldFacts: %w", err)
 		}
 		parsedUUID, _ := uuid.Parse(fileID)
 		headers, err := s.processCapexBudgetFact(rows, parsedUUID, fileEntity.Year)
 		if err != nil {
-			return err
+			return fmt.Errorf("transaction.ProcessFacts: %w", err)
 		}
 
 		if len(headers) > 0 {
-			return trxRepo.CreateCapexBudgetFacts(headers)
+			if err := trxRepo.CreateCapexBudgetFacts(ctx, headers); err != nil {
+				return fmt.Errorf("transaction.CreateFacts: %w", err)
+			}
 		}
 		return nil
 	})
 }
 
-func (s *capexService) SyncCapexActual(fileID string) error {
-	fileEntity, err := s.repo.GetFileCapexActual(fileID)
+func (s *capexService) SyncCapexActual(ctx context.Context, fileID string) error {
+	fileEntity, err := s.repo.GetFileCapexActual(ctx, fileID)
 	if err != nil {
-		return fmt.Errorf("file record not found: %v", err)
+		return fmt.Errorf("capexSrv.SyncCapexActual.FetchFile: %w", err)
 	}
 	var rows [][]string
 	if err := json.Unmarshal(fileEntity.Data, &rows); err != nil {
-		return fmt.Errorf("failed to parse stored json data: %v", err)
+		return fmt.Errorf("capexSrv.SyncCapexActual.Unmarshal: %w", err)
 	}
 
 	return s.repo.WithTrx(func(trxRepo models.CapexRepository) error {
-		if err := trxRepo.DeleteAllCapexActualFacts(); err != nil {
-			return err
+		if err := trxRepo.DeleteAllCapexActualFacts(ctx); err != nil {
+			return fmt.Errorf("transaction.DeleteOldFacts: %w", err)
 		}
 		parsedUUID, _ := uuid.Parse(fileID)
 		headers, err := s.processCapexActualFact(rows, parsedUUID, fileEntity.Year)
 		if err != nil {
-			return err
+			return fmt.Errorf("transaction.ProcessFacts: %w", err)
 		}
 
 		if len(headers) > 0 {
-			return trxRepo.CreateCapexActualFacts(headers)
+			if err := trxRepo.CreateCapexActualFacts(ctx, headers); err != nil {
+				return fmt.Errorf("transaction.CreateFacts: %w", err)
+			}
 		}
 		return nil
 	})
@@ -299,59 +304,59 @@ func (s *capexService) SyncCapexActual(fileID string) error {
 // List Files
 // ---------------------------------------------------------------------
 
-func (s *capexService) ListCapexBudgetFiles() ([]models.FileCapexBudgetEntity, error) {
-	return s.repo.ListFileCapexBudgets()
+func (s *capexService) ListCapexBudgetFiles(ctx context.Context) ([]models.FileCapexBudgetEntity, error) {
+	return s.repo.ListFileCapexBudgets(ctx)
 }
 
-func (s *capexService) ListCapexActualFiles() ([]models.FileCapexActualEntity, error) {
-	return s.repo.ListFileCapexActuals()
+func (s *capexService) ListCapexActualFiles(ctx context.Context) ([]models.FileCapexActualEntity, error) {
+	return s.repo.ListFileCapexActuals(ctx)
 }
 
 // ---------------------------------------------------------------------
 // Delete
 // ---------------------------------------------------------------------
 
-func (s *capexService) DeleteCapexBudgetFile(id string) error {
-	return s.repo.DeleteFileCapexBudget(id)
+func (s *capexService) DeleteCapexBudgetFile(ctx context.Context, id string) error {
+	return s.repo.DeleteFileCapexBudget(ctx, id)
 }
 
-func (s *capexService) DeleteCapexActualFile(id string) error {
-	return s.repo.DeleteFileCapexActual(id)
+func (s *capexService) DeleteCapexActualFile(ctx context.Context, id string) error {
+	return s.repo.DeleteFileCapexActual(ctx, id)
 }
 
 // ---------------------------------------------------------------------
 // Rename
 // ---------------------------------------------------------------------
 
-func (s *capexService) RenameCapexBudgetFile(id string, newName string) error {
-	return s.repo.UpdateFileCapexBudget(id, newName)
+func (s *capexService) RenameCapexBudgetFile(ctx context.Context, id string, newName string) error {
+	return s.repo.UpdateFileCapexBudget(ctx, id, newName)
 }
 
-func (s *capexService) RenameCapexActualFile(id string, newName string) error {
-	return s.repo.UpdateFileCapexActual(id, newName)
+func (s *capexService) RenameCapexActualFile(ctx context.Context, id string, newName string) error {
+	return s.repo.UpdateFileCapexActual(ctx, id, newName)
 }
 
 // ---------------------------------------------------------------------
 // Dashboard
 // ---------------------------------------------------------------------
 
-func (s *capexService) GetCapexDashboardSummary(filter map[string]interface{}) (*models.DashboardSummaryDTO, error) {
-	return s.repo.GetCapexDashboardAggregates(filter)
+func (s *capexService) GetCapexDashboardSummary(ctx context.Context, filter map[string]interface{}) (*models.DashboardSummaryDTO, error) {
+	return s.repo.GetCapexDashboardAggregates(ctx, filter)
 }
 
 // ---------------------------------------------------------------------
 // Clear Data (Sync Empty)
 // ---------------------------------------------------------------------
 
-func (s *capexService) ClearCapexBudget() error {
+func (s *capexService) ClearCapexBudget(ctx context.Context) error {
 	return s.repo.WithTrx(func(trxRepo models.CapexRepository) error {
-		return trxRepo.DeleteAllCapexBudgetFacts()
+		return trxRepo.DeleteAllCapexBudgetFacts(ctx)
 	})
 }
 
-func (s *capexService) ClearCapexActual() error {
+func (s *capexService) ClearCapexActual(ctx context.Context) error {
 	return s.repo.WithTrx(func(trxRepo models.CapexRepository) error {
-		return trxRepo.DeleteAllCapexActualFacts()
+		return trxRepo.DeleteAllCapexActualFacts(ctx)
 	})
 }
 

@@ -10,7 +10,6 @@ import (
 
 	"github.com/Nerzal/gocloak/v13"
 	"github.com/go-redis/redis/v8"
-	"github.com/google/uuid"
 	"gorm.io/datatypes"
 
 	"p2p-back-end/configs"
@@ -66,8 +65,7 @@ func NewAuthService(
 	return &authService{keycloak, cfg, authRepo, Redis}
 }
 
-func (s *authService) Login(req *models.LoginReq) (*gocloak.JWT, error) {
-	ctx := context.Background()
+func (s *authService) Login(ctx context.Context, req *models.LoginReq) (*gocloak.JWT, error) {
 	redisKey := fmt.Sprintf("login_attempts:%s", req.Username)
 
 	token, err := s.keycloak.Login(ctx, s.cfg.KeyCloak.ClientID, s.cfg.KeyCloak.ClientSecret, s.cfg.KeyCloak.RealmName, req.Username, req.Password)
@@ -129,11 +127,21 @@ func (s *authService) Login(req *models.LoginReq) (*gocloak.JWT, error) {
 
 			rolesJSON, _ := json.Marshal(filterRoles(rolesList))
 
-			existingUserPtr, _ := s.authRepo.GetUserContext(userID) // Use Context to get preloaded dept if needed, or simple get
+			existingUserPtr, _ := s.authRepo.GetUserContext(ctx, userID)
+			if existingUserPtr == nil {
+				// Fallback: Check if user exists by username (synced users have random UUID but correct username)
+				existingUserPtr, _ = s.authRepo.FindByUsername(ctx, username)
+				if existingUserPtr != nil {
+					logs.Infof("[Login] Unifying user: %s, Current ID: %s -> New ID: %s", username, existingUserPtr.ID, userID)
+					// We will update the primary key ID to match Keycloak for future consistency
+					// Note: GORM update primary key might be tricky, let's use raw SQL if needed,
+					// or just update other fields and then we use 'userID' in userData
+				}
+			}
 
 			// Prepare update data
 			userData := &models.UserEntity{
-				ID:        userID,
+				ID:        userID, // Use Keycloak UUID as the source of truth
 				Username:  username,
 				Email:     email,
 				FirstName: firstName,
@@ -144,12 +152,27 @@ func (s *authService) Login(req *models.LoginReq) (*gocloak.JWT, error) {
 			}
 
 			if existingUserPtr != nil {
-				// Preserve existing DeptID if not updated by Keycloak (which it isn't)
+				// If ID was different, we need to handle the change (Unification)
+				if existingUserPtr.ID != userID {
+					logs.Infof("[Login] Unifying user: %s, Current ID: %s -> New ID: %s", username, existingUserPtr.ID, userID)
+					if err := s.authRepo.UpdateUserID(ctx, existingUserPtr.ID, userID); err != nil {
+						logs.Errorf("[Login] Failed to unify user ID: %v", err)
+						// Proceeding might cause key violation if we don't return, but let's try to be resilient
+					}
+				}
+
+				// Preserve existing NameTh/NameEn and DeptID
+				userData.NameTh = existingUserPtr.NameTh
+				userData.NameEn = existingUserPtr.NameEn
+				userData.CentralID = existingUserPtr.CentralID
 				userData.DepartmentID = existingUserPtr.DepartmentID
-				s.authRepo.UpdateUser(userData)
+				userData.CompanyID = existingUserPtr.CompanyID
+				userData.SectionID = existingUserPtr.SectionID
+				userData.PositionID = existingUserPtr.PositionID
+				s.authRepo.UpdateUser(ctx, userData)
 			} else {
 				userData.CreatedAt = time.Now()
-				s.authRepo.CreateUser(userData)
+				s.authRepo.CreateUser(ctx, userData)
 			}
 		}
 	}
@@ -157,97 +180,7 @@ func (s *authService) Login(req *models.LoginReq) (*gocloak.JWT, error) {
 	return token, nil
 }
 
-func (s *authService) Register(req *models.RegisterKCReq) (string, error) {
-	ctx := context.Background()
-
-	token, err := s.keycloak.LoginAdmin(ctx, s.cfg.KeyCloak.AdminUsername, s.cfg.KeyCloak.AdminPassword, "master")
-	if err != nil {
-		logs.Error(err)
-		return "", errs.NewUnexpectedError()
-	}
-
-	user := gocloak.User{
-		FirstName: gocloak.StringP(req.FirstName),
-		LastName:  gocloak.StringP(req.LastName),
-		Email:     gocloak.StringP(req.Email),
-		Enabled:   gocloak.BoolP(true),
-		Username:  gocloak.StringP(req.Username),
-	}
-
-	var rolesToAdd []gocloak.Role
-	if len(req.Roles) > 0 {
-		for _, r := range req.Roles {
-			roleName := strings.ToLower(r)
-			role, err := s.keycloak.GetRealmRole(ctx, token.AccessToken, s.cfg.KeyCloak.RealmName, roleName)
-			if err != nil && (strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "Could not find role")) {
-				newRole := gocloak.Role{
-					Name:        gocloak.StringP(roleName),
-					Description: gocloak.StringP(fmt.Sprintf("Auto-generated role: %s", roleName)),
-				}
-				s.keycloak.CreateRealmRole(ctx, token.AccessToken, s.cfg.KeyCloak.RealmName, newRole)
-				role, _ = s.keycloak.GetRealmRole(ctx, token.AccessToken, s.cfg.KeyCloak.RealmName, roleName)
-			}
-			if role != nil {
-				rolesToAdd = append(rolesToAdd, *role)
-			}
-		}
-	}
-
-	userID, err := s.keycloak.CreateUser(ctx, token.AccessToken, s.cfg.KeyCloak.RealmName, user)
-	if err != nil {
-		logs.Error(err)
-		return "", errs.NewUnexpectedError()
-	}
-
-	s.keycloak.SetPassword(ctx, token.AccessToken, userID, s.cfg.KeyCloak.RealmName, req.Password, false)
-
-	if len(rolesToAdd) > 0 {
-		s.keycloak.AddRealmRoleToUser(ctx, token.AccessToken, s.cfg.KeyCloak.RealmName, userID, rolesToAdd)
-	}
-
-	var deptIDPtr *uuid.UUID
-	if req.DepartmentID != "" {
-		// Strict Validation: Must match a defined Master Department Code
-		// Logic:
-		// 1. "None" is explicitly rejected as per user requirement.
-		// 2. Must exist in department_entities as a Code.
-		// 3. No UUID parsing or NavCode fallback.
-
-		if strings.EqualFold(req.DepartmentID, "None") {
-			return "", errors.New("Registration Failed: 'None' is not a valid department.")
-		}
-
-		dept, err := s.authRepo.GetDepartmentByCode(req.DepartmentID)
-		if err != nil || dept == nil {
-			return "", fmt.Errorf("Registration Failed: Department '%s' not found or invalid.", req.DepartmentID)
-		}
-		deptIDPtr = &dept.ID
-	} else {
-		return "", errors.New("Registration Failed: Department is required.")
-	}
-
-	rolesJSON, _ := json.Marshal(filterRoles(req.Roles))
-
-	newUser := &models.UserEntity{
-		ID:           userID,
-		Username:     req.Username,
-		Email:        req.Email,
-		FirstName:    req.FirstName,
-		LastName:     req.LastName,
-		DepartmentID: deptIDPtr,
-		Roles:        datatypes.JSON(rolesJSON),
-		IsActive:     true,
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
-	}
-	logs.Info(fmt.Sprintf("Registering User: %s, DeptID: %v", req.Username, deptIDPtr))
-	s.authRepo.CreateUser(newUser)
-
-	return userID, nil
-}
-
-func (s *authService) RefreshToken(refreshToken string) (*gocloak.JWT, error) {
-	ctx := context.Background()
+func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (*gocloak.JWT, error) {
 	token, err := s.keycloak.RefreshToken(ctx, refreshToken, s.cfg.KeyCloak.ClientID, s.cfg.KeyCloak.ClientSecret, s.cfg.KeyCloak.RealmName)
 	if err != nil {
 		return nil, err
@@ -255,9 +188,8 @@ func (s *authService) RefreshToken(refreshToken string) (*gocloak.JWT, error) {
 	return token, nil
 }
 
-func (s *authService) ChangePassword(oldPassword, newPassword string, userInfo *models.UserInfo) error {
-	ctx := context.Background()
-	_, err := s.keycloak.Login(ctx, s.cfg.KeyCloak.ClientID, s.cfg.KeyCloak.ClientSecret, s.cfg.KeyCloak.RealmName, userInfo.UserName, oldPassword)
+func (s *authService) ChangePassword(ctx context.Context, oldPassword, newPassword string, userInfo *models.UserInfo) error {
+	_, err := s.keycloak.Login(ctx, s.cfg.KeyCloak.ClientID, s.cfg.KeyCloak.ClientSecret, s.cfg.KeyCloak.RealmName, userInfo.Username, oldPassword)
 	if err != nil {
 		return errors.New("รหัสผ่านเดิมไม่ถูกต้อง")
 	}
@@ -267,12 +199,11 @@ func (s *authService) ChangePassword(oldPassword, newPassword string, userInfo *
 		return errors.New("ไม่สามารถเชื่อมต่อระบบจัดการผู้ใช้ได้ (Admin Login Failed)")
 	}
 
-	err = s.keycloak.SetPassword(ctx, adminToken.AccessToken, userInfo.UserId, s.cfg.KeyCloak.RealmName, newPassword, false)
+	err = s.keycloak.SetPassword(ctx, adminToken.AccessToken, userInfo.ID, s.cfg.KeyCloak.RealmName, newPassword, false)
 	return err
 }
 
-func (s *authService) AdminResetUserPassword(targetUserID string, newPassword string) error {
-	ctx := context.Background()
+func (s *authService) AdminResetUserPassword(ctx context.Context, targetUserID string, newPassword string) error {
 	adminToken, err := s.keycloak.LoginAdmin(ctx, s.cfg.KeyCloak.AdminUsername, s.cfg.KeyCloak.AdminPassword, s.cfg.KeyCloak.RealmName)
 	if err != nil {
 		return errors.New("Admin connection failed")
@@ -281,15 +212,15 @@ func (s *authService) AdminResetUserPassword(targetUserID string, newPassword st
 	return err
 }
 
-func (s *authService) GetUserProfile(userID string) (*models.UserInfo, error) {
+func (s *authService) GetUserProfile(ctx context.Context, userID string) (*models.UserInfo, error) {
 	// 1. Fetch User from DB
-	user, err := s.authRepo.GetUserContext(userID)
+	user, err := s.authRepo.GetUserContext(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("user not found in local db: %v", err)
 	}
 
 	// 2. Fetch Permissions
-	perms, err := s.authRepo.GetUserPermissions(userID)
+	perms, err := s.authRepo.GetUserPermissions(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch user permissions: %v", err)
 	}
@@ -300,11 +231,16 @@ func (s *authService) GetUserProfile(userID string) (*models.UserInfo, error) {
 
 	// 3. Map to UserInfo
 	userInfo := &models.UserInfo{
-		UserId:   user.ID,
-		UserName: user.Username,
+		ID:       user.ID,
+		Username: user.Username,
 		Name:     fmt.Sprintf("%s %s", user.FirstName, user.LastName),
+		NameTh:   user.NameTh,
 		Email:    user.Email,
 		Roles:    roles,
+	}
+	// Fallback to NameTh if FirstName is empty (Synced users might only have NameTh)
+	if userInfo.Name == " " && user.NameTh != "" {
+		userInfo.Name = user.NameTh
 	}
 
 	if user.Department != nil {
@@ -326,22 +262,21 @@ func (s *authService) GetUserProfile(userID string) (*models.UserInfo, error) {
 	return userInfo, nil
 }
 
-func (s *authService) ListUsersForAdmin(optional map[string]interface{}, page, size int) ([]models.UserInfo, int, error) {
+func (s *authService) ListUsersForAdmin(ctx context.Context, optional map[string]interface{}, page, size int) ([]models.UserInfo, int, error) {
 	// Force Admin Visibility
 	optional["visibility_role"] = "ADMIN"
 	delete(optional, "visibility_allowed_depts")
 
-	return s.listUsersBase(optional, page, size)
+	return s.listUsersBase(ctx, optional, page, size)
 }
 
-func (s *authService) ListUsersForManagement(optional map[string]interface{}, page, size int) ([]models.UserInfo, int, error) {
+func (s *authService) ListUsersForManagement(ctx context.Context, optional map[string]interface{}, page, size int) ([]models.UserInfo, int, error) {
 	// Respect the optional filters (Already set by Controller's smart logic)
-	return s.listUsersBase(optional, page, size)
+	return s.listUsersBase(ctx, optional, page, size)
 }
 
-func (s *authService) listUsersBase(optional map[string]interface{}, page, size int) ([]models.UserInfo, int, error) {
+func (s *authService) listUsersBase(ctx context.Context, optional map[string]interface{}, page, size int) ([]models.UserInfo, int, error) {
 	offset := (page - 1) * size
-	ctx := context.Background()
 
 	users, total, err := s.authRepo.GetAll(optional, ctx, offset, size)
 	if err != nil {
@@ -355,11 +290,15 @@ func (s *authService) listUsersBase(optional map[string]interface{}, page, size 
 		roles = filterRoles(roles)
 
 		infos[i] = models.UserInfo{
-			UserId:   u.ID,
-			UserName: u.Username,
+			ID:       u.ID,
+			Username: u.Username,
 			Name:     fmt.Sprintf("%s %s", u.FirstName, u.LastName),
+			NameTh:   u.NameTh,
 			Email:    u.Email,
 			Roles:    roles,
+		}
+		if infos[i].Name == " " && u.NameTh != "" {
+			infos[i].Name = u.NameTh
 		}
 		if u.Department != nil {
 			infos[i].Department = u.Department.Name
@@ -383,8 +322,8 @@ func (s *authService) listUsersBase(optional map[string]interface{}, page, size 
 	return infos, total, nil
 }
 
-func (s *authService) GetUserPermissions(userID string) ([]models.UserPermissionInfo, error) {
-	perms, err := s.authRepo.GetUserPermissions(userID)
+func (s *authService) GetUserPermissions(ctx context.Context, userID string) ([]models.UserPermissionInfo, error) {
+	perms, err := s.authRepo.GetUserPermissions(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -419,7 +358,7 @@ func mergeActiveRoles(currentRoles []string, perms []models.UserPermissionInfo) 
 	return currentRoles
 }
 
-func (s *authService) UpdateUserPermissions(userID string, perms []models.UserPermissionInfo) error {
+func (s *authService) UpdateUserPermissions(ctx context.Context, userID string, perms []models.UserPermissionInfo) error {
 	entities := make([]models.UserPermissionEntity, len(perms))
 	for i, p := range perms {
 		isActive := p.IsActive // Local copy to take address of
@@ -431,10 +370,10 @@ func (s *authService) UpdateUserPermissions(userID string, perms []models.UserPe
 		}
 	}
 
-	return s.authRepo.SetUserPermissions(userID, entities)
+	return s.authRepo.SetUserPermissions(ctx, userID, entities)
 }
-func (s *authService) ListDepartments(user *models.UserInfo) ([]models.DepartmentEntity, error) {
-	depts, err := s.authRepo.ListDepartments()
+func (s *authService) ListDepartments(ctx context.Context, user *models.UserInfo) ([]models.DepartmentEntity, error) {
+	depts, err := s.authRepo.ListDepartments(ctx)
 	if err != nil {
 		return nil, err
 	}

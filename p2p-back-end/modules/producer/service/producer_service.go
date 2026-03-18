@@ -33,14 +33,22 @@ func (obj *producerService) PositionChange(event *events.MessagePositionEvent) e
 	return obj.eventProducer.Producer(event)
 }
 
-func (obj *producerService) RequestCompanySync() error {
-	return obj.eventProducer.Producer(&events.RequestCompanySyncEvent{})
+func (obj *producerService) UserBegin(event *events.MessageUserBeginEvent) error {
+	return obj.eventProducer.Producer(event)
 }
 
-func (obj *producerService) RequestDepartmentSync() error {
-	return obj.eventProducer.Producer(&events.RequestDepartmentSyncEvent{})
+func (obj *producerService) CompanyBegin(event *events.MessageCompaniesBeginEvent) error {
+	return obj.eventProducer.Producer(event)
 }
 
-func (obj *producerService) RequestUserSync() error {
-	return obj.eventProducer.Producer(&events.RequestUserSyncEvent{})
+func (obj *producerService) DepartmentBegin(event *events.MessageDepartmentBeginEvent) error {
+	return obj.eventProducer.Producer(event)
+}
+
+func (obj *producerService) SectionBegin(event *events.MessageSectionBeginEvent) error {
+	return obj.eventProducer.Producer(event)
+}
+
+func (obj *producerService) PositionBegin(event *events.MessagePositionBeginEvent) error {
+	return obj.eventProducer.Producer(event)
 }

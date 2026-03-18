@@ -6,6 +6,7 @@ import (
 
 	"github.com/Nerzal/gocloak/v13"
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/shopspring/decimal"
 
@@ -15,30 +16,45 @@ import (
 // --- Auth & User ---
 
 type AuthService interface {
-	Register(*RegisterKCReq) (string, error)
-	Login(req *LoginReq) (*gocloak.JWT, error)
-	RefreshToken(refreshToken string) (*gocloak.JWT, error)
-	ChangePassword(oldPassword, newPassword string, userInfo *UserInfo) error
-	AdminResetUserPassword(targetUserID string, newPassword string) error
-	GetUserProfile(userID string) (*UserInfo, error)
-	ListUsersForAdmin(optional map[string]interface{}, page, size int) ([]UserInfo, int, error)
-	ListUsersForManagement(optional map[string]interface{}, page, size int) ([]UserInfo, int, error)
-	GetUserPermissions(userID string) ([]UserPermissionInfo, error)
-	UpdateUserPermissions(userID string, perms []UserPermissionInfo) error
-	ListDepartments(user *UserInfo) ([]DepartmentEntity, error)
+	Login(ctx context.Context, req *LoginReq) (*gocloak.JWT, error)
+	RefreshToken(ctx context.Context, refreshToken string) (*gocloak.JWT, error)
+	ChangePassword(ctx context.Context, oldPassword, newPassword string, userInfo *UserInfo) error
+	AdminResetUserPassword(ctx context.Context, targetUserID string, newPassword string) error
+	GetUserProfile(ctx context.Context, userID string) (*UserInfo, error)
+	ListUsersForAdmin(ctx context.Context, optional map[string]interface{}, page, size int) ([]UserInfo, int, error)
+	ListUsersForManagement(ctx context.Context, optional map[string]interface{}, page, size int) ([]UserInfo, int, error)
+	GetUserPermissions(ctx context.Context, userID string) ([]UserPermissionInfo, error)
+	UpdateUserPermissions(ctx context.Context, userID string, perms []UserPermissionInfo) error
+	ListDepartments(ctx context.Context, user *UserInfo) ([]DepartmentEntity, error)
 }
 
 type UserRepository interface {
 	GetAll(optional map[string]interface{}, ctx context.Context, offset, size int) ([]UserEntity, int, error)
-	IsUserExistByID(string) (bool, error)
-	CreateUser(user *UserEntity) error
-	UpdateUser(user *UserEntity) error
-	GetUserContext(userID string) (*UserEntity, error)
-	GetUserPermissions(userID string) ([]UserPermissionEntity, error)
-	SetUserPermissions(userID string, permissions []UserPermissionEntity) error
-	ListDepartments() ([]DepartmentEntity, error)
-	GetDepartmentByCode(code string) (*DepartmentEntity, error)
-	GetDepartmentByNavCode(navCode string) (*DepartmentEntity, error)
+	IsUserExistByID(ctx context.Context, id string) (bool, error)
+	CreateUser(ctx context.Context, user *UserEntity) error
+	UpdateUser(ctx context.Context, user *UserEntity) error
+	GetUserContext(ctx context.Context, userID string) (*UserEntity, error)
+	GetUserPermissions(ctx context.Context, userID string) ([]UserPermissionEntity, error)
+	SetUserPermissions(ctx context.Context, userID string, permissions []UserPermissionEntity) error
+	ListDepartments(ctx context.Context) ([]DepartmentEntity, error)
+	GetDepartmentByCode(ctx context.Context, code string) (*DepartmentEntity, error)
+	GetDepartmentByNavCode(ctx context.Context, navCode string) (*DepartmentEntity, error)
+	FindByUsername(ctx context.Context, username string) (*UserEntity, error)
+	SyncUsers(ctx context.Context, users []UserEntity) ([]UserEntity, error)
+	GetUsers(ctx context.Context, lastID uint, limit int) ([]UserEntity, error)
+	UpdateUserID(ctx context.Context, oldID, newID string) error
+}
+
+type SourceUserRepository interface {
+	GetUsers(ctx context.Context, lastID uint, limit int) ([]CentralUser, error)
+	FindByUsername(ctx context.Context, username string) (*CentralUser, error)
+}
+
+type UsersService interface {
+	SyncAllUsersData(ctx context.Context) error
+	SyncUserByUserName(ctx context.Context, username string) (*UserResponse, error)
+	BroadcastAllLocalUsers(ctx context.Context) error
+	SyncUsersFromEvent(ctx context.Context, users []events.UserEvent) error
 }
 
 type TokenHandler func(c *fiber.Ctx, user *UserInfo) error
@@ -46,34 +62,31 @@ type TokenHandler func(c *fiber.Ctx, user *UserInfo) error
 // --- Master ---
 
 type MasterService interface {
-	SyncAllData()
-	SyncAllCompaniesData() error
-	SyncAllDepartmentData() error
-	SyncAllSectionData() error
-	SyncAllPositionData() error
-	BroadcastAllLocalCompanies() error
-	BroadcastAllLocalDepartments() error
-	BroadcastAllLocalSections() error
-	BroadcastAllLocalPositions() error
-	BroadcastAllData()
+	BroadcastAllLocalCompanies(ctx context.Context) error
+	BroadcastAllLocalDepartments(ctx context.Context) error
+	BroadcastAllLocalSections(ctx context.Context) error
+	BroadcastAllLocalPositions(ctx context.Context) error
+	BroadcastAllData(ctx context.Context)
+	SyncCompaniesFromEvent(ctx context.Context, companies []events.CompanyEvent) error
+	SyncDepartmentsFromEvent(ctx context.Context, departments []events.DepartmentEvent) error
+	SyncSectionsFromEvent(ctx context.Context, sections []events.SectionEvent) error
+	SyncPositionsFromEvent(ctx context.Context, positions []events.PositionEvent) error
 }
 
 type MasterRepository interface {
-	SyncCompany(companies []Companies) ([]Companies, error)
-	GetCompanies(lastID uint, limit int) ([]Companies, error)
-	SyncDepartment(departments []Departments) ([]Departments, error)
-	GetDepartments(lastID uint, limit int) ([]Departments, error)
-	SyncSection(sections []Sections) ([]Sections, error)
-	GetSections(lastID uint, limit int) ([]Sections, error)
-	SyncPosition(positions []Positions) ([]Positions, error)
-	GetPositions(lastID uint, limit int) ([]Positions, error)
-}
+	SyncCompany(ctx context.Context, companies []Companies) ([]Companies, error)
+	GetCompanies(ctx context.Context, lastID uint, limit int) ([]Companies, error)
+	SyncDepartment(ctx context.Context, departments []Departments) ([]Departments, error)
+	GetDepartments(ctx context.Context, lastID uint, limit int) ([]Departments, error)
+	SyncSection(ctx context.Context, sections []Sections) ([]Sections, error)
+	GetSections(ctx context.Context, lastID uint, limit int) ([]Sections, error)
+	SyncPosition(ctx context.Context, positions []Positions) ([]Positions, error)
+	GetPositions(ctx context.Context, lastID uint, limit int) ([]Positions, error)
 
-type SourceMasterRepository interface {
-	GetCompanies(lastID uint, limit int) ([]CentralCompany, error)
-	GetDepartments(lastID uint, limit int) ([]CentralDepartment, error)
-	GetSections(lastID uint, limit int) ([]CentralSection, error)
-	GetPositions(lastID uint, limit int) ([]CentralPosition, error)
+	FindCompanyUUID(ctx context.Context, centralID uint) (*uuid.UUID, error)
+	FindDeptUUID(ctx context.Context, centralID uint) (*uuid.UUID, error)
+	FindSectionUUID(ctx context.Context, centralID uint) (*uuid.UUID, error)
+	FindPositionUUID(ctx context.Context, centralID uint) (*uuid.UUID, error)
 }
 
 // --- Messaging (RabbitMQ) ---
@@ -88,9 +101,11 @@ type ProducerService interface {
 	DepartmentChange(event *events.MessageDepartmentEvent) error
 	SectionChange(event *events.MessageSectionEvent) error
 	PositionChange(event *events.MessagePositionEvent) error
-	RequestCompanySync() error
-	RequestDepartmentSync() error
-	RequestUserSync() error
+	UserBegin(event *events.MessageUserBeginEvent) error
+	CompanyBegin(event *events.MessageCompaniesBeginEvent) error
+	DepartmentBegin(event *events.MessageDepartmentBeginEvent) error
+	SectionBegin(event *events.MessageSectionBeginEvent) error
+	PositionBegin(event *events.MessagePositionBeginEvent) error
 }
 
 type ConsumerController interface {
@@ -110,183 +125,183 @@ type ConsumerService interface {
 // 1. PL Budget Domain
 type PLBudgetRepository interface {
 	WithTrx(trxHandle func(repo PLBudgetRepository) error) error
-	CreateFileBudget(file *FileBudgetEntity) error
-	CreateBudgetFacts(facts []BudgetFactEntity) error
-	ListFileBudgets() ([]FileBudgetEntity, error)
-	GetFileBudget(id string) (*FileBudgetEntity, error)
-	DeleteFileBudget(id string) error
-	DeleteAllBudgetFacts() error
-	DeleteBudgetFactsByFileID(fileID string) error
-	UpdateFileBudget(id string, filename string) error
+	CreateFileBudget(ctx context.Context, file *FileBudgetEntity) error
+	CreateBudgetFacts(ctx context.Context, facts []BudgetFactEntity) error
+	ListFileBudgets(ctx context.Context) ([]FileBudgetEntity, error)
+	GetFileBudget(ctx context.Context, id string) (*FileBudgetEntity, error)
+	DeleteFileBudget(ctx context.Context, id string) error
+	DeleteAllBudgetFacts(ctx context.Context) error
+	DeleteBudgetFactsByFileID(ctx context.Context, fileID string) error
+	UpdateFileBudget(ctx context.Context, id string, filename string) error
 }
 
 type PLBudgetService interface {
-	ImportBudget(file *multipart.FileHeader, userID string, versionName string) error
-	SyncBudget(id string) error
-	ClearBudget() error
-	ListBudgetFiles() ([]FileBudgetEntity, error)
-	DeleteBudgetFile(id string) error
-	RenameBudgetFile(id string, newName string) error
+	ImportBudget(ctx context.Context, file *multipart.FileHeader, userID string, versionName string) error
+	SyncBudget(ctx context.Context, id string) error
+	ClearBudget(ctx context.Context) error
+	ListBudgetFiles(ctx context.Context) ([]FileBudgetEntity, error)
+	DeleteBudgetFile(ctx context.Context, id string) error
+	RenameBudgetFile(ctx context.Context, id string, newName string) error
 }
 
 // 2. Capex Domain
 type CapexRepository interface {
 	WithTrx(trxHandle func(repo CapexRepository) error) error
-	CreateFileCapexBudget(file *FileCapexBudgetEntity) error
-	CreateFileCapexActual(file *FileCapexActualEntity) error
-	CreateCapexBudgetFacts(facts []CapexBudgetFactEntity) error
-	CreateCapexActualFacts(facts []CapexActualFactEntity) error
-	ListFileCapexBudgets() ([]FileCapexBudgetEntity, error)
-	ListFileCapexActuals() ([]FileCapexActualEntity, error)
-	GetFileCapexBudget(id string) (*FileCapexBudgetEntity, error)
-	GetFileCapexActual(id string) (*FileCapexActualEntity, error)
-	DeleteFileCapexBudget(id string) error
-	DeleteFileCapexActual(id string) error
-	DeleteAllCapexBudgetFacts() error
-	DeleteAllCapexActualFacts() error
-	DeleteCapexBudgetFactsByFileID(fileID string) error
-	DeleteCapexActualFactsByFileID(fileID string) error
-	UpdateFileCapexBudget(id string, filename string) error
-	UpdateFileCapexActual(id string, filename string) error
-	GetCapexDashboardAggregates(filter map[string]interface{}) (*DashboardSummaryDTO, error)
+	CreateFileCapexBudget(ctx context.Context, file *FileCapexBudgetEntity) error
+	CreateFileCapexActual(ctx context.Context, file *FileCapexActualEntity) error
+	CreateCapexBudgetFacts(ctx context.Context, facts []CapexBudgetFactEntity) error
+	CreateCapexActualFacts(ctx context.Context, facts []CapexActualFactEntity) error
+	ListFileCapexBudgets(ctx context.Context) ([]FileCapexBudgetEntity, error)
+	ListFileCapexActuals(ctx context.Context) ([]FileCapexActualEntity, error)
+	GetFileCapexBudget(ctx context.Context, id string) (*FileCapexBudgetEntity, error)
+	GetFileCapexActual(ctx context.Context, id string) (*FileCapexActualEntity, error)
+	DeleteFileCapexBudget(ctx context.Context, id string) error
+	DeleteFileCapexActual(ctx context.Context, id string) error
+	DeleteAllCapexBudgetFacts(ctx context.Context) error
+	DeleteAllCapexActualFacts(ctx context.Context) error
+	DeleteCapexBudgetFactsByFileID(ctx context.Context, fileID string) error
+	DeleteCapexActualFactsByFileID(ctx context.Context, fileID string) error
+	UpdateFileCapexBudget(ctx context.Context, id string, filename string) error
+	UpdateFileCapexActual(ctx context.Context, id string, filename string) error
+	GetCapexDashboardAggregates(ctx context.Context, filter map[string]interface{}) (*DashboardSummaryDTO, error)
 }
 
 type CapexService interface {
-	ImportCapexBudget(file *multipart.FileHeader, userID string, versionName string) error
-	ImportCapexActual(file *multipart.FileHeader, userID string, versionName string) error
-	SyncCapexBudget(id string) error
-	SyncCapexActual(id string) error
-	ClearCapexBudget() error
-	ClearCapexActual() error
-	ListCapexBudgetFiles() ([]FileCapexBudgetEntity, error)
-	ListCapexActualFiles() ([]FileCapexActualEntity, error)
-	DeleteCapexBudgetFile(id string) error
-	DeleteCapexActualFile(id string) error
-	RenameCapexBudgetFile(id string, newName string) error
-	RenameCapexActualFile(id string, newName string) error
-	GetCapexDashboardSummary(filter map[string]interface{}) (*DashboardSummaryDTO, error)
+	ImportCapexBudget(ctx context.Context, file *multipart.FileHeader, userID string, versionName string) error
+	ImportCapexActual(ctx context.Context, file *multipart.FileHeader, userID string, versionName string) error
+	SyncCapexBudget(ctx context.Context, id string) error
+	SyncCapexActual(ctx context.Context, id string) error
+	ClearCapexBudget(ctx context.Context) error
+	ClearCapexActual(ctx context.Context) error
+	ListCapexBudgetFiles(ctx context.Context) ([]FileCapexBudgetEntity, error)
+	ListCapexActualFiles(ctx context.Context) ([]FileCapexActualEntity, error)
+	DeleteCapexBudgetFile(ctx context.Context, id string) error
+	DeleteCapexActualFile(ctx context.Context, id string) error
+	RenameCapexBudgetFile(ctx context.Context, id string, newName string) error
+	RenameCapexActualFile(ctx context.Context, id string, newName string) error
+	GetCapexDashboardSummary(ctx context.Context, filter map[string]interface{}) (*DashboardSummaryDTO, error)
 }
 
 // 3. Actuals Domain
 type ActualRepository interface {
 	WithTrx(trxHandle func(repo ActualRepository) error) error
-	CreateActualFacts(facts []ActualFactEntity) error
-	DeleteAllActualFacts() error
-	DeleteActualFactsByYear(year string) error
-	DeleteActualFactsByMonth(year string, month string) error
-	DeleteAllActualTransactions() error
-	DeleteActualTransactionsByYear(year string) error
-	DeleteActualTransactionsByMonth(year string, month string) error
-	GetAllAchHmwGle() ([]AchHmwGleEntity, error)
-	GetAggregatedHMW(year string, months []string) ([]ActualAggregatedDTO, error)
-	GetRawTransactionsHMW(year string, months []string) ([]ActualTransactionDTO, error)
-	GetAllClikGle() ([]ClikGleEntity, error)
-	GetAggregatedCLIK(year string, months []string) ([]ActualAggregatedDTO, error)
-	GetRawTransactionsCLIK(year string, months []string) ([]ActualTransactionDTO, error)
-	CreateActualTransactions(txs []ActualTransactionEntity) error
-	GetRawDate() (string, error)
+	CreateActualFacts(ctx context.Context, facts []ActualFactEntity) error
+	DeleteAllActualFacts(ctx context.Context) error
+	DeleteActualFactsByYear(ctx context.Context, year string) error
+	DeleteActualFactsByMonth(ctx context.Context, year string, month string) error
+	DeleteAllActualTransactions(ctx context.Context) error
+	DeleteActualTransactionsByYear(ctx context.Context, year string) error
+	DeleteActualTransactionsByMonth(ctx context.Context, year string, month string) error
+	GetAllAchHmwGle(ctx context.Context) ([]AchHmwGleEntity, error)
+	GetAggregatedHMW(ctx context.Context, year string, months []string) ([]ActualAggregatedDTO, error)
+	GetRawTransactionsHMW(ctx context.Context, year string, months []string) ([]ActualTransactionDTO, error)
+	GetAllClikGle(ctx context.Context) ([]ClikGleEntity, error)
+	GetAggregatedCLIK(ctx context.Context, year string, months []string) ([]ActualAggregatedDTO, error)
+	GetRawTransactionsCLIK(ctx context.Context, year string, months []string) ([]ActualTransactionDTO, error)
+	CreateActualTransactions(ctx context.Context, txs []ActualTransactionEntity) error
+	GetRawDate(ctx context.Context) (string, error)
 }
 
 type ActualService interface {
-	SyncActuals(year string, months []string) error
-	DeleteActualFacts(year string) error
-	GetRawDate() (string, error)
+	SyncActuals(ctx context.Context, year string, months []string) error
+	DeleteActualFacts(ctx context.Context, year string) error
+	GetRawDate(ctx context.Context) (string, error)
 }
 
 // 4. Master Data Domain
 type MasterDataRepository interface {
 	WithTrx(trxHandle func(repo MasterDataRepository) error) error
-	ListGLMappings() ([]GlMappingEntity, error)
-	GetGLMappingByID(id string) (*GlMappingEntity, error)
-	CreateGLMapping(m *GlMappingEntity) error
-	UpdateGLMapping(m *GlMappingEntity) error
-	DeleteGLMapping(id string) error
-	GetGLInfo(entity string, entityGL string, target *GlMappingEntity) error
-	CheckExactGLMapping(entity, entityGL, consoGL, accountName string) (bool, error)
+	ListGLMappings(ctx context.Context) ([]GlMappingEntity, error)
+	GetGLMappingByID(ctx context.Context, id string) (*GlMappingEntity, error)
+	CreateGLMapping(ctx context.Context, m *GlMappingEntity) error
+	UpdateGLMapping(ctx context.Context, m *GlMappingEntity) error
+	DeleteGLMapping(ctx context.Context, id string) error
+	GetGLInfo(ctx context.Context, entity string, entityGL string, target *GlMappingEntity) error
+	CheckExactGLMapping(ctx context.Context, entity, entityGL, consoGL, accountName string) (bool, error)
 
-	GetBudgetStructure() ([]BudgetStructureEntity, error)
-	GetBudgetStructureByID(id uint) (*BudgetStructureEntity, error)
-	CreateBudgetStructure(entity *BudgetStructureEntity) error
-	UpdateBudgetStructure(entity *BudgetStructureEntity) error
-	DeleteBudgetStructure(id uint) error
-	InsertBudgetStructures(entities []BudgetStructureEntity) error
-	DeleteAllBudgetStructures() error
+	GetBudgetStructure(ctx context.Context) ([]BudgetStructureEntity, error)
+	GetBudgetStructureByID(ctx context.Context, id uint) (*BudgetStructureEntity, error)
+	CreateBudgetStructure(ctx context.Context, entity *BudgetStructureEntity) error
+	UpdateBudgetStructure(ctx context.Context, entity *BudgetStructureEntity) error
+	DeleteBudgetStructure(ctx context.Context, id uint) error
+	InsertBudgetStructures(ctx context.Context, entities []BudgetStructureEntity) error
+	DeleteAllBudgetStructures(ctx context.Context) error
 
 	// User Config
-	GetUserConfigs(userID string) ([]UserConfigEntity, error)
-	UpdateUserConfig(config *UserConfigEntity) error
+	GetUserConfigs(ctx context.Context, userID string) ([]UserConfigEntity, error)
+	UpdateUserConfig(ctx context.Context, config *UserConfigEntity) error
 }
 
 type MasterDataService interface {
-	ListGLMappings() ([]GlMappingEntity, error)
-	GetGLMappingByID(id string) (*GlMappingEntity, error)
-	CreateGLMapping(m *GlMappingEntity) error
-	UpdateGLMapping(m *GlMappingEntity) error
-	DeleteGLMapping(id string) error
-	ImportGLMapping(file *multipart.FileHeader) error
+	ListGLMappings(ctx context.Context) ([]GlMappingEntity, error)
+	GetGLMappingByID(ctx context.Context, id string) (*GlMappingEntity, error)
+	CreateGLMapping(ctx context.Context, m *GlMappingEntity) error
+	UpdateGLMapping(ctx context.Context, m *GlMappingEntity) error
+	DeleteGLMapping(ctx context.Context, id string) error
+	ImportGLMapping(ctx context.Context, file *multipart.FileHeader) error
 
-	GetBudgetStructureTree() (interface{}, error)
-	ListBudgetStructure() ([]BudgetStructureEntity, error)
-	GetBudgetStructureByID(id uint) (*BudgetStructureEntity, error)
-	CreateBudgetStructure(entity *BudgetStructureEntity) error
-	UpdateBudgetStructure(entity *BudgetStructureEntity) error
-	DeleteBudgetStructure(id uint) error
+	GetBudgetStructureTree(ctx context.Context) (interface{}, error)
+	ListBudgetStructure(ctx context.Context) ([]BudgetStructureEntity, error)
+	GetBudgetStructureByID(ctx context.Context, id uint) (*BudgetStructureEntity, error)
+	CreateBudgetStructure(ctx context.Context, entity *BudgetStructureEntity) error
+	UpdateBudgetStructure(ctx context.Context, entity *BudgetStructureEntity) error
+	DeleteBudgetStructure(ctx context.Context, id uint) error
 
 	// User Config
-	GetUserConfigs(userID string) (map[string]string, error)
-	SetUserConfig(userID string, key string, value string) error
+	GetUserConfigs(ctx context.Context, userID string) (map[string]string, error)
+	SetUserConfig(ctx context.Context, userID string, key string, value string) error
 }
 
 // 5. Dashboard Domain
 type DashboardRepository interface {
-	GetBudgetFilterOptions() ([]BudgetFactEntity, error)
-	GetOrganizationStructure() ([]BudgetFactEntity, error)
-	GetBudgetDetails(filter map[string]interface{}) ([]BudgetDetailDTO, error)
-	GetActualDetails(filter map[string]interface{}) ([]ActualFactEntity, error)
-	GetActualTransactions(filter map[string]interface{}) (*PaginatedActualTransactionDTO, error)
-	GetDashboardAggregates(filter map[string]interface{}) (*DashboardSummaryDTO, error)
-	GetActualYears() ([]string, error)
+	GetBudgetFilterOptions(ctx context.Context) ([]BudgetFactEntity, error)
+	GetOrganizationStructure(ctx context.Context) ([]BudgetFactEntity, error)
+	GetBudgetDetails(ctx context.Context, filter map[string]interface{}) ([]BudgetDetailDTO, error)
+	GetActualDetails(ctx context.Context, filter map[string]interface{}) ([]ActualFactEntity, error)
+	GetActualTransactions(ctx context.Context, filter map[string]interface{}) (*PaginatedActualTransactionDTO, error)
+	GetDashboardAggregates(ctx context.Context, filter map[string]interface{}) (*DashboardSummaryDTO, error)
+	GetActualYears(ctx context.Context) ([]string, error)
 }
 
 type DashboardService interface {
-	GetFilterOptions() ([]FilterOptionDTO, error)
-	GetRawFilterOptions() ([]BudgetFactEntity, error)
-	GetOrganizationStructure() ([]OrganizationDTO, error)
-	GetBudgetDetails(filter map[string]interface{}) ([]BudgetDetailDTO, error)
-	GetActualDetails(filter map[string]interface{}) ([]ActualFactEntity, error)
-	GetDashboardSummary(filter map[string]interface{}) (*DashboardSummaryDTO, error)
-	GetActualTransactions(filter map[string]interface{}) (*PaginatedActualTransactionDTO, error)
-	GetActualYears() ([]string, error)
+	GetFilterOptions(ctx context.Context) ([]FilterOptionDTO, error)
+	GetRawFilterOptions(ctx context.Context) ([]BudgetFactEntity, error)
+	GetOrganizationStructure(ctx context.Context) ([]OrganizationDTO, error)
+	GetBudgetDetails(ctx context.Context, filter map[string]interface{}) ([]BudgetDetailDTO, error)
+	GetActualDetails(ctx context.Context, filter map[string]interface{}) ([]ActualFactEntity, error)
+	GetDashboardSummary(ctx context.Context, filter map[string]interface{}) (*DashboardSummaryDTO, error)
+	GetActualTransactions(ctx context.Context, filter map[string]interface{}) (*PaginatedActualTransactionDTO, error)
+	GetActualYears(ctx context.Context) ([]string, error)
 }
 
 // --- Owner ---
 
 type OwnerRepository interface {
-	GetBudgetFilterOptions() ([]BudgetFactEntity, error)
-	GetOrganizationStructure() ([]BudgetFactEntity, error)
-	GetDashboardAggregates(filter map[string]interface{}) (*DashboardSummaryDTO, error)
-	GetActualTransactions(filter map[string]interface{}) (*PaginatedActualTransactionDTO, error)
-	GetActualDetails(filter map[string]interface{}) ([]ActualFactEntity, error)
-	GetBudgetDetails(filter map[string]interface{}) ([]BudgetFactEntity, error)
-	GetActualYears() ([]string, error)
+	GetBudgetFilterOptions(ctx context.Context) ([]BudgetFactEntity, error)
+	GetOrganizationStructure(ctx context.Context) ([]BudgetFactEntity, error)
+	GetDashboardAggregates(ctx context.Context, filter map[string]interface{}) (*DashboardSummaryDTO, error)
+	GetActualTransactions(ctx context.Context, filter map[string]interface{}) (*PaginatedActualTransactionDTO, error)
+	GetActualDetails(ctx context.Context, filter map[string]interface{}) ([]ActualFactEntity, error)
+	GetBudgetDetails(ctx context.Context, filter map[string]interface{}) ([]BudgetFactEntity, error)
+	GetActualYears(ctx context.Context) ([]string, error)
 }
 
 type OwnerService interface {
-	GetDashboardSummary(user *UserInfo, filter map[string]interface{}) (*OwnerDashboardSummaryDTO, error)
-	GetActualTransactions(user *UserInfo, filter map[string]interface{}) (*PaginatedActualTransactionDTO, error)
-	GetActualDetails(user *UserInfo, filter map[string]interface{}) ([]ActualFactEntity, error)
-	GetBudgetDetails(user *UserInfo, filter map[string]interface{}) ([]BudgetFactEntity, error)
-	GetFilterOptions(user *UserInfo) (interface{}, error)
-	GetOrganizationStructure(user *UserInfo) ([]OrganizationDTO, error)
-	GetOwnerFilterLists(user *UserInfo) (*OwnerFilterListsDTO, error)
-	GetActualYears(user *UserInfo) ([]string, error)
+	GetDashboardSummary(ctx context.Context, user *UserInfo, filter map[string]interface{}) (*OwnerDashboardSummaryDTO, error)
+	GetActualTransactions(ctx context.Context, user *UserInfo, filter map[string]interface{}) (*PaginatedActualTransactionDTO, error)
+	GetActualDetails(ctx context.Context, user *UserInfo, filter map[string]interface{}) ([]ActualFactEntity, error)
+	GetBudgetDetails(ctx context.Context, user *UserInfo, filter map[string]interface{}) ([]BudgetFactEntity, error)
+	GetFilterOptions(ctx context.Context, user *UserInfo) (interface{}, error)
+	GetOrganizationStructure(ctx context.Context, user *UserInfo) ([]OrganizationDTO, error)
+	GetOwnerFilterLists(ctx context.Context, user *UserInfo) (*OwnerFilterListsDTO, error)
+	GetActualYears(ctx context.Context, user *UserInfo) ([]string, error)
 }
 
 // --- Organization ---
 
 type DepartmentService interface {
-	ManageDepartments() error
-	GetMasterDepartment(navCode, entity string) (*DepartmentEntity, error)
+	ManageDepartments(ctx context.Context) error
+	GetMasterDepartment(ctx context.Context, navCode, entity string) (*DepartmentEntity, error)
 }
 
 // --- DTOs ---

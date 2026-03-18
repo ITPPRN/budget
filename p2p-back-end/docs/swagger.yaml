@@ -1,5 +1,30 @@
-basePath: /v1
+basePath: /
 definitions:
+  p2p-back-end_modules_entities_models.AdminResetPasswordReq:
+    properties:
+      new_password:
+        minLength: 6
+        type: string
+    required:
+    - new_password
+    type: object
+  p2p-back-end_modules_entities_models.ChangePasswordReq:
+    properties:
+      confirm_password:
+        example: new_secret123
+        type: string
+      new_password:
+        example: new_secret123
+        minLength: 6
+        type: string
+      old_password:
+        example: old_secret123
+        type: string
+    required:
+    - confirm_password
+    - new_password
+    - old_password
+    type: object
   p2p-back-end_modules_entities_models.LoginReq:
     properties:
       password:
@@ -8,9 +33,15 @@ definitions:
       username:
         example: test1
         type: string
+    required:
+    - password
+    - username
     type: object
-  p2p-back-end_modules_entities_models.RegisterReq:
+  p2p-back-end_modules_entities_models.RegisterKCReq:
     properties:
+      department_id:
+        example: uuid-of-department
+        type: string
       email:
         example: test@example.com
         type: string
@@ -22,13 +53,24 @@ definitions:
         type: string
       password:
         example: test1
+        minLength: 6
         type: string
-      role:
-        example: employee
-        type: string
+      roles:
+        example:
+        - '["employee"'
+        - ' "manager"]'
+        items:
+          type: string
+        type: array
       username:
         example: test1
         type: string
+    required:
+    - email
+    - first_name
+    - last_name
+    - password
+    - username
     type: object
   p2p-back-end_modules_entities_models.ResponseData:
     properties:
@@ -51,11 +93,25 @@ definitions:
     type: object
   p2p-back-end_modules_entities_models.UserInfo:
     properties:
+      branch:
+        type: string
+      company:
+        type: string
+      department:
+        type: string
+      department_code:
+        type: string
       email:
         type: string
       name:
         type: string
-      role:
+      permissions:
+        description: Explicit Dept Permissions
+        items:
+          $ref: '#/definitions/p2p-back-end_modules_entities_models.UserPermissionInfo'
+        type: array
+      roles:
+        description: System-level roles (Keycloak)
         items:
           type: string
         type: array
@@ -64,13 +120,91 @@ definitions:
       userName:
         type: string
     type: object
+  p2p-back-end_modules_entities_models.UserPermissionInfo:
+    properties:
+      department_code:
+        type: string
+      is_active:
+        type: boolean
+      role:
+        type: string
+    type: object
 host: localhost:8080
 info:
-  contact: {}
-  description: This is the API documentation for the P2P application back-end.
-  title: P2P Back-End API
+  contact:
+    email: support@swagger.io
+    name: API Support
+    url: http://www.swagger.io/support
+  description: This is the API server for the P2P project.
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+  termsOfService: http://swagger.io/terms/
+  title: P2P Project API
   version: "1.0"
 paths:
+  /v1/admin/users/{id}/reset-password:
+    post:
+      consumes:
+      - application/json
+      description: เปลี่ยนรหัสผ่านให้ User อื่น (โดยไม่ต้องรู้รหัสเดิม) และบังคับเปลี่ยนใหม่ตอน
+        Login
+      parameters:
+      - description: User ID (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: New Password
+        in: body
+        name: req
+        required: true
+        schema:
+          $ref: '#/definitions/p2p-back-end_modules_entities_models.AdminResetPasswordReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Success
+          schema:
+            $ref: '#/definitions/p2p-back-end_modules_entities_models.ResponseData'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/p2p-back-end_modules_entities_models.ResponseData'
+      summary: Admin Reset User Password (สำหรับ Admin เท่านั้น)
+      tags:
+      - Admin
+  /v1/auth/change-password:
+    post:
+      consumes:
+      - application/json
+      description: เปลี่ยนรหัสผ่าน (ต้อง Login ก่อน)
+      parameters:
+      - description: Password Info
+        in: body
+        name: req
+        required: true
+        schema:
+          $ref: '#/definitions/p2p-back-end_modules_entities_models.ChangePasswordReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Success
+          schema:
+            $ref: '#/definitions/p2p-back-end_modules_entities_models.ResponseData'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/p2p-back-end_modules_entities_models.ResponseData'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/p2p-back-end_modules_entities_models.ResponseData'
+      summary: Change Password
+      tags:
+      - Auth
   /v1/auth/login:
     post:
       consumes:
@@ -110,7 +244,7 @@ paths:
     post:
       consumes:
       - application/json
-      description: Logout user and clear access_token cookie
+      description: Logout user and clear all token cookie
       produces:
       - application/json
       responses:
@@ -145,6 +279,32 @@ paths:
       summary: Get User Profile
       tags:
       - Auth
+  /v1/auth/refresh-token:
+    post:
+      consumes:
+      - application/json
+      description: ตรวจสอบ Refresh Token จาก HttpOnly Cookie และออก Token ใหม่ให้
+        (ฝัง Cookie กลับไปอัตโนมัติ)
+      parameters:
+      - description: Refresh Token (ส่งมาอัตโนมัติผ่าน Browser Cookie 'refresh_token')
+        in: header
+        name: Cookie
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Token refreshed successfully
+          schema:
+            $ref: '#/definitions/p2p-back-end_modules_entities_models.ResponseData'
+        "401":
+          description: 'Unauthorized: No token or Invalid token'
+          schema:
+            $ref: '#/definitions/p2p-back-end_modules_entities_models.ResponseData'
+      summary: Refresh Access Token
+      tags:
+      - Auth
   /v1/auth/register:
     post:
       consumes:
@@ -156,7 +316,7 @@ paths:
         name: register
         required: true
         schema:
-          $ref: '#/definitions/p2p-back-end_modules_entities_models.RegisterReq'
+          $ref: '#/definitions/p2p-back-end_modules_entities_models.RegisterKCReq'
       produces:
       - application/json
       responses:

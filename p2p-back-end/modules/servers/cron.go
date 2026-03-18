@@ -1,8 +1,10 @@
 package servers
 
 import (
+	"context"
 	"fmt"
 	"p2p-back-end/logs"
+	"p2p-back-end/modules/entities/events"
 	"time"
 )
 
@@ -24,7 +26,7 @@ func (s *server) StartCronJob() {
 		mName := monthMap[monCode]
 
 		logs.Infof("⏰ Tier 1 Job: Fast-Sync Current Month (%s %s) Started", mName, yearStr)
-		if err := s.ActualSrv.SyncActuals(yearStr, []string{mName}); err != nil {
+		if err := s.Shd.ActualService.SyncActuals(context.Background(), yearStr, []string{mName}); err != nil {
 			logs.Errorf("Tier 1 Job: Fast-Sync Failed: %v", err)
 		}
 		logs.Info("⏰ Tier 1 Job: Fast-Sync Completed Successfully")
@@ -45,7 +47,7 @@ func (s *server) StartCronJob() {
 			logs.Infof("⏰ Tier 2 Job: Syncing Full Year %s...", yearStr)
 
 			// SyncActuals handles months internally batch-by-batch if passed empty months
-			if err := s.ActualSrv.SyncActuals(yearStr, []string{}); err != nil {
+			if err := s.Shd.ActualService.SyncActuals(context.Background(), yearStr, []string{}); err != nil {
 				logs.Errorf("Tier 2 Job: Failed to sync year %s: %v", yearStr, err)
 			}
 		}
@@ -58,7 +60,7 @@ func (s *server) StartCronJob() {
 	// For P2P, we keep the "Seed" logic but can trigger it via Cron or just once here.
 	go func() {
 		logs.Info("System: Starting Department Data Seeding...")
-		if err := s.DeptSrv.ManageDepartments(); err != nil {
+		if err := s.Shd.DepartmentService.ManageDepartments(context.Background()); err != nil {
 			logs.Error("Failed to Seed Departments: " + err.Error())
 		} else {
 			logs.Info("System: Department Data Seeding Completed Successfully")
@@ -67,22 +69,22 @@ func (s *server) StartCronJob() {
 
 	// 3. Initial Broadcast Requests (RabbitMQ)
 	// Ask Example Service for data startup
-	if s.ProducerSrv != nil {
+	if s.Shd.ProducerService != nil {
 		go func() {
 			logs.Info("🚀 P2P: Sending initial data sync requests (Broadcast Begin)...")
 
-			if err := s.ProducerSrv.RequestCompanySync(); err != nil {
+			if err := s.Shd.ProducerService.CompanyBegin(&events.MessageCompaniesBeginEvent{}); err != nil {
 				logs.Warnf("Failed to request Company Sync: %v", err)
 			}
-			if err := s.ProducerSrv.RequestDepartmentSync(); err != nil {
+			if err := s.Shd.ProducerService.DepartmentBegin(&events.MessageDepartmentBeginEvent{}); err != nil {
 				logs.Warnf("Failed to request Department Sync: %v", err)
 			}
-			if err := s.ProducerSrv.RequestUserSync(); err != nil {
+			if err := s.Shd.ProducerService.UserBegin(&events.MessageUserBeginEvent{}); err != nil {
 				logs.Warnf("Failed to request User Sync: %v", err)
 			}
 
 			// Also push our own local data if anyone is listening
-			s.MasterSrv.BroadcastAllData()
+			s.Shd.MasterService.BroadcastAllData(context.Background())
 		}()
 	}
 

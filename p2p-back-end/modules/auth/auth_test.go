@@ -21,10 +21,10 @@ import (
 
 	"p2p-back-end/configs"
 	"p2p-back-end/logs"
-	"p2p-back-end/modules/auth/controller"
+	authcontroller "p2p-back-end/modules/auth/controller"
 	"p2p-back-end/modules/auth/service"
 	"p2p-back-end/modules/entities/models"
-	"p2p-back-end/modules/users/repository" // ✅ เรียกใช้ User Repo จาก Module Users
+	local "p2p-back-end/modules/users/repository/local" // ✅ ใช้ Alias ให้ตรงกับที่เรียกในโค้ด
 )
 
 func TestAuthIntegration(t *testing.T) {
@@ -40,8 +40,8 @@ func TestAuthIntegration(t *testing.T) {
 	err = db.AutoMigrate(&models.UserEntity{})
 	require.NoError(t, err)
 
-	// ✅ เปลี่ยนมาใช้ User Repository แทน Auth Repository เดิม
-	userRepo := repository.NewUserRepositoryDB(db)
+	// ✅ เรียกใช้ NewUserRepositoryDB จากแพ็คเกจ local repository
+	userRepo := local.NewUserRepositoryDB(db)
 
 	// --------------------
 	// 2. Setup Config
@@ -90,7 +90,7 @@ func TestAuthIntegration(t *testing.T) {
 
 	// Minimal Mock for DepartmentService
 	mockDeptSrv := &mockDepartmentService{}
-	controller.NewUserController(app.Group("/v1/auth"), authSrv, mockDeptSrv)
+	authcontroller.NewUserController(app.Group("/v1/auth"), authSrv, mockDeptSrv, nil)
 
 	randID := uuid.NewString()[:5]
 	testUsername := "test_user_" + randID
@@ -171,14 +171,14 @@ func TestAuthIntegration(t *testing.T) {
 	require.NoError(t, err)
 
 	// เรียกใช้ UserRepo (ที่ย้ายไป Module Users)
-	exist, err := userRepo.IsUserExistByID(userRepoCheck.ID)
+	exist, err := userRepo.IsUserExistByID(context.Background(), userRepoCheck.ID)
 	require.NoError(t, err)
 	require.True(t, exist)
 }
 
 type mockDepartmentService struct{}
 
-func (m *mockDepartmentService) ManageDepartments() error { return nil }
-func (m *mockDepartmentService) GetMasterDepartment(navCode, entity string) (*models.DepartmentEntity, error) {
+func (m *mockDepartmentService) ManageDepartments(ctx context.Context) error { return nil }
+func (m *mockDepartmentService) GetMasterDepartment(ctx context.Context, navCode, entity string) (*models.DepartmentEntity, error) {
 	return &models.DepartmentEntity{Code: "ACC", Name: "Accounting"}, nil
 }

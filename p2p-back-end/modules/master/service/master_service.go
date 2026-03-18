@@ -1,8 +1,7 @@
 package service
 
 import (
-	"fmt"
-	"sync"
+	"context"
 
 	"p2p-back-end/logs"
 	"p2p-back-end/modules/entities/events"
@@ -11,139 +10,47 @@ import (
 )
 
 type masterService struct {
-	masterRepo       models.MasterRepository
-	sourceMasterRepo models.SourceMasterRepository
-	producerSrv      models.ProducerService
+	masterRepo  models.MasterRepository
+	producerSrv models.ProducerService
 }
 
 func NewMasterService(
 	masterRepo models.MasterRepository,
-	sourceMasterRepo models.SourceMasterRepository,
 	producerSrv models.ProducerService,
 ) models.MasterService {
 	return &masterService{
-		masterRepo:       masterRepo,
-		sourceMasterRepo: sourceMasterRepo,
-		producerSrv:      producerSrv,
+		masterRepo:  masterRepo,
+		producerSrv: producerSrv,
 	}
 }
 
-func (s *masterService) SyncAllData() {
-	maxConcurrent := 4
-	sem := make(chan struct{}, maxConcurrent)
-	var wg sync.WaitGroup
-	errChan := make(chan error, 4)
 
-	jobs := []struct {
-		Name string
-		Func func() error
-	}{
-		{"Companies Table", s.SyncAllCompaniesData},
-		{"Departments Table", s.SyncAllDepartmentData},
-		{"Sections Table", s.SyncAllSectionData},
-		{"Positions Table", s.SyncAllPositionData},
-	}
-
-	logs.Info("🚀 Starting Sync Data...")
-
-	for _, job := range jobs {
-		wg.Add(1)
-		go func(jName string, jFunc func() error) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-			defer func() {
-				if r := recover(); r != nil {
-					errChan <- fmt.Errorf("💥 Panic in %s: %v", jName, r)
-				}
-			}()
-
-			logs.Info(fmt.Sprintf("⏳ Syncing %s...", jName))
-			if err := jFunc(); err != nil {
-				errChan <- fmt.Errorf("❌ Failed %s: %v", jName, err)
-			} else {
-				logs.Info(fmt.Sprintf("✅ Success %s", jName))
-			}
-		}(job.Name, job.Func)
-	}
-
-	wg.Wait()
-	close(errChan)
-
-	errorCount := 0
-	for err := range errChan {
-		logs.Error(err)
-		errorCount++
-	}
-
-	if errorCount > 0 {
-		logs.Warn(fmt.Sprintf("⚠️ Sync completed with %d errors", errorCount))
-	} else {
-		logs.Info("✨ All tables synced successfully!")
-	}
-}
-
-func (s *masterService) BroadcastAllData() {
+func (s *masterService) BroadcastAllData(ctx context.Context) {
 	logs.Info("📢 Broadcasting all local master data...")
 
-	if err := s.BroadcastAllLocalCompanies(); err != nil {
+	if err := s.BroadcastAllLocalCompanies(ctx); err != nil {
 		logs.Warnf("Failed to broadcast companies: %v", err)
 	}
-	if err := s.BroadcastAllLocalDepartments(); err != nil {
+	if err := s.BroadcastAllLocalDepartments(ctx); err != nil {
 		logs.Warnf("Failed to broadcast departments: %v", err)
 	}
-	if err := s.BroadcastAllLocalSections(); err != nil {
+	if err := s.BroadcastAllLocalSections(ctx); err != nil {
 		logs.Warnf("Failed to broadcast sections: %v", err)
 	}
-	if err := s.BroadcastAllLocalPositions(); err != nil {
+	if err := s.BroadcastAllLocalPositions(ctx); err != nil {
 		logs.Warnf("Failed to broadcast positions: %v", err)
 	}
 }
 
 // --- Companies ---
 
-func (s *masterService) SyncAllCompaniesData() error {
-	return utils.BatchSync[models.CentralCompany, uint](
-		0, 1000,
-		s.sourceMasterRepo.GetCompanies,
-		s.saveCompaniesBatch,
-		func(item models.CentralCompany) uint { return item.CompanyID },
-	)
-}
 
-func (s *masterService) saveCompaniesBatch(data []models.CentralCompany) error {
-	var companies []models.Companies
-	for _, company := range data {
-		com := company
-		companies = append(companies, *utils.SourceCompaniesToCompanies(&com))
-	}
-
-	changedRows, err := s.masterRepo.SyncCompany(companies)
-	if err != nil {
-		logs.Warn(err.Error())
-		return err
-	}
-
-	if len(changedRows) > 0 {
-		var companiesEvent []events.CompanyEvent
-		for _, row := range changedRows {
-			companiesEvent = append(companiesEvent, *utils.CompanyToCompanyChangeEvent(&row))
-		}
-		syncEvent := &events.MessageCompaniesEvent{Companies: companiesEvent}
-		if s.producerSrv != nil {
-			if err := s.producerSrv.CompanyChange(syncEvent); err != nil {
-				logs.Warnf("⚠️ Producer Error: %v", err)
-			}
-		}
-	}
-	return nil
-}
-
-func (s *masterService) BroadcastAllLocalCompanies() error {
+func (s *masterService) BroadcastAllLocalCompanies(ctx context.Context) error {
 	return utils.BatchSync(
+		ctx,
 		0, 1000,
 		s.masterRepo.GetCompanies,
-		func(data []models.Companies) error {
+		func(ctx context.Context, data []models.Companies) error {
 			var companiesEvent []events.CompanyEvent
 			for _, row := range data {
 				data := row
@@ -155,54 +62,19 @@ func (s *masterService) BroadcastAllLocalCompanies() error {
 			}
 			return nil
 		},
-		func(item models.Companies) uint { return item.ID },
+		func(item models.Companies) uint { return item.CentralID },
 	)
 }
 
 // --- Departments ---
 
-func (s *masterService) SyncAllDepartmentData() error {
+
+func (s *masterService) BroadcastAllLocalDepartments(ctx context.Context) error {
 	return utils.BatchSync(
-		0, 1000,
-		s.sourceMasterRepo.GetDepartments,
-		s.saveDepartmentBatch,
-		func(item models.CentralDepartment) uint { return item.DeptID },
-	)
-}
-
-func (s *masterService) saveDepartmentBatch(data []models.CentralDepartment) error {
-	var departments []models.Departments
-	for _, department := range data {
-		dep := department
-		departments = append(departments, *utils.SourceDepartmentsToDepartments(&dep))
-	}
-
-	changedRows, err := s.masterRepo.SyncDepartment(departments)
-	if err != nil {
-		logs.Warn(err.Error())
-		return err
-	}
-
-	if len(changedRows) > 0 {
-		var departmentsEvent []events.DepartmentEvent
-		for _, row := range changedRows {
-			departmentsEvent = append(departmentsEvent, *utils.DepartmentToDepartmentChangeEvent(&row))
-		}
-		syncEvent := &events.MessageDepartmentEvent{Departments: departmentsEvent}
-		if s.producerSrv != nil {
-			if err := s.producerSrv.DepartmentChange(syncEvent); err != nil {
-				logs.Warnf("⚠️ Producer Error: %v", err)
-			}
-		}
-	}
-	return nil
-}
-
-func (s *masterService) BroadcastAllLocalDepartments() error {
-	return utils.BatchSync(
+		ctx,
 		0, 1000,
 		s.masterRepo.GetDepartments,
-		func(data []models.Departments) error {
+		func(ctx context.Context, data []models.Departments) error {
 			var departmentsEvent []events.DepartmentEvent
 			for _, row := range data {
 				data := row
@@ -214,54 +86,19 @@ func (s *masterService) BroadcastAllLocalDepartments() error {
 			}
 			return nil
 		},
-		func(item models.Departments) uint { return item.ID },
+		func(item models.Departments) uint { return item.CentralID },
 	)
 }
 
 // --- Sections ---
 
-func (s *masterService) SyncAllSectionData() error {
+
+func (s *masterService) BroadcastAllLocalSections(ctx context.Context) error {
 	return utils.BatchSync(
-		0, 1000,
-		s.sourceMasterRepo.GetSections,
-		s.saveSectionsBatch,
-		func(item models.CentralSection) uint { return item.SectionID },
-	)
-}
-
-func (s *masterService) saveSectionsBatch(data []models.CentralSection) error {
-	var sections []models.Sections
-	for _, section := range data {
-		sec := section
-		sections = append(sections, *utils.SourceSectionsToSections(&sec))
-	}
-
-	changedRows, err := s.masterRepo.SyncSection(sections)
-	if err != nil {
-		logs.Warn(err.Error())
-		return err
-	}
-
-	if len(changedRows) > 0 {
-		var sectionsEvent []events.SectionEvent
-		for _, row := range changedRows {
-			sectionsEvent = append(sectionsEvent, *utils.SectionToSectionsChangeEvent(&row))
-		}
-		syncEvent := &events.MessageSectionEvent{Sections: sectionsEvent}
-		if s.producerSrv != nil {
-			if err := s.producerSrv.SectionChange(syncEvent); err != nil {
-				logs.Warnf("⚠️ Producer Error: %v", err)
-			}
-		}
-	}
-	return nil
-}
-
-func (s *masterService) BroadcastAllLocalSections() error {
-	return utils.BatchSync(
+		ctx,
 		0, 1000,
 		s.masterRepo.GetSections,
-		func(data []models.Sections) error {
+		func(ctx context.Context, data []models.Sections) error {
 			var sectionsEvent []events.SectionEvent
 			for _, row := range data {
 				data := row
@@ -273,54 +110,19 @@ func (s *masterService) BroadcastAllLocalSections() error {
 			}
 			return nil
 		},
-		func(item models.Sections) uint { return item.ID },
+		func(item models.Sections) uint { return item.CentralID },
 	)
 }
 
 // --- Positions ---
 
-func (s *masterService) SyncAllPositionData() error {
+
+func (s *masterService) BroadcastAllLocalPositions(ctx context.Context) error {
 	return utils.BatchSync(
-		0, 1000,
-		s.sourceMasterRepo.GetPositions,
-		s.savePositionsBatch,
-		func(item models.CentralPosition) uint { return item.PositionID },
-	)
-}
-
-func (s *masterService) savePositionsBatch(data []models.CentralPosition) error {
-	var positions []models.Positions
-	for _, position := range data {
-		pos := position
-		positions = append(positions, *utils.SourcePositionsToPositinos(&pos))
-	}
-
-	changedRows, err := s.masterRepo.SyncPosition(positions)
-	if err != nil {
-		logs.Warn(err.Error())
-		return err
-	}
-
-	if len(changedRows) > 0 {
-		var positionsEvent []events.PositionEvent
-		for _, row := range changedRows {
-			positionsEvent = append(positionsEvent, *utils.PositionToPositionChangeEvent(&row))
-		}
-		syncEvent := &events.MessagePositionEvent{Positions: positionsEvent}
-		if s.producerSrv != nil {
-			if err := s.producerSrv.PositionChange(syncEvent); err != nil {
-				logs.Warnf("⚠️ Producer Error: %v", err)
-			}
-		}
-	}
-	return nil
-}
-
-func (s *masterService) BroadcastAllLocalPositions() error {
-	return utils.BatchSync(
+		ctx,
 		0, 1000,
 		s.masterRepo.GetPositions,
-		func(data []models.Positions) error {
+		func(ctx context.Context, data []models.Positions) error {
 			var positionsEvent []events.PositionEvent
 			for _, row := range data {
 				data := row
@@ -332,6 +134,46 @@ func (s *masterService) BroadcastAllLocalPositions() error {
 			}
 			return nil
 		},
-		func(item models.Positions) uint { return item.ID },
+		func(item models.Positions) uint { return item.CentralID },
 	)
+}
+
+func (s *masterService) SyncCompaniesFromEvent(ctx context.Context, companiesEvent []events.CompanyEvent) error {
+	var companies []models.Companies
+	for _, c := range companiesEvent {
+		cd := c
+		companies = append(companies, *utils.EventCompanyToCompanies(&cd))
+	}
+	_, err := s.masterRepo.SyncCompany(ctx, companies)
+	return err
+}
+
+func (s *masterService) SyncDepartmentsFromEvent(ctx context.Context, departmentsEvent []events.DepartmentEvent) error {
+	var departments []models.Departments
+	for _, d := range departmentsEvent {
+		dd := d
+		departments = append(departments, *utils.EventDepartmentToDepartments(&dd))
+	}
+	_, err := s.masterRepo.SyncDepartment(ctx, departments)
+	return err
+}
+
+func (s *masterService) SyncSectionsFromEvent(ctx context.Context, sectionsEvent []events.SectionEvent) error {
+	var sections []models.Sections
+	for _, sec := range sectionsEvent {
+		sd := sec
+		sections = append(sections, *utils.EventSectionToSections(&sd))
+	}
+	_, err := s.masterRepo.SyncSection(ctx, sections)
+	return err
+}
+
+func (s *masterService) SyncPositionsFromEvent(ctx context.Context, positionsEvent []events.PositionEvent) error {
+	var positions []models.Positions
+	for _, pos := range positionsEvent {
+		pd := pos
+		positions = append(positions, *utils.EventPositionToPositions(&pd))
+	}
+	_, err := s.masterRepo.SyncPosition(ctx, positions)
+	return err
 }

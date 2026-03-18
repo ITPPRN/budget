@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"sort"
 
@@ -17,12 +18,10 @@ func NewDashboardService(repo models.DashboardRepository, depSrv models.Departme
 	return &dashboardService{repo: repo, depSrv: depSrv}
 }
 
-func (s *dashboardService) GetFilterOptions() ([]models.FilterOptionDTO, error) {
-	fmt.Println("[DEBUG] Service: GetFilterOptions START")
-	facts, err := s.repo.GetBudgetFilterOptions()
+func (s *dashboardService) GetFilterOptions(ctx context.Context) ([]models.FilterOptionDTO, error) {
+	facts, err := s.repo.GetBudgetFilterOptions(ctx)
 	if err != nil {
-		fmt.Printf("[DEBUG] Service: Repo returned error: %v\n", err)
-		return nil, err
+		return nil, fmt.Errorf("dashboardSrv.GetFilterOptions: %w", err)
 	}
 	fmt.Printf("[DEBUG] Service: Got %d facts\n", len(facts))
 
@@ -147,14 +146,14 @@ func (s *dashboardService) GetFilterOptions() ([]models.FilterOptionDTO, error) 
 
 	return rootNodes, nil
 }
-func (s *dashboardService) GetRawFilterOptions() ([]models.BudgetFactEntity, error) {
-	return s.repo.GetBudgetFilterOptions()
+func (s *dashboardService) GetRawFilterOptions(ctx context.Context) ([]models.BudgetFactEntity, error) {
+	return s.repo.GetBudgetFilterOptions(ctx)
 }
 
-func (s *dashboardService) GetOrganizationStructure() ([]models.OrganizationDTO, error) {
-	facts, err := s.repo.GetOrganizationStructure()
+func (s *dashboardService) GetOrganizationStructure(ctx context.Context) ([]models.OrganizationDTO, error) {
+	facts, err := s.repo.GetOrganizationStructure(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("dashboardSrv.GetOrganizationStructure: %w", err)
 	}
 
 	// Return Raw Codes (HMW, BUR) as stored in DB.
@@ -230,28 +229,26 @@ func (s *dashboardService) GetOrganizationStructure() ([]models.OrganizationDTO,
 	return result, nil
 }
 
-func (s *dashboardService) GetBudgetDetails(filter map[string]interface{}) ([]models.BudgetDetailDTO, error) {
+func (s *dashboardService) GetBudgetDetails(ctx context.Context, filter map[string]interface{}) ([]models.BudgetDetailDTO, error) {
 	sanitizeFilter(filter)
-	return s.repo.GetBudgetDetails(filter)
+	return s.repo.GetBudgetDetails(ctx, filter)
 }
 
-func (s *dashboardService) GetActualDetails(filter map[string]interface{}) ([]models.ActualFactEntity, error) {
+func (s *dashboardService) GetActualDetails(ctx context.Context, filter map[string]interface{}) ([]models.ActualFactEntity, error) {
 	sanitizeFilter(filter)
-	return s.repo.GetActualDetails(filter)
+	return s.repo.GetActualDetails(ctx, filter)
 }
 
-func (s *dashboardService) GetDashboardSummary(filter map[string]interface{}) (*models.DashboardSummaryDTO, error) {
-	fmt.Printf("[DEBUG] GetDashboardSummary Filter (Before): %+v\n", filter)
+func (s *dashboardService) GetDashboardSummary(ctx context.Context, filter map[string]interface{}) (*models.DashboardSummaryDTO, error) {
 	sanitizeFilter(filter)
-	fmt.Printf("[DEBUG] GetDashboardSummary Filter (After): %+v\n", filter)
-	return s.repo.GetDashboardAggregates(filter)
+	return s.repo.GetDashboardAggregates(ctx, filter)
 }
 
-func (s *dashboardService) GetActualTransactions(filter map[string]interface{}) (*models.PaginatedActualTransactionDTO, error) {
+func (s *dashboardService) GetActualTransactions(ctx context.Context, filter map[string]interface{}) (*models.PaginatedActualTransactionDTO, error) {
 	sanitizeFilter(filter)
-	return s.repo.GetActualTransactions(filter)
+	return s.repo.GetActualTransactions(ctx, filter)
 }
 
-func (s *dashboardService) GetActualYears() ([]string, error) {
-	return s.repo.GetActualYears()
+func (s *dashboardService) GetActualYears(ctx context.Context) ([]string, error) {
+	return s.repo.GetActualYears(ctx)
 }

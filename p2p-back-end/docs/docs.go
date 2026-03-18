@@ -9,12 +9,114 @@ const docTemplate = `{
     "info": {
         "description": "{{escape .Description}}",
         "title": "{{.Title}}",
-        "contact": {},
+        "termsOfService": "http://swagger.io/terms/",
+        "contact": {
+            "name": "API Support",
+            "url": "http://www.swagger.io/support",
+            "email": "support@swagger.io"
+        },
+        "license": {
+            "name": "Apache 2.0",
+            "url": "http://www.apache.org/licenses/LICENSE-2.0.html"
+        },
         "version": "{{.Version}}"
     },
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/v1/admin/users/{id}/reset-password": {
+            "post": {
+                "description": "เปลี่ยนรหัสผ่านให้ User อื่น (โดยไม่ต้องรู้รหัสเดิม) และบังคับเปลี่ยนใหม่ตอน Login",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Admin"
+                ],
+                "summary": "Admin Reset User Password (สำหรับ Admin เท่านั้น)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "User ID (UUID)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "New Password",
+                        "name": "req",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/p2p-back-end_modules_entities_models.AdminResetPasswordReq"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success",
+                        "schema": {
+                            "$ref": "#/definitions/p2p-back-end_modules_entities_models.ResponseData"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/p2p-back-end_modules_entities_models.ResponseData"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/auth/change-password": {
+            "post": {
+                "description": "เปลี่ยนรหัสผ่าน (ต้อง Login ก่อน)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Change Password",
+                "parameters": [
+                    {
+                        "description": "Password Info",
+                        "name": "req",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/p2p-back-end_modules_entities_models.ChangePasswordReq"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success",
+                        "schema": {
+                            "$ref": "#/definitions/p2p-back-end_modules_entities_models.ResponseData"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/p2p-back-end_modules_entities_models.ResponseData"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/p2p-back-end_modules_entities_models.ResponseData"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/auth/login": {
             "post": {
                 "description": "Login user and set HttpOnly Cookie",
@@ -80,7 +182,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Logout user and clear access_token cookie",
+                "description": "Logout user and clear all token cookie",
                 "consumes": [
                     "application/json"
                 ],
@@ -141,6 +243,44 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/auth/refresh-token": {
+            "post": {
+                "description": "ตรวจสอบ Refresh Token จาก HttpOnly Cookie และออก Token ใหม่ให้ (ฝัง Cookie กลับไปอัตโนมัติ)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Refresh Access Token",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Refresh Token (ส่งมาอัตโนมัติผ่าน Browser Cookie 'refresh_token')",
+                        "name": "Cookie",
+                        "in": "header",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Token refreshed successfully",
+                        "schema": {
+                            "$ref": "#/definitions/p2p-back-end_modules_entities_models.ResponseData"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized: No token or Invalid token",
+                        "schema": {
+                            "$ref": "#/definitions/p2p-back-end_modules_entities_models.ResponseData"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/auth/register": {
             "post": {
                 "description": "Register a new user",
@@ -161,7 +301,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/p2p-back-end_modules_entities_models.RegisterReq"
+                            "$ref": "#/definitions/p2p-back-end_modules_entities_models.RegisterKCReq"
                         }
                     }
                 ],
@@ -195,8 +335,47 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "p2p-back-end_modules_entities_models.AdminResetPasswordReq": {
+            "type": "object",
+            "required": [
+                "new_password"
+            ],
+            "properties": {
+                "new_password": {
+                    "type": "string",
+                    "minLength": 6
+                }
+            }
+        },
+        "p2p-back-end_modules_entities_models.ChangePasswordReq": {
+            "type": "object",
+            "required": [
+                "confirm_password",
+                "new_password",
+                "old_password"
+            ],
+            "properties": {
+                "confirm_password": {
+                    "type": "string",
+                    "example": "new_secret123"
+                },
+                "new_password": {
+                    "type": "string",
+                    "minLength": 6,
+                    "example": "new_secret123"
+                },
+                "old_password": {
+                    "type": "string",
+                    "example": "old_secret123"
+                }
+            }
+        },
         "p2p-back-end_modules_entities_models.LoginReq": {
             "type": "object",
+            "required": [
+                "password",
+                "username"
+            ],
             "properties": {
                 "password": {
                     "type": "string",
@@ -208,9 +387,20 @@ const docTemplate = `{
                 }
             }
         },
-        "p2p-back-end_modules_entities_models.RegisterReq": {
+        "p2p-back-end_modules_entities_models.RegisterKCReq": {
             "type": "object",
+            "required": [
+                "email",
+                "first_name",
+                "last_name",
+                "password",
+                "username"
+            ],
             "properties": {
+                "department_id": {
+                    "type": "string",
+                    "example": "uuid-of-department"
+                },
                 "email": {
                     "type": "string",
                     "example": "test@example.com"
@@ -225,11 +415,18 @@ const docTemplate = `{
                 },
                 "password": {
                     "type": "string",
+                    "minLength": 6,
                     "example": "test1"
                 },
-                "role": {
-                    "type": "string",
-                    "example": "employee"
+                "roles": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "[\"employee\"",
+                        " \"manager\"]"
+                    ]
                 },
                 "username": {
                     "type": "string",
@@ -269,13 +466,33 @@ const docTemplate = `{
         "p2p-back-end_modules_entities_models.UserInfo": {
             "type": "object",
             "properties": {
+                "branch": {
+                    "type": "string"
+                },
+                "company": {
+                    "type": "string"
+                },
+                "department": {
+                    "type": "string"
+                },
+                "department_code": {
+                    "type": "string"
+                },
                 "email": {
                     "type": "string"
                 },
                 "name": {
                     "type": "string"
                 },
-                "role": {
+                "permissions": {
+                    "description": "Explicit Dept Permissions",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/p2p-back-end_modules_entities_models.UserPermissionInfo"
+                    }
+                },
+                "roles": {
+                    "description": "System-level roles (Keycloak)",
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -285,6 +502,20 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "userName": {
+                    "type": "string"
+                }
+            }
+        },
+        "p2p-back-end_modules_entities_models.UserPermissionInfo": {
+            "type": "object",
+            "properties": {
+                "department_code": {
+                    "type": "string"
+                },
+                "is_active": {
+                    "type": "boolean"
+                },
+                "role": {
                     "type": "string"
                 }
             }
@@ -303,10 +534,10 @@ const docTemplate = `{
 var SwaggerInfo = &swag.Spec{
 	Version:          "1.0",
 	Host:             "localhost:8080",
-	BasePath:         "/v1",
+	BasePath:         "/",
 	Schemes:          []string{},
-	Title:            "P2P Back-End API",
-	Description:      "This is the API documentation for the P2P application back-end.",
+	Title:            "P2P Project API",
+	Description:      "This is the API server for the P2P project.",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",

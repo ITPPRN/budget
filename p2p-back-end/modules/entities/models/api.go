@@ -6,19 +6,18 @@ type UserRegisReq struct {
 }
 
 type RegisterKCReq struct {
-	Username     string   `json:"username" example:"test1"`
-	Password     string   `json:"password" example:"test1"`
-	Email        string   `json:"email" example:"test@example.com"`
-	FirstName    string   `json:"first_name" example:"test1"`
-	LastName     string   `json:"last_name" example:"test1"`
+	Username     string   `json:"username" validate:"required" example:"test1"`
+	Password     string   `json:"password" validate:"required,min=6" example:"test1"`
+	Email        string   `json:"email" validate:"required,email" example:"test@example.com"`
+	FirstName    string   `json:"first_name" validate:"required" example:"test1"`
+	LastName     string   `json:"last_name" validate:"required" example:"test1"`
 	Roles        []string `json:"roles" example:"[\"employee\", \"manager\"]"`
 	DepartmentID string   `json:"department_id" example:"uuid-of-department"`
-	// Role      string `json:"role" example:"employee"`
 }
 
 type LoginReq struct {
-	Username string `json:"username" example:"test1"`
-	Password string `json:"password" example:"test1"`
+	Username string `json:"username" validate:"required" example:"test1"`
+	Password string `json:"password" validate:"required" example:"test1"`
 }
 
 type ChangePasswordReq struct {
@@ -33,9 +32,10 @@ type AdminResetPasswordReq struct {
 
 // res/////////////////////////////////////////////////////////
 type UserInfo struct {
-	UserId         string               `json:"userId"`
-	UserName       string               `json:"userName"`
+	ID             string               `json:"id"`
+	Username       string               `json:"username"`
 	Name           string               `json:"name"`
+	NameTh         string               `json:"name_th"`
 	Email          string               `json:"email"`
 	Roles          []string             `json:"roles,omitempty"` // System-level roles (Keycloak)
 	Company        string               `json:"company,omitempty"`

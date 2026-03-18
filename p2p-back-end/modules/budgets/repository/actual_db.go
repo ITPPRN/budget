@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"fmt"
 
 	"gorm.io/gorm"
@@ -23,10 +24,10 @@ func (r *actualRepository) WithTrx(trxHandle func(repo models.ActualRepository) 
 	})
 }
 
-func (r *actualRepository) CreateActualFacts(headers []models.ActualFactEntity) error {
+func (r *actualRepository) CreateActualFacts(ctx context.Context, headers []models.ActualFactEntity) error {
 	// 1. บันทึกส่วนหัว (Insert Headers)
-	if err := r.db.Omit("ActualAmounts").CreateInBatches(&headers, 1000).Error; err != nil {
-		return err
+	if err := r.db.WithContext(ctx).Omit("ActualAmounts").CreateInBatches(&headers, 1000).Error; err != nil {
+		return fmt.Errorf("actualRepo.CreateActualFacts.Headers: %w", err)
 	}
 	// 2. รวบรวมยอดเงิน (Collect Amounts)
 	var allAmounts []models.ActualAmountEntity
@@ -35,95 +36,106 @@ func (r *actualRepository) CreateActualFacts(headers []models.ActualFactEntity) 
 	}
 	// 3. บันทึกยอดเงิน (Insert Amounts)
 	if len(allAmounts) > 0 {
-		return r.db.CreateInBatches(&allAmounts, 1000).Error
+		if err := r.db.WithContext(ctx).CreateInBatches(&allAmounts, 1000).Error; err != nil {
+			return fmt.Errorf("actualRepo.CreateActualFacts.Amounts: %w", err)
+		}
 	}
 	return nil
 }
 
-func (r *actualRepository) DeleteAllActualFacts() error {
+func (r *actualRepository) DeleteAllActualFacts(ctx context.Context) error {
 	// 1. ลบยอดเงิน (Delete Amounts)
-	if err := r.db.Exec("DELETE FROM actual_amount_entities").Error; err != nil {
-		return err
+	if err := r.db.WithContext(ctx).Exec("DELETE FROM actual_amount_entities").Error; err != nil {
+		return fmt.Errorf("actualRepo.DeleteAllActualFacts.Amounts: %w", err)
 	}
 	// 2. ลบส่วนหัว (Delete Headers)
-	return r.db.Exec("DELETE FROM actual_fact_entities").Error
+	if err := r.db.WithContext(ctx).Exec("DELETE FROM actual_fact_entities").Error; err != nil {
+		return fmt.Errorf("actualRepo.DeleteAllActualFacts.Headers: %w", err)
+	}
+	return nil
 }
 
-func (r *actualRepository) DeleteActualFactsByYear(year string) error {
-	// 1. ลบยอดเงินที่เชื่อมโยงกับ Header ของปีนั้นๆ
-	// (ต้องใช้ subquery เพราะ Amount ไม่มี Year เก็บไว้โดยตรง)
-	// Subquery delete: DELETE FROM actual_amount_entities WHERE actual_fact_id IN (SELECT id FROM actual_fact_entities WHERE year = ?)
-	// Use Unscoped to force HARD DELETE
-	if err := r.db.Exec(`
+func (r *actualRepository) DeleteActualFactsByYear(ctx context.Context, year string) error {
+	if err := r.db.WithContext(ctx).Exec(`
 		DELETE FROM actual_amount_entities 
 		WHERE actual_fact_id IN (SELECT id FROM actual_fact_entities WHERE year = ?)
 	`, year).Error; err != nil {
-		return err
+		return fmt.Errorf("actualRepo.DeleteActualFactsByYear.Amounts: %w", err)
 	}
 
-	// 2. Delete Headers (Hard Delete)
-	return r.db.Unscoped().Where("year = ?", year).Delete(&models.ActualFactEntity{}).Error
+	if err := r.db.WithContext(ctx).Unscoped().Where("year = ?", year).Delete(&models.ActualFactEntity{}).Error; err != nil {
+		return fmt.Errorf("actualRepo.DeleteActualFactsByYear.Headers: %w", err)
+	}
+	return nil
 }
 
-func (r *actualRepository) DeleteActualFactsByMonth(year string, month string) error {
-	// 1. ลบยอดเงินเฉพาะเดือนที่ระบุ (และปีที่ระบุด้วยการเชื่อมโยง)
-	if err := r.db.Exec(`
+func (r *actualRepository) DeleteActualFactsByMonth(ctx context.Context, year string, month string) error {
+	if err := r.db.WithContext(ctx).Exec(`
 		DELETE FROM actual_amount_entities 
 		WHERE month = ? AND actual_fact_id IN (SELECT id FROM actual_fact_entities WHERE year = ?)
 	`, month, year).Error; err != nil {
-		return err
+		return fmt.Errorf("actualRepo.DeleteActualFactsByMonth.Amounts: %w", err)
 	}
 
-	// 2. อัปเดตยอดรวมรายปี (YearTotal) ของ Header
-	// ตั้งค่าเป็น 0 หากไม่มีข้อมูล Amount เหลืออยู่เลย
-	if err := r.db.Exec(`
+	if err := r.db.WithContext(ctx).Exec(`
 		UPDATE actual_fact_entities f
 		SET year_total = COALESCE((SELECT SUM(amount) FROM actual_amount_entities a WHERE a.actual_fact_id = f.id), 0)
 		WHERE f.year = ?
 	`, year).Error; err != nil {
-		return err
+		return fmt.Errorf("actualRepo.DeleteActualFactsByMonth.UpdateTotal: %w", err)
 	}
 
-	// 3. ล้าง Header ที่ไม่มีข้อมูลเหลืออยู่ออกไป (Optional cleanup)
-	return r.db.Unscoped().
+	if err := r.db.WithContext(ctx).Unscoped().
 		Where("year = ? AND year_total = 0", year).
-		Delete(&models.ActualFactEntity{}).Error
+		Delete(&models.ActualFactEntity{}).Error; err != nil {
+		return fmt.Errorf("actualRepo.DeleteActualFactsByMonth.Cleanup: %w", err)
+	}
+	return nil
 }
 
-func (r *actualRepository) DeleteAllActualTransactions() error {
-	return r.db.Unscoped().Where("1=1").Delete(&models.ActualTransactionEntity{}).Error
+func (r *actualRepository) DeleteAllActualTransactions(ctx context.Context) error {
+	if err := r.db.WithContext(ctx).Unscoped().Where("1=1").Delete(&models.ActualTransactionEntity{}).Error; err != nil {
+		return fmt.Errorf("actualRepo.DeleteAllActualTransactions: %w", err)
+	}
+	return nil
 }
 
-func (r *actualRepository) DeleteActualTransactionsByYear(year string) error {
-	return r.db.Unscoped().Where("year = ?", year).Delete(&models.ActualTransactionEntity{}).Error
+func (r *actualRepository) DeleteActualTransactionsByYear(ctx context.Context, year string) error {
+	if err := r.db.WithContext(ctx).Unscoped().Where("year = ?", year).Delete(&models.ActualTransactionEntity{}).Error; err != nil {
+		return fmt.Errorf("actualRepo.DeleteActualTransactionsByYear: %w", err)
+	}
+	return nil
 }
 
-func (r *actualRepository) DeleteActualTransactionsByMonth(year string, month string) error {
+func (r *actualRepository) DeleteActualTransactionsByMonth(ctx context.Context, year string, month string) error {
 	monthMap := map[string]string{
 		"JAN": "01", "FEB": "02", "MAR": "03", "APR": "04", "MAY": "05", "JUN": "06",
 		"JUL": "07", "AUG": "08", "SEP": "09", "OCT": "10", "NOV": "11", "DEC": "12",
 	}
 	mCode, ok := monthMap[month]
 	if !ok {
-		return fmt.Errorf("invalid month: %s", month)
+		return fmt.Errorf("actualRepo.DeleteActualTransactionsByMonth: invalid month: %s", month)
 	}
 	pattern := fmt.Sprintf("%s-%s-%%", year, mCode)
-	return r.db.Unscoped().
+	if err := r.db.WithContext(ctx).Unscoped().
 		Where("year = ? AND posting_date LIKE ?", year, pattern).
-		Delete(&models.ActualTransactionEntity{}).Error
+		Delete(&models.ActualTransactionEntity{}).Error; err != nil {
+		return fmt.Errorf("actualRepo.DeleteActualTransactionsByMonth: %w", err)
+	}
+	return nil
 }
 
-func (r *actualRepository) GetAllAchHmwGle() ([]models.AchHmwGleEntity, error) {
+func (r *actualRepository) GetAllAchHmwGle(ctx context.Context) ([]models.AchHmwGleEntity, error) {
 	var results []models.AchHmwGleEntity
-	err := r.db.Find(&results).Error
-	return results, err
+	if err := r.db.WithContext(ctx).Find(&results).Error; err != nil {
+		return nil, fmt.Errorf("actualRepo.GetAllAchHmwGle: %w", err)
+	}
+	return results, nil
 }
 
-func (r *actualRepository) GetAggregatedHMW(year string, months []string) ([]models.ActualAggregatedDTO, error) {
+func (r *actualRepository) GetAggregatedHMW(ctx context.Context, year string, months []string) ([]models.ActualAggregatedDTO, error) {
 	var results []models.ActualAggregatedDTO
-	// การเพิ่มประสิทธิภาพ: Group โดย Database
-
-	query := r.db.Table("achhmw_gle_api").
+	query := r.db.WithContext(ctx).Table("achhmw_gle_api").
 		Select(`
 			company, 
 			branch, 
@@ -140,14 +152,16 @@ func (r *actualRepository) GetAggregatedHMW(year string, months []string) ([]mod
 		query = query.Where("UPPER(TO_CHAR(\"Posting_Date\"::DATE, 'MON')) IN ?", months)
 	}
 
-	err := query.Group(`company, branch, "Global_Dimension_1_Code", "G_L_Account_No", "G_L_Account_Name", "Vendor_Name", UPPER(TO_CHAR("Posting_Date"::DATE, 'MON'))`).
-		Scan(&results).Error
-	return results, err
+	if err := query.Group(`company, branch, "Global_Dimension_1_Code", "G_L_Account_No", "G_L_Account_Name", "Vendor_Name", UPPER(TO_CHAR("Posting_Date\"::DATE, 'MON'))`).
+		Scan(&results).Error; err != nil {
+		return nil, fmt.Errorf("actualRepo.GetAggregatedHMW: %w", err)
+	}
+	return results, nil
 }
 
-func (r *actualRepository) GetRawTransactionsHMW(year string, months []string) ([]models.ActualTransactionDTO, error) {
+func (r *actualRepository) GetRawTransactionsHMW(ctx context.Context, year string, months []string) ([]models.ActualTransactionDTO, error) {
 	var results []models.ActualTransactionDTO
-	query := r.db.Table("achhmw_gle_api").
+	query := r.db.WithContext(ctx).Table("achhmw_gle_api").
 		Select(`
 			'HMW' as source,
 			TO_CHAR("Posting_Date"::DATE, 'YYYY-MM-DD') as posting_date,
@@ -167,20 +181,23 @@ func (r *actualRepository) GetRawTransactionsHMW(year string, months []string) (
 		query = query.Where("UPPER(TO_CHAR(\"Posting_Date\"::DATE, 'MON')) IN ?", months)
 	}
 
-	err := query.Scan(&results).Error
-	return results, err
+	if err := query.Scan(&results).Error; err != nil {
+		return nil, fmt.Errorf("actualRepo.GetRawTransactionsHMW: %w", err)
+	}
+	return results, nil
 }
 
-func (r *actualRepository) GetAllClikGle() ([]models.ClikGleEntity, error) {
+func (r *actualRepository) GetAllClikGle(ctx context.Context) ([]models.ClikGleEntity, error) {
 	var results []models.ClikGleEntity
-	err := r.db.Find(&results).Error
-	return results, err
+	if err := r.db.WithContext(ctx).Find(&results).Error; err != nil {
+		return nil, fmt.Errorf("actualRepo.GetAllClikGle: %w", err)
+	}
+	return results, nil
 }
 
-func (r *actualRepository) GetAggregatedCLIK(year string, months []string) ([]models.ActualAggregatedDTO, error) {
+func (r *actualRepository) GetAggregatedCLIK(ctx context.Context, year string, months []string) ([]models.ActualAggregatedDTO, error) {
 	var results []models.ActualAggregatedDTO
-	// CLIK uses Global_Dimension_2_Code for Branch
-	query := r.db.Table("general_ledger_entries_clik").
+	query := r.db.WithContext(ctx).Table("general_ledger_entries_clik").
 		Select(`
 			'CLIK' as company,
 			"Global_Dimension_2_Code" as branch, 
@@ -197,14 +214,16 @@ func (r *actualRepository) GetAggregatedCLIK(year string, months []string) ([]mo
 		query = query.Where("UPPER(TO_CHAR(\"Posting_Date\"::DATE, 'MON')) IN ?", months)
 	}
 
-	err := query.Group(`"Global_Dimension_2_Code", "Global_Dimension_1_Code", "G_L_Account_No", "G_L_Account_Name", "Vendor_Name", UPPER(TO_CHAR("Posting_Date"::DATE, 'MON'))`).
-		Scan(&results).Error
-	return results, err
+	if err := query.Group(`"Global_Dimension_2_Code", "Global_Dimension_1_Code", "G_L_Account_No", "G_L_Account_Name", "Vendor_Name", UPPER(TO_CHAR("Posting_Date"::DATE, 'MON'))`).
+		Scan(&results).Error; err != nil {
+		return nil, fmt.Errorf("actualRepo.GetAggregatedCLIK: %w", err)
+	}
+	return results, nil
 }
 
-func (r *actualRepository) GetRawTransactionsCLIK(year string, months []string) ([]models.ActualTransactionDTO, error) {
+func (r *actualRepository) GetRawTransactionsCLIK(ctx context.Context, year string, months []string) ([]models.ActualTransactionDTO, error) {
 	var results []models.ActualTransactionDTO
-	query := r.db.Table("general_ledger_entries_clik").
+	query := r.db.WithContext(ctx).Table("general_ledger_entries_clik").
 		Select(`
 			'CLIK' as source,
 			TO_CHAR("Posting_Date"::DATE, 'YYYY-MM-DD') as posting_date,
@@ -224,31 +243,32 @@ func (r *actualRepository) GetRawTransactionsCLIK(year string, months []string) 
 		query = query.Where("UPPER(TO_CHAR(\"Posting_Date\"::DATE, 'MON')) IN ?", months)
 	}
 
-	err := query.Scan(&results).Error
-	return results, err
+	if err := query.Scan(&results).Error; err != nil {
+		return nil, fmt.Errorf("actualRepo.GetRawTransactionsCLIK: %w", err)
+	}
+	return results, nil
 }
 
-func (r *actualRepository) CreateActualTransactions(txs []models.ActualTransactionEntity) error {
+func (r *actualRepository) CreateActualTransactions(ctx context.Context, txs []models.ActualTransactionEntity) error {
 	if len(txs) == 0 {
 		return nil
 	}
-	// Bulk insert with 500 records per batch for performance
-	return r.db.CreateInBatches(txs, 500).Error
+	if err := r.db.WithContext(ctx).CreateInBatches(txs, 500).Error; err != nil {
+		return fmt.Errorf("actualRepo.CreateActualTransactions: %w", err)
+	}
+	return nil
 }
 
-func (r *actualRepository) GetRawDate() (string, error) {
+func (r *actualRepository) GetRawDate(ctx context.Context) (string, error) {
 	var rawDate string
 	// Try HMW first
-	if err := r.db.Table("achhmw_gle_api").Select("\"Posting_Date\"").Limit(1).Scan(&rawDate).Error; err != nil {
-		return "", err
-	}
-	if rawDate != "" {
+	if err := r.db.WithContext(ctx).Table("achhmw_gle_api").Select("\"Posting_Date\"").Limit(1).Scan(&rawDate).Error; err == nil && rawDate != "" {
 		return fmt.Sprintf("HMW Date: %s", rawDate), nil
 	}
 
 	// Try CLIK if HMW empty
-	if err := r.db.Table("general_ledger_entries_clik").Select("\"Posting_Date\"").Limit(1).Scan(&rawDate).Error; err != nil {
-		return "", err
+	if err := r.db.WithContext(ctx).Table("general_ledger_entries_clik").Select("\"Posting_Date\"").Limit(1).Scan(&rawDate).Error; err != nil {
+		return "", fmt.Errorf("actualRepo.GetRawDate: %w", err)
 	}
 	return fmt.Sprintf("CLIK Date: %s", rawDate), nil
 }

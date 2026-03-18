@@ -28,4 +28,4 @@ networks:
   app_network:
     driver: bridge
 
-    # docker compose up -d
+# docker compose up -d

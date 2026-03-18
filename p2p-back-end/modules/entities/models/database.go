@@ -9,18 +9,26 @@ import (
 	"gorm.io/gorm"
 )
 
-// --- Users (Keep Existing) ---
 type UserEntity struct {
 	ID                 string                 `gorm:"primaryKey;type:varchar(36);not null" json:"id"`
+	CentralID          uint                   `gorm:"index" json:"central_id"`
 	Username           string                 `gorm:"uniqueIndex;not null" json:"username"`
-	Email              string                 `gorm:"uniqueIndex;not null" json:"email"`
+	Email              string                 `gorm:"index" json:"email"`
 	FirstName          string                 `json:"first_name"`
 	LastName           string                 `json:"last_name"`
+	NameTh             string                 `json:"name_th"`
+	NameEn             string                 `json:"name_en"`
 	SignatureURL       string                 `json:"signature_url"`
 	PdpaAcknowledgedAt *time.Time             `json:"pdpa_acknowledged_at"`
 	IsActive           bool                   `gorm:"default:true" json:"is_active"`
+	CompanyID          *uuid.UUID             `gorm:"type:uuid;index" json:"company_id"`
+	Company            *Companies             `gorm:"foreignKey:CompanyID" json:"company,omitempty"`
 	DepartmentID       *uuid.UUID             `gorm:"type:uuid;index" json:"department_id"`
-	Department         *DepartmentEntity      `gorm:"foreignKey:DepartmentID" json:"department,omitempty"`
+	Department         *Departments           `gorm:"foreignKey:DepartmentID" json:"department,omitempty"`
+	SectionID          *uuid.UUID             `gorm:"type:uuid;index" json:"section_id"`
+	Section            *Sections              `gorm:"foreignKey:SectionID" json:"section,omitempty"`
+	PositionID         *uuid.UUID             `gorm:"type:uuid;index" json:"position_id"`
+	Position           *Positions             `gorm:"foreignKey:PositionID" json:"position,omitempty"`
 	Roles              datatypes.JSON         `gorm:"type:jsonb" json:"roles"`
 	UserPermissions    []UserPermissionEntity `gorm:"foreignKey:UserID" json:"user_permissions,omitempty"`
 
@@ -31,6 +39,60 @@ type UserEntity struct {
 }
 
 func (UserEntity) TableName() string { return "user_entities" }
+
+type Companies struct {
+	ID           uuid.UUID      `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
+	CentralID    uint           `gorm:"uniqueIndex" json:"central_id"`
+	Name         string         `json:"name"`
+	BranchName   string         `json:"branch_name"`
+	BranchNameEn string         `json:"branch_name_en"`
+	BranchNo     string         `json:"branch_no"`
+	Address      string         `json:"address"`
+	TaxID        string         `gorm:"column:taxid" json:"taxid"`
+	Province     string         `json:"province"`
+	CreatedAt    time.Time      `json:"created_at"`
+	UpdatedAt    time.Time      `json:"updated_at"`
+	DeletedAt    gorm.DeletedAt `gorm:"index" json:"deleted_at"`
+}
+
+func (Companies) TableName() string { return "companies" }
+
+type Departments struct {
+	ID        uuid.UUID      `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
+	CentralID uint           `gorm:"uniqueIndex" json:"central_id"`
+	Name      string         `json:"name"`
+	Code      string         `json:"code"`
+	CreatedAt time.Time      `json:"created_at"`
+	UpdatedAt time.Time      `json:"updated_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
+}
+
+func (Departments) TableName() string { return "departments" }
+
+type Sections struct {
+	ID           uuid.UUID      `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
+	CentralID    uint           `gorm:"uniqueIndex" json:"central_id"`
+	Name         string         `json:"name"`
+	Code         string         `json:"code"`
+	DepartmentID *uuid.UUID     `gorm:"type:uuid;index" json:"department_id"`
+	CreatedAt    time.Time      `json:"created_at"`
+	UpdatedAt    time.Time      `json:"updated_at"`
+	DeletedAt    gorm.DeletedAt `gorm:"index" json:"deleted_at"`
+}
+
+func (Sections) TableName() string { return "sections" }
+
+type Positions struct {
+	ID        uuid.UUID      `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
+	CentralID uint           `gorm:"uniqueIndex" json:"central_id"`
+	Name      string         `json:"name"`
+	Code      string         `json:"code"`
+	CreatedAt time.Time      `json:"created_at"`
+	UpdatedAt time.Time      `json:"updated_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
+}
+
+func (Positions) TableName() string { return "positions" }
 
 // [New] Explicit User Permissions managed by Admin
 type UserPermissionEntity struct {
@@ -71,35 +133,6 @@ type DepartmentMappingEntity struct {
 }
 
 func (DepartmentMappingEntity) TableName() string { return "department_mapping_entities" }
-
-// --- P2P Entities (Keep Existing) ---
-type VendorEntity struct {
-	gorm.Model
-	ID          uuid.UUID  `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
-	VendorCode  string     `gorm:"uniqueIndex" json:"vendor_code"`
-	Name        string     `json:"name"`
-	TaxID       string     `json:"tax_id"`
-	Address     string     `json:"address"`
-	PaymentTerm string     `json:"payment_term"`
-	IsActive    bool       `gorm:"default:true" json:"is_active"`
-	UpdateBy    *uuid.UUID `gorm:"type:uuid" json:"update_by"`
-}
-
-func (VendorEntity) TableName() string { return "vendor_entities" }
-
-type ProductEntity struct {
-	gorm.Model
-	ID            uuid.UUID       `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
-	ProductCode   string          `gorm:"uniqueIndex" json:"product_code"`
-	Name          string          `json:"name"`
-	Description   string          `json:"description"`
-	Unit          string          `json:"unit"`
-	StandardPrice decimal.Decimal `gorm:"type:decimal(18,2)" json:"standard_price"`
-	Category      string          `json:"category"`
-	UpdateBy      *uuid.UUID      `gorm:"type:uuid" json:"update_by"`
-}
-
-func (ProductEntity) TableName() string { return "product_entities" }
 
 // GlMappingEntity maps Entity GL to Conso GL (Derived from map_gl.txt)
 type GlMappingEntity struct {
@@ -148,113 +181,6 @@ type GeneralLedgerEntriesClik struct {
 func (GeneralLedgerEntriesClik) TableName() string {
 	return "general_ledger_entries_clik"
 }
-
-type PurchaseRequestEntity struct {
-	gorm.Model
-	ID             uuid.UUID         `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
-	PrNumber       string            `gorm:"uniqueIndex" json:"pr_number"`
-	RequesterID    string            `gorm:"type:varchar(36)" json:"requester_id"`
-	DepartmentID   uuid.UUID         `gorm:"type:uuid" json:"department_id"`
-	FlowType       string            `json:"flow_type"`
-	ExternalRefDoc string            `json:"external_ref_doc"`
-	RequiredDate   time.Time         `json:"required_date"`
-	Status         string            `gorm:"default:'DRAFT'" json:"status"`
-	RejectReason   string            `json:"reject_reason"`
-	UpdateBy       *uuid.UUID        `gorm:"type:uuid" json:"update_by"`
-	Requester      *UserEntity       `gorm:"foreignKey:RequesterID;references:ID" json:"requester"`
-	Department     *DepartmentEntity `gorm:"foreignKey:DepartmentID" json:"department"`
-	Items          []PrItemEntity    `gorm:"foreignKey:PrID" json:"items"`
-}
-
-func (PurchaseRequestEntity) TableName() string { return "purchase_request_entities" }
-
-type PrItemEntity struct {
-	gorm.Model
-	ID                 uuid.UUID       `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
-	PrID               uuid.UUID       `gorm:"type:uuid" json:"pr_id"`
-	ProductID          *uuid.UUID      `gorm:"type:uuid" json:"product_id"`
-	ItemDescription    string          `json:"item_description"`
-	Quantity           decimal.Decimal `gorm:"type:decimal(18,2)" json:"quantity"`
-	EstimatedUnitPrice decimal.Decimal `gorm:"type:decimal(18,2)" json:"estimated_unit_price"`
-	TotalPrice         decimal.Decimal `gorm:"type:decimal(18,2)" json:"total_price"`
-	UpdateBy           *uuid.UUID      `gorm:"type:uuid" json:"update_by"`
-	Product            *ProductEntity  `gorm:"foreignKey:ProductID" json:"product"`
-}
-
-func (PrItemEntity) TableName() string { return "pr_item_entities" }
-
-type PurchaseOrderEntity struct {
-	gorm.Model
-	ID               uuid.UUID              `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
-	PoNumberSystem   string                 `gorm:"uniqueIndex" json:"po_number_system"`
-	ExternalPoNumber string                 `json:"external_po_number"`
-	TargetSystem     string                 `json:"target_system"`
-	PrID             uuid.UUID              `gorm:"type:uuid" json:"pr_id"`
-	VendorID         uuid.UUID              `gorm:"type:uuid" json:"vendor_id"`
-	PurchaserID      string                 `gorm:"type:varchar(36)" json:"purchaser_id"`
-	PoDate           time.Time              `json:"po_date"`
-	Status           string                 `json:"status"`
-	TotalAmount      decimal.Decimal        `gorm:"type:decimal(18,2)" json:"total_amount"`
-	VatAmount        decimal.Decimal        `gorm:"type:decimal(18,2)" json:"vat_amount"`
-	GrandTotal       decimal.Decimal        `gorm:"type:decimal(18,2)" json:"grand_total"`
-	UpdateBy         *uuid.UUID             `gorm:"type:uuid" json:"update_by"`
-	PurchaseRequest  *PurchaseRequestEntity `gorm:"foreignKey:PrID" json:"purchase_request"`
-	Vendor           *VendorEntity          `gorm:"foreignKey:VendorID" json:"vendor"`
-	Purchaser        *UserEntity            `gorm:"foreignKey:PurchaserID;references:ID" json:"purchaser"`
-}
-
-func (PurchaseOrderEntity) TableName() string { return "purchase_order_entities" }
-
-type GoodsReceiptEntity struct {
-	gorm.Model
-	ID                uuid.UUID            `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
-	GrNumber          string               `gorm:"uniqueIndex" json:"gr_number"`
-	PoID              uuid.UUID            `gorm:"type:uuid" json:"po_id"`
-	ReceivedByID      string               `gorm:"type:varchar(36)" json:"received_by_id"`
-	VendorDeliveryDoc string               `json:"vendor_delivery_doc"`
-	ReceivedDate      time.Time            `json:"received_date"`
-	InspectionStatus  string               `json:"inspection_status"`
-	Photos            datatypes.JSON       `gorm:"type:jsonb" json:"photos"`
-	Remark            string               `json:"remark"`
-	UpdateBy          *uuid.UUID           `gorm:"type:uuid" json:"update_by"`
-	PurchaseOrder     *PurchaseOrderEntity `gorm:"foreignKey:PoID" json:"purchase_order"`
-	ReceivedBy        *UserEntity          `gorm:"foreignKey:ReceivedByID;references:ID" json:"received_by"`
-}
-
-func (GoodsReceiptEntity) TableName() string { return "goods_receipt_entities" }
-
-type ApVoucherEntity struct {
-	gorm.Model
-	ID                uuid.UUID            `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
-	PoID              uuid.UUID            `gorm:"type:uuid" json:"po_id"`
-	InvoiceNumber     string               `json:"invoice_number"`
-	InvoiceDate       time.Time            `json:"invoice_date"`
-	ExternalVoucherNo string               `json:"external_voucher_no"`
-	InvoiceAmount     decimal.Decimal      `gorm:"type:decimal(18,2)" json:"invoice_amount"`
-	VatAmount         decimal.Decimal      `gorm:"type:decimal(18,2)" json:"vat_amount"`
-	WhtAmount         decimal.Decimal      `gorm:"type:decimal(18,2)" json:"wht_amount"`
-	NetPayAmount      decimal.Decimal      `gorm:"type:decimal(18,2)" json:"net_pay_amount"`
-	Status            string               `json:"status"`
-	UpdateBy          *uuid.UUID           `gorm:"type:uuid" json:"update_by"`
-	PurchaseOrder     *PurchaseOrderEntity `gorm:"foreignKey:PoID" json:"purchase_order"`
-}
-
-func (ApVoucherEntity) TableName() string { return "ap_voucher_entities" }
-
-type PaymentEntity struct {
-	gorm.Model
-	ID               uuid.UUID        `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
-	ApVoucherID      uuid.UUID        `gorm:"type:uuid" json:"ap_voucher_id"`
-	PaidByID         string           `gorm:"type:varchar(36)" json:"paid_by_id"`
-	PaymentDate      time.Time        `json:"payment_date"`
-	PaymentMethod    string           `json:"payment_method"`
-	RefTransactionID string           `json:"ref_transaction_id"`
-	AmountPaid       decimal.Decimal  `gorm:"type:decimal(18,2)" json:"amount_paid"`
-	UpdateBy         *uuid.UUID       `gorm:"type:uuid" json:"update_by"`
-	ApVoucher        *ApVoucherEntity `gorm:"foreignKey:ApVoucherID" json:"ap_voucher"`
-}
-
-func (PaymentEntity) TableName() string { return "payment_entities" }
 
 // --- FILE ENTITIES (3 Distinct Tables) ---
 type FileBudgetEntity struct {
@@ -480,4 +406,59 @@ type UserConfigEntity struct {
 
 func (UserConfigEntity) TableName() string { return "user_config_entities" }
 
+// --- Source (Central) Entities & DTOs ---
 
+type CentralCompany struct {
+	CompanyID    uint   `gorm:"column:company_id;primaryKey"`
+	Name         string `gorm:"column:name"`
+	BranchName   string `gorm:"column:branch_name"`
+	BranchNameEn string `gorm:"column:branch_name_en"`
+	BranchNo     string `gorm:"column:branch_no"`
+	Address      string `gorm:"column:address"`
+	TaxID        string `gorm:"column:taxid"`
+	Province     string `gorm:"column:province"`
+}
+
+type CentralDepartment struct {
+	DeptID uint   `gorm:"column:department_id;primaryKey"`
+	Name   string `gorm:"column:name"`
+	Code   string `gorm:"column:code"`
+}
+
+type CentralSection struct {
+	SectionID    uint   `gorm:"column:section_id;primaryKey"`
+	Name         string `gorm:"column:name"`
+	Code         string `gorm:"column:code"`
+	DepartmentID uint   `gorm:"column:department_id"`
+}
+
+type CentralPosition struct {
+	PositionID uint   `gorm:"column:position_id;primaryKey"`
+	Name       string `gorm:"column:name"`
+	Code       string `gorm:"column:code"`
+}
+
+type CentralUser struct {
+	UserID       uint   `gorm:"column:id;primaryKey"`
+	Username     string `gorm:"column:username"`
+	NameTh       string `gorm:"column:name_th"`
+	NameEn       string `gorm:"column:name_en"`
+	CompanyID    uint   `gorm:"column:company_id"`
+	DepartmentID uint   `gorm:"column:department_id"`
+	SectionID    uint   `gorm:"column:section_id"`
+	PositionID   uint   `gorm:"column:position_id"`
+}
+
+func (CentralUser) TableName() string { return "users" }
+
+type UserResponse struct {
+	ID           string   `json:"id"`
+	Username     string   `json:"username"`
+	NameTh       string   `json:"name_th"`
+	NameEn       string   `json:"name_en"`
+	CompanyID    uint     `json:"company_id"`
+	DepartmentID uint     `json:"department_id"`
+	SectionID    uint     `json:"section_id"`
+	PositionID   uint     `json:"position_id"`
+	Roles        []string `json:"roles"`
+}

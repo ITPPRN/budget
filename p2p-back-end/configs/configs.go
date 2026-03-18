@@ -3,7 +3,7 @@ package configs
 type CfgKey string
 
 const (
-	JWTKey           CfgKey = "JWT_SECRET_KEY"
+	InternalSecret   CfgKey = "INTERNAL_SECRET"
 	FiberPort        CfgKey = "APP_PORT"
 	FiberMode        CfgKey = "APP_MODE"
 	RedisHost        CfgKey = "REDIS_HOST"
@@ -23,7 +23,11 @@ const (
 	RealmName        CfgKey = "KC_REALM_NAME"
 	AdminUsername    CfgKey = "KC_ADMIN_USER"
 	AdminPassword    CfgKey = "KC_ADMIN_PASS"
-	RabbitMQURL      CfgKey = "RABBITMQ_URL"
+	RabbitMqHost     CfgKey = "RQ_HOST"
+	RabbitMqPort     CfgKey = "RQ_PORT"
+	RabbitMqUsername CfgKey = "RQ_USER"
+	RabbitMqPassword CfgKey = "RQ_PASS"
+	RabbitMqVHost    CfgKey = "RQ_VHOST"
 )
 
 type Config struct {
@@ -36,15 +40,16 @@ type Config struct {
 }
 
 type Fiber struct {
-	Port string
-	Mode string
+	Port           string
+	Mode           string
+	InternalSecret string
 }
 
 type PostgresSql struct {
 	Host         string
 	Port         string
 	Username     string
-	Password     string
+	Password     string `json:"-"`
 	DatabaseName string
 	SslMode      string
 	Schema       string
@@ -53,20 +58,25 @@ type PostgresSql struct {
 type Redis struct {
 	Host     string
 	Port     string
-	Password string
+	Password string `json:"-"`
 }
 
 type KeyCloak struct {
 	Host          string
 	Port          string
+	RealmName     string
 	ClientID      string
 	ClientSecret  string
-	RealmName     string
 	AdminUsername string
 	AdminPassword string
-	// PublicKey     string
+	PublicKey     string // Used for manual key management if needed
 }
 
 type RabbitMQ struct {
-	URL string
+	Host     string
+	Port     string
+	Username string
+	Password string `json:"-"`
+	VHost    string
+	URL      string // Keep for compatibility if needed, though senior uses granular
 }

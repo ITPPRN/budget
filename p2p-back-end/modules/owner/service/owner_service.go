@@ -1,6 +1,8 @@
 package service
 
 import (
+	"context"
+	"fmt"
 	"strings"
 
 	"p2p-back-end/logs"
@@ -17,10 +19,10 @@ func NewOwnerService(repo models.OwnerRepository, authSrv models.AuthService, ca
 	return &ownerService{repo: repo, authSrv: authSrv, capexSrv: capexSrv}
 }
 
-func (s *ownerService) GetDashboardSummary(user *models.UserInfo, filter map[string]interface{}) (*models.OwnerDashboardSummaryDTO, error) {
-	logs.Infof("[DEBUG] OwnerService: GetDashboardSummary START for User=%s", user.UserName)
+func (s *ownerService) GetDashboardSummary(ctx context.Context, user *models.UserInfo, filter map[string]interface{}) (*models.OwnerDashboardSummaryDTO, error) {
+	logs.Infof("[DEBUG] OwnerService: GetDashboardSummary START for User=%s", user.Username)
 
-	filter = s.injectPermissions(user, filter)
+	filter = s.injectPermissions(ctx, user, filter)
 
 	// 🛠️ Key Mapping: Frontend Owner uses 'conso_gls', Backend Repo uses 'budget_gls'
 	if gls, ok := filter["conso_gls"]; ok {
@@ -28,10 +30,10 @@ func (s *ownerService) GetDashboardSummary(user *models.UserInfo, filter map[str
 	}
 
 	// 1. Fetch PL Summary from own OwnerRepository (Pure SRP)
-	summary, err := s.repo.GetDashboardAggregates(filter)
+	summary, err := s.repo.GetDashboardAggregates(ctx, filter)
 	if err != nil {
 		logs.Errorf("[ERROR] OwnerService: DashboardSummary Failed: %v", err)
-		return nil, err
+		return nil, fmt.Errorf("ownerSrv.GetDashboardSummary: %w", err)
 	}
 
 	// 🛠️ Special Logic: CAPEX Section (Both Budget & Actual) ignores the 'year' filter
@@ -42,13 +44,12 @@ func (s *ownerService) GetDashboardSummary(user *models.UserInfo, filter map[str
 	}
 	capexFilter["year"] = "All"
 
-	capexSummary, err := s.capexSrv.GetCapexDashboardSummary(capexFilter)
+	capexSummary, err := s.capexSrv.GetCapexDashboardSummary(ctx, capexFilter)
 	capexBudget := 0.0
 	capexActual := 0.0
 	if err == nil && capexSummary != nil {
 		capexBudget = capexSummary.TotalBudget
 		capexActual = capexSummary.TotalActual
-		logs.Infof("[DEBUG] OwnerService: Static CAPEX (Project-Wide) Budget=%.2f, Actual=%.2f", capexBudget, capexActual)
 	}
 
 	logs.Infof("[DEBUG] OwnerService: Result - Budget=%.2f, Actual=%.2f, DeptsCount=%d", summary.TotalBudget, summary.TotalActual, len(summary.DepartmentData))
@@ -60,28 +61,28 @@ func (s *ownerService) GetDashboardSummary(user *models.UserInfo, filter map[str
 	}, nil
 }
 
-func (s *ownerService) GetActualTransactions(user *models.UserInfo, filter map[string]interface{}) (*models.PaginatedActualTransactionDTO, error) {
-	filter = s.injectPermissions(user, filter)
-	return s.repo.GetActualTransactions(filter)
+func (s *ownerService) GetActualTransactions(ctx context.Context, user *models.UserInfo, filter map[string]interface{}) (*models.PaginatedActualTransactionDTO, error) {
+	filter = s.injectPermissions(ctx, user, filter)
+	return s.repo.GetActualTransactions(ctx, filter)
 }
 
-func (s *ownerService) GetActualDetails(user *models.UserInfo, filter map[string]interface{}) ([]models.ActualFactEntity, error) {
-	filter = s.injectPermissions(user, filter)
-	return s.repo.GetActualDetails(filter)
+func (s *ownerService) GetActualDetails(ctx context.Context, user *models.UserInfo, filter map[string]interface{}) ([]models.ActualFactEntity, error) {
+	filter = s.injectPermissions(ctx, user, filter)
+	return s.repo.GetActualDetails(ctx, filter)
 }
 
-func (s *ownerService) GetBudgetDetails(user *models.UserInfo, filter map[string]interface{}) ([]models.BudgetFactEntity, error) {
-	filter = s.injectPermissions(user, filter)
-	return s.repo.GetBudgetDetails(filter)
+func (s *ownerService) GetBudgetDetails(ctx context.Context, user *models.UserInfo, filter map[string]interface{}) ([]models.BudgetFactEntity, error) {
+	filter = s.injectPermissions(ctx, user, filter)
+	return s.repo.GetBudgetDetails(ctx, filter)
 }
 
-func (s *ownerService) GetFilterOptions(user *models.UserInfo) (interface{}, error) {
-	filter := s.injectPermissions(user, nil)
+func (s *ownerService) GetFilterOptions(ctx context.Context, user *models.UserInfo) (interface{}, error) {
+	filter := s.injectPermissions(ctx, user, nil)
 	allowedDepts, _ := filter["departments"].([]string)
 
-	allFacts, err := s.repo.GetBudgetFilterOptions()
+	allFacts, err := s.repo.GetBudgetFilterOptions(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ownerSrv.GetFilterOptions: %w", err)
 	}
 
 	isAdmin := false
@@ -108,13 +109,13 @@ func (s *ownerService) GetFilterOptions(user *models.UserInfo) (interface{}, err
 	return filtered, nil
 }
 
-func (s *ownerService) GetOrganizationStructure(user *models.UserInfo) ([]models.OrganizationDTO, error) {
-	filter := s.injectPermissions(user, nil)
+func (s *ownerService) GetOrganizationStructure(ctx context.Context, user *models.UserInfo) ([]models.OrganizationDTO, error) {
+	filter := s.injectPermissions(ctx, user, nil)
 	allowedDepts, _ := filter["departments"].([]string)
 
-	facts, err := s.repo.GetOrganizationStructure()
+	facts, err := s.repo.GetOrganizationStructure(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ownerSrv.GetOrganizationStructure: %w", err)
 	}
 
 	isAdmin := false
@@ -181,10 +182,10 @@ func (s *ownerService) GetOrganizationStructure(user *models.UserInfo) ([]models
 	return results, nil
 }
 
-func (s *ownerService) GetOwnerFilterLists(user *models.UserInfo) (*models.OwnerFilterListsDTO, error) {
-	years, err := s.repo.GetActualYears()
+func (s *ownerService) GetOwnerFilterLists(ctx context.Context, user *models.UserInfo) (*models.OwnerFilterListsDTO, error) {
+	years, err := s.repo.GetActualYears(ctx)
 	if err != nil {
-		logs.Errorf("[ERROR] OwnerService: GetOwnerFilterLists Failed: %v", err)
+		return nil, fmt.Errorf("ownerSrv.GetOwnerFilterLists: %w", err)
 	}
 	return &models.OwnerFilterListsDTO{
 		Companies: []string{"HMW", "ACG", "CLIK"},
@@ -193,18 +194,18 @@ func (s *ownerService) GetOwnerFilterLists(user *models.UserInfo) (*models.Owner
 	}, nil
 }
 
-func (s *ownerService) GetActualYears(user *models.UserInfo) ([]string, error) {
-	return s.repo.GetActualYears()
+func (s *ownerService) GetActualYears(ctx context.Context, user *models.UserInfo) ([]string, error) {
+	return s.repo.GetActualYears(ctx)
 }
 
-func (s *ownerService) injectPermissions(user *models.UserInfo, filter map[string]interface{}) map[string]interface{} {
+func (s *ownerService) injectPermissions(ctx context.Context, user *models.UserInfo, filter map[string]interface{}) map[string]interface{} {
 	if filter == nil {
 		filter = make(map[string]interface{})
 	}
 
 	// 🛡️ Proactively Fetch User Permissions if missing from context
-	if len(user.Permissions) == 0 && user.UserId != "" {
-		dbPerms, err := s.authSrv.GetUserPermissions(user.UserId)
+	if len(user.Permissions) == 0 && user.ID != "" {
+		dbPerms, err := s.authSrv.GetUserPermissions(ctx, user.ID)
 		if err == nil {
 			user.Permissions = dbPerms
 		}
@@ -225,14 +226,14 @@ func (s *ownerService) injectPermissions(user *models.UserInfo, filter map[strin
 	}
 
 	// Check 2: Username-based (safety fallback)
-	userNameLower := strings.ToLower(user.UserName)
+	userNameLower := strings.ToLower(user.Username)
 	if userNameLower == "admin" || userNameLower == "administrator" || strings.Contains(userNameLower, "admin") {
 		isAdmin = true
 	}
 
 	// 🛠️ Logic Refinement: If you are an Admin, you are NEVER restricted by specific owner permissions.
 	// This addresses the user's concern: only NON-ADMIN owners will be restricted by their permissions list.
-	logs.Infof("[DEBUG] injectPermissions: User=%s, Roles=%v, Final isAdmin=%v, permsCount=%d", user.UserName, roles, isAdmin, len(user.Permissions))
+	logs.Infof("[DEBUG] injectPermissions: User=%s, Roles=%v, Final isAdmin=%v, permsCount=%d", user.Username, roles, isAdmin, len(user.Permissions))
 
 	if !isAdmin {
 		// 🛠️ Construct allowed departments list
@@ -249,7 +250,7 @@ func (s *ownerService) injectPermissions(user *models.UserInfo, filter map[strin
 
 		if len(allowedDepts) == 0 {
 			// If not admin and NO permissions assigned, they should see NOTHING
-			logs.Warnf("[WARN] injectPermissions: User %s has no Department Permissions assigned!", user.UserName)
+			logs.Warnf("[WARN] injectPermissions: User %s has no Department Permissions assigned!", user.Username)
 			filter["departments"] = []string{"__RESTRICTED__"}
 		} else {
 			// If frontend already provided departments, intersect them with allowed ones
