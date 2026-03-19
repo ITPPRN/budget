@@ -2,10 +2,12 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
@@ -111,9 +113,9 @@ func (r *userRepositoryDB) GetAll(optional map[string]interface{}, ctx context.C
 		}
 		if field == "status" && value != nil && value != "ALL" {
 			if value == "ACTIVE" {
-				condition = condition.Where("EXISTS (SELECT 1 FROM user_permission_entities WHERE user_permission_entities.user_id = user_entities.id AND user_permission_entities.is_active = true)")
+				condition = condition.Where("(EXISTS (SELECT 1 FROM user_permission_entities WHERE user_permission_entities.user_id = user_entities.id AND user_permission_entities.is_active = true) OR COALESCE(user_entities.roles::text, '') ILIKE '%ADMIN%')")
 			} else if value == "INACTIVE" {
-				condition = condition.Where("NOT EXISTS (SELECT 1 FROM user_permission_entities WHERE user_permission_entities.user_id = user_entities.id AND user_permission_entities.is_active = true)")
+				condition = condition.Where("(NOT EXISTS (SELECT 1 FROM user_permission_entities WHERE user_permission_entities.user_id = user_entities.id AND user_permission_entities.is_active = true) AND COALESCE(user_entities.roles::text, '') NOT ILIKE '%ADMIN%')")
 			}
 			continue
 		}
@@ -195,16 +197,26 @@ func (r *userRepositoryDB) GetUserPermissions(ctx context.Context, userID string
 	return perms, nil
 }
 
-func (r *userRepositoryDB) SetUserPermissions(ctx context.Context, userID string, permissions []models.UserPermissionEntity) error {
+func (r *userRepositoryDB) UpdateUserPermissionsAndRoles(ctx context.Context, userID string, permissions []models.UserPermissionEntity, roles []string) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// 1. Delete old
-		if err := tx.Where("user_id = ?", userID).Delete(&models.UserPermissionEntity{}).Error; err != nil {
-			return fmt.Errorf("userRepo.SetUserPermissions (delete): %w", err)
+		// 1. Update Roles
+		rolesJSON, err := json.Marshal(roles)
+		if err != nil {
+			return err
 		}
-		// 2. Add new (if any)
+		if err := tx.Model(&models.UserEntity{}).Where("id = ?", userID).Update("roles", datatypes.JSON(rolesJSON)).Error; err != nil {
+			return err
+		}
+
+		// 2. Delete old permissions
+		if err := tx.Where("user_id = ?", userID).Delete(&models.UserPermissionEntity{}).Error; err != nil {
+			return err
+		}
+
+		// 3. Add new permissions (if any)
 		if len(permissions) > 0 {
 			if err := tx.Create(&permissions).Error; err != nil {
-				return fmt.Errorf("userRepo.SetUserPermissions (create): %w", err)
+				return err
 			}
 		}
 		return nil
@@ -362,3 +374,24 @@ func (r *userRepositoryDB) UpdateUserID(ctx context.Context, oldID, newID string
 		return nil
 	})
 }
+
+func (r *userRepositoryDB) UpdateUserRoles(ctx context.Context, userID string, roles []string) error {
+	logs.Infof("[Repo] UpdateUserRoles: UserID=%s, Roles=%v", userID, roles)
+	rolesJSON, err := json.Marshal(roles)
+	if err != nil {
+		logs.Errorf("[Repo] UpdateUserRoles Error Marshalling: %v", err)
+		return err
+	}
+
+	result := r.db.WithContext(ctx).Model(&models.UserEntity{}).
+		Where("id = ?", userID).
+		Update("roles", datatypes.JSON(rolesJSON))
+
+	if result.Error != nil {
+		logs.Errorf("[Repo] UpdateUserRoles DB Error: %v", result.Error)
+		return result.Error
+	}
+	logs.Infof("[Repo] UpdateUserRoles Success: RowsAffected=%d", result.RowsAffected)
+	return nil
+}
+

@@ -28,8 +28,9 @@ export const AuthProvider = ({ children }) => {
       if (hasAccess) {
         setUser(userData);
       } else {
-        console.warn("AuthProvider: User has no privileged roles. Not setting global state.");
-        // We DON'T set user here, so app stays on Login page (isLoggedIn = false)
+        console.warn("AuthProvider: User has no privileged roles. Automatical Logout.");
+        setUser(null);
+        navigate("/login");
       }
 
       return userData; // Always return data so Login.jsx can check it

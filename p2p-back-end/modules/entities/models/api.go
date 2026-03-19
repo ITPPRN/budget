@@ -51,6 +51,11 @@ type UserPermissionInfo struct {
 	IsActive       bool   `json:"is_active"`
 }
 
+type UpdatePermissionsReq struct {
+	Permissions []UserPermissionInfo `json:"permissions"`
+	Roles       []string             `json:"roles"`
+}
+
 type ResponseError struct {
 	Message    string `json:"message"`
 	Status     string `json:"status"`

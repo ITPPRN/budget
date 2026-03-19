@@ -31,6 +31,7 @@ const UserManagePage = () => {
   const [filterDepartments, setFilterDepartments] = useState([]);
   const [allDepartments, setAllDepartments] = useState([]);
   const [permissions, setPermissions] = useState([]); // List of perms for selected user
+  const [isSystemAdmin, setIsSystemAdmin] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   // Fetch users
@@ -38,9 +39,9 @@ const UserManagePage = () => {
     setLoading(true);
     try {
       const response = await api.get('/auth/admin/users', {
-        params: { 
-          page, 
-          size: pageSize, 
+        params: {
+          page,
+          size: pageSize,
           search: search,
           status: statusFilter,
           department_code: deptFilter,
@@ -91,7 +92,9 @@ const UserManagePage = () => {
 
   const handleOpenModal = async (user) => {
     setSelectedUser(user);
+    console.log('[UserManage] Opening Modal for User:', user);
     setPermissions([]); // Clear stale data first
+    setIsSystemAdmin(user.roles?.some(r => r.toUpperCase() === 'ADMIN') || false);
     setOpenModal(true);
     try {
       const response = await api.get(`/auth/manage/users/${user.id}/permissions`);
@@ -109,6 +112,15 @@ const UserManagePage = () => {
   };
 
   const updatePermission = (deptCode, fieldUpdates) => {
+    // Validation: Symmetric Mutual Exclusion
+    if (fieldUpdates.is_active === true || fieldUpdates.role === 'OWNER') {
+      const targetRole = fieldUpdates.role || permissions.find(p => p.department_code === deptCode)?.role;
+      if (targetRole === 'OWNER' && isSystemAdmin) {
+        toast.warning('ไม่สามารถเปิดสิทธิ Owner ได้เนื่องจากคนนี้มีสิทธิ Admin อยู่');
+        return;
+      }
+    }
+
     setPermissions(prev => {
       const existing = prev.find(p => p.department_code === deptCode);
       if (existing) {
@@ -118,14 +130,40 @@ const UserManagePage = () => {
     });
   };
 
+  const handleToggleSystemAdmin = (checked) => {
+    if (checked) {
+      // Check if user has any OWNER permissions
+      const hasOwner = permissions.some(p => p.is_active && p.role === 'OWNER');
+      if (hasOwner) {
+        toast.warning('ไม่สามารถเปิดสิทธิแอดมินได้เนื่องจากคนนี้มีสิทธิ Owner อยู่');
+        return;
+      }
+    }
+    setIsSystemAdmin(checked);
+  };
+
   const handleSavePermissions = async () => {
     if (!selectedUser) return;
     setIsSaving(true);
     try {
       // Filter out permissions that have no role selected
       const finalPermissions = permissions.filter(p => p.role && p.role !== '');
-      await api.put(`/auth/manage/users/${selectedUser.id}/permissions`, finalPermissions);
-      toast.success('บันทึกสิทธิ์เรียบร้อยแล้ว');
+      
+      // Handle Global Roles
+      // Global Roles: Only keep System Roles (ADMIN). 
+      // OWNER/DELEGATE should come from user_permission_entities only.
+      let newRoles = [];
+      if (isSystemAdmin) {
+        newRoles.push('ADMIN');
+      }
+
+      console.log('[UserManage] Saving Permissions for UserID:', selectedUser.id, { permissions: finalPermissions, roles: newRoles });
+      await api.put(`/auth/manage/users/${selectedUser.id}/permissions`, {
+        permissions: finalPermissions,
+        roles: newRoles
+      });
+
+      toast.success('บันทึกสิทธิ์และบทบาทเรียบร้อยแล้ว');
       handleCloseModal();
       fetchUsers(); // Refresh list to update status
     } catch (error) {
@@ -137,9 +175,10 @@ const UserManagePage = () => {
   };
 
   const getStatusChip = (user) => {
+    const hasAdmin = user.roles?.some(r => r.toUpperCase() === 'ADMIN') || false;
     const hasActivePerm = user.permissions?.some(p => p.is_active) || false;
 
-    if (hasActivePerm) {
+    if (hasAdmin || hasActivePerm) {
       return (
         <Chip
           label="มีสิทธิ์เข้าถึง"
@@ -189,7 +228,8 @@ const UserManagePage = () => {
   let canModifyModal = false;
   if (!isDelegate && selectedUser) {
     if (currentUserRole === 'ADMIN') {
-      canModifyModal = isTargetOwner || (!isTargetAdmin && !isTargetDelegate);
+      // Admin can manage anyone except themselves
+      canModifyModal = selectedUser.id !== currentUser?.id;
     } else if (currentUserRole === 'OWNER') {
       canModifyModal = isTargetDelegate || (!isTargetAdmin && !isTargetOwner);
     }
@@ -280,7 +320,7 @@ const UserManagePage = () => {
             <Button
               variant="outlined"
               fullWidth
-              onClick={() => { 
+              onClick={() => {
                 setSearch('');
                 setStatusFilter('ALL');
                 setDeptFilter('ALL');
@@ -326,8 +366,8 @@ const UserManagePage = () => {
                 <TableCell>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     {(() => {
-                      const isTargetAdmin = user.roles?.some(r => r.toUpperCase() === 'ADMIN') ||
-                        user.permissions?.some(p => p.is_active && p.role?.toUpperCase() === 'ADMIN');
+                      const isTargetAdmin = (user.roles?.some(r => r.toUpperCase() === 'ADMIN')) ||
+                        (user.permissions?.some(p => p.is_active && p.role?.toUpperCase() === 'ADMIN'));
                       const isTargetOwner = user.roles?.some(r => r.toUpperCase() === 'OWNER') ||
                         user.permissions?.some(p => p.is_active && p.role?.toUpperCase() === 'OWNER');
                       const isTargetDelegate = (user.roles?.some(r => r.toUpperCase() === 'DELEGATE')) ||
@@ -337,14 +377,14 @@ const UserManagePage = () => {
                       // Hierarchical Rules:
                       // 1. Delegates can NEVER manage anyone.
                       // 2. Self cannot be managed.
-                      // 3. Admin: Can manage Owners and Regular Users. CANNOT manage Delegates or other Admins.
+                      // 3. Admin: Can manage anyone except themselves.
                       // 4. Owner: Can manage Delegates and Regular Users. CANNOT manage Admins or other Owners.
 
                       let canManage = false;
                       if (!isSelf && !isDelegate) {
                         if (currentUserRole === 'ADMIN') {
-                          // Admin manages Owners and Users (who have no special role yet)
-                          canManage = isTargetOwner || (!isTargetAdmin && !isTargetDelegate);
+                          // RELAXED: Admin can manage anyone except themselves
+                          canManage = !isSelf;
                         } else if (currentUserRole === 'OWNER') {
                           // Owner manages Delegates and Users
                           canManage = isTargetDelegate || (!isTargetAdmin && !isTargetOwner);
@@ -357,7 +397,7 @@ const UserManagePage = () => {
                         <>
                           <Typography variant="caption" sx={{ color: shouldDisable ? '#cbd5e1' : '#94a3b8' }}>จัดการ</Typography>
                           <Switch
-                            checked={user.permissions?.some(p => p.is_active) || false}
+                            checked={isTargetAdmin || (user.permissions?.some(p => p.is_active) || false)}
                             color="primary"
                             onClick={() => !shouldDisable && handleOpenModal(user)}
                             disabled={shouldDisable}
@@ -471,8 +511,20 @@ const UserManagePage = () => {
           <IconButton onClick={handleCloseModal} sx={{ color: 'white' }}><CloseIcon /></IconButton>
         </DialogTitle>
         <DialogContent sx={{ p: 0 }}>
-          <Box sx={{ p: 2, bgcolor: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+          <Box sx={{ p: 2, bgcolor: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Typography variant="body2" sx={{ color: '#64748b', fontWeight: 500 }}>กําหนดสิทธิ์การเข้าถึงข้อมูลรายแผนกและบทบาทหน้าที่</Typography>
+            {currentUserRole === 'ADMIN' && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, bgcolor: '#fff', px: 2, py: 0.5, borderRadius: '20px', border: '1px solid #e2e8f0', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+                <Typography variant="body2" sx={{ fontWeight: 700, color: isSystemAdmin ? '#4e73df' : '#64748b', fontSize: '12px' }}>System Admin</Typography>
+                <Switch 
+                  checked={isSystemAdmin} 
+                  onChange={(e) => handleToggleSystemAdmin(e.target.checked)}
+                  color="primary"
+                  size="small"
+                  disabled={selectedUser?.id === currentUser?.id}
+                />
+              </Box>
+            )}
           </Box>
           <TableContainer sx={{ maxHeight: 400 }}>
             <Table stickyHeader size="small">

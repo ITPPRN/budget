@@ -28,9 +28,8 @@ type authService struct {
 func filterRoles(roles []string) []string {
 	var filtered []string
 	validRoles := map[string]bool{
-		"ADMIN":    true,
-		"OWNER":    true,
-		"DELEGATE": true,
+		"ADMIN":       true,
+		"SUPER_ADMIN": true,
 	}
 
 	for _, r := range roles {
@@ -125,19 +124,19 @@ func (s *authService) Login(ctx context.Context, req *models.LoginReq) (*gocloak
 				}
 			}
 
-			rolesJSON, _ := json.Marshal(filterRoles(rolesList))
-
 			existingUserPtr, _ := s.authRepo.GetUserContext(ctx, userID)
 			if existingUserPtr == nil {
 				// Fallback: Check if user exists by username (synced users have random UUID but correct username)
 				existingUserPtr, _ = s.authRepo.FindByUsername(ctx, username)
-				if existingUserPtr != nil {
-					logs.Infof("[Login] Unifying user: %s, Current ID: %s -> New ID: %s", username, existingUserPtr.ID, userID)
-					// We will update the primary key ID to match Keycloak for future consistency
-					// Note: GORM update primary key might be tricky, let's use raw SQL if needed,
-					// or just update other fields and then we use 'userID' in userData
-				}
 			}
+
+			// Merge existing local roles (Admin/Owner/Delegate) with Keycloak roles
+			if existingUserPtr != nil {
+				var existingRoles []string
+				json.Unmarshal(existingUserPtr.Roles, &existingRoles)
+				rolesList = append(rolesList, existingRoles...)
+			}
+			rolesJSON, _ := json.Marshal(filterRoles(rolesList))
 
 			// Prepare update data
 			userData := &models.UserEntity{
@@ -287,6 +286,7 @@ func (s *authService) listUsersBase(ctx context.Context, optional map[string]int
 	for i, u := range users {
 		var roles []string
 		json.Unmarshal(u.Roles, &roles)
+		logs.Debugf("[Service] User: %s, Raw DB Roles: %v, Permissions Count: %d", u.Username, roles, len(u.UserPermissions))
 		roles = filterRoles(roles)
 
 		infos[i] = models.UserInfo{
@@ -358,7 +358,8 @@ func mergeActiveRoles(currentRoles []string, perms []models.UserPermissionInfo) 
 	return currentRoles
 }
 
-func (s *authService) UpdateUserPermissions(ctx context.Context, userID string, perms []models.UserPermissionInfo) error {
+func (s *authService) UpdateUserPermissions(ctx context.Context, userID string, perms []models.UserPermissionInfo, roles []string) error {
+	// Update Department Permissions Entities
 	entities := make([]models.UserPermissionEntity, len(perms))
 	for i, p := range perms {
 		isActive := p.IsActive // Local copy to take address of
@@ -370,7 +371,7 @@ func (s *authService) UpdateUserPermissions(ctx context.Context, userID string, 
 		}
 	}
 
-	return s.authRepo.SetUserPermissions(ctx, userID, entities)
+	return s.authRepo.UpdateUserPermissionsAndRoles(ctx, userID, entities, roles)
 }
 func (s *authService) ListDepartments(ctx context.Context, mappedOnly bool, user *models.UserInfo) ([]models.Departments, error) {
 	var depts []models.Departments

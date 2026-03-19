@@ -339,15 +339,12 @@ func (h *authController) setUserPermissions(ctx *fiber.Ctx, user *models.UserInf
 	if targetProfile != nil {
 		isTargetAdmin := false
 		isTargetOwner := false
-		isTargetDelegate := false
 		for _, r := range targetProfile.Roles {
 			upperR := strings.ToUpper(r)
 			if upperR == "ADMIN" {
 				isTargetAdmin = true
 			} else if upperR == "OWNER" {
 				isTargetOwner = true
-			} else if upperR == "DELEGATE" {
-				isTargetDelegate = true
 			}
 		}
 
@@ -356,25 +353,31 @@ func (h *authController) setUserPermissions(ctx *fiber.Ctx, user *models.UserInf
 				return forbiddenErrResponse(ctx, "Owners are not allowed to modify permissions for other Owners or Admins.")
 			}
 		} else if actorIsAdmin {
-			if isTargetAdmin && user.ID != userID {
-				return forbiddenErrResponse(ctx, "Admins are not allowed to modify permissions for other Admins.")
+			// RELAXED: Admin can manage other Admins (except themselves)
+			// This addresses the user's request: "แอดมินก็สามารถปิดสิทธิแอดมินกันเองได้"
+			if user.ID == userID {
+				return forbiddenErrResponse(ctx, "You cannot modify your own administrative permissions.")
 			}
-			if isTargetDelegate {
-				return forbiddenErrResponse(ctx, "Admins are not allowed to manage Delegates (Owners manage them).")
-			}
+			// Note: Admins can now manage Delegates (since they have full control)
 		}
 	}
 
-	var req []models.UserPermissionInfo
+	var req models.UpdatePermissionsReq
 	if err := ctx.BodyParser(&req); err != nil {
-		return badReqErrResponse(ctx, "Invalid permissions format")
+		// Fallback for old/array-based requests (compatible with existing code during transition)
+		var oldReq []models.UserPermissionInfo
+		if err2 := ctx.BodyParser(&oldReq); err2 == nil {
+			req.Permissions = oldReq
+		} else {
+			return badReqErrResponse(ctx, "Invalid permissions format")
+		}
 	}
 
-	err := h.authSrv.UpdateUserPermissions(ctx.Context(), userID, req)
+	err := h.authSrv.UpdateUserPermissions(ctx.Context(), userID, req.Permissions, req.Roles)
 	if err != nil {
 		return responseWithError(ctx, err)
 	}
-	return responseSuccess(ctx, "Permissions updated successfully")
+	return responseSuccess(ctx, "Permissions and roles updated successfully")
 }
 
 func (h *authController) listDepartments(ctx *fiber.Ctx, user *models.UserInfo) error {

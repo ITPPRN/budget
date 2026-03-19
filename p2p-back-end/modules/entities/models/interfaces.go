@@ -24,7 +24,7 @@ type AuthService interface {
 	ListUsersForAdmin(ctx context.Context, optional map[string]interface{}, page, size int) ([]UserInfo, int, error)
 	ListUsersForManagement(ctx context.Context, optional map[string]interface{}, page, size int) ([]UserInfo, int, error)
 	GetUserPermissions(ctx context.Context, userID string) ([]UserPermissionInfo, error)
-	UpdateUserPermissions(ctx context.Context, userID string, perms []UserPermissionInfo) error
+	UpdateUserPermissions(ctx context.Context, userID string, perms []UserPermissionInfo, roles []string) error
 	ListDepartments(ctx context.Context, mappedOnly bool, user *UserInfo) ([]Departments, error)
 }
 
@@ -35,7 +35,8 @@ type UserRepository interface {
 	UpdateUser(ctx context.Context, user *UserEntity) error
 	GetUserContext(ctx context.Context, userID string) (*UserEntity, error)
 	GetUserPermissions(ctx context.Context, userID string) ([]UserPermissionEntity, error)
-	SetUserPermissions(ctx context.Context, userID string, permissions []UserPermissionEntity) error
+	UpdateUserPermissionsAndRoles(ctx context.Context, userID string, permissions []UserPermissionEntity, roles []string) error
+	UpdateUserID(ctx context.Context, oldID, newID string) error
 	ListDepartments(ctx context.Context) ([]Departments, error)
 	ListMasterDepartments(ctx context.Context) ([]DepartmentEntity, error)
 	GetDepartmentByCode(ctx context.Context, code string) (*DepartmentEntity, error)
@@ -43,7 +44,6 @@ type UserRepository interface {
 	FindByUsername(ctx context.Context, username string) (*UserEntity, error)
 	SyncUsers(ctx context.Context, users []UserEntity) ([]UserEntity, error)
 	GetUsers(ctx context.Context, lastID uint, limit int) ([]UserEntity, error)
-	UpdateUserID(ctx context.Context, oldID, newID string) error
 }
 
 type SourceUserRepository interface {

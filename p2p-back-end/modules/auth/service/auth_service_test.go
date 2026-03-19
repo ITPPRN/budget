@@ -54,8 +54,13 @@ func (m *MockUserRepository) GetUserPermissions(ctx context.Context, userID stri
 	return args.Get(0).([]models.UserPermissionEntity), args.Error(1)
 }
 
-func (m *MockUserRepository) SetUserPermissions(ctx context.Context, userID string, perms []models.UserPermissionEntity) error {
-	args := m.Called(ctx, userID, perms)
+func (m *MockUserRepository) UpdateUserPermissionsAndRoles(ctx context.Context, userID string, permissions []models.UserPermissionEntity, roles []string) error {
+	args := m.Called(ctx, userID, permissions, roles)
+	return args.Error(0)
+}
+
+func (m *MockUserRepository) UpdateUserID(ctx context.Context, oldID, newID string) error {
+	args := m.Called(ctx, oldID, newID)
 	return args.Error(0)
 }
 
@@ -63,6 +68,7 @@ func (m *MockUserRepository) ListDepartments(ctx context.Context) ([]models.Depa
 	args := m.Called(ctx)
 	return args.Get(0).([]models.Departments), args.Error(1)
 }
+
 
 func (m *MockUserRepository) GetDepartmentByNavCode(ctx context.Context, navCode string) (*models.DepartmentEntity, error) {
 	args := m.Called(ctx, navCode)
@@ -96,11 +102,6 @@ func (m *MockUserRepository) ListMasterDepartments(ctx context.Context) ([]model
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]models.DepartmentEntity), args.Error(1)
-}
-
-func (m *MockUserRepository) UpdateUserID(ctx context.Context, oldID, newID string) error {
-	args := m.Called(ctx, oldID, newID)
-	return args.Error(0)
 }
 
 func TestLogin_UserNotFound(t *testing.T) {
