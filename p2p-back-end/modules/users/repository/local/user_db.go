@@ -89,14 +89,10 @@ func (r *userRepositoryDB) GetAll(optional map[string]interface{}, ctx context.C
 		) AND (COALESCE(user_entities.roles::text, '') NOT ILIKE '%ADMIN%' AND COALESCE(user_entities.roles::text, '') NOT ILIKE '%OWNER%')`
 
 		if len(allowedDepts) > 0 {
-			if role == "OWNER" {
-				// Owner: See Self OR (Allowed Departments AND NOT OTHER Owner/Admin)
-				visibilityQuery += " OR (departments.code IN ? AND " + notOwnerOrAdmin + ")"
-				args = append(args, allowedDepts)
-			} else if role == "DELEGATE" {
-				// Delegate: See Self OR (Allowed Departments AND NOT (Admin OR Owner))
-				visibilityQuery += " OR (departments.code IN ? AND " + notOwnerOrAdmin + ")"
-				args = append(args, allowedDepts)
+			if role == "OWNER" || role == "DELEGATE" {
+				// See Self OR (Allowed Departments [Granular OR Master Mapping] AND NOT OTHER Owner/Admin)
+				visibilityQuery += " OR ((departments.code IN ? OR departments.code_map IN ?) AND " + notOwnerOrAdmin + ")"
+				args = append(args, allowedDepts, allowedDepts)
 			}
 		}
 		condition = condition.Where("("+visibilityQuery+")", args...)
