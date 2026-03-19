@@ -372,8 +372,27 @@ func (s *authService) UpdateUserPermissions(ctx context.Context, userID string, 
 
 	return s.authRepo.SetUserPermissions(ctx, userID, entities)
 }
-func (s *authService) ListDepartments(ctx context.Context, user *models.UserInfo) ([]models.DepartmentEntity, error) {
-	depts, err := s.authRepo.ListDepartments(ctx)
+func (s *authService) ListDepartments(ctx context.Context, mappedOnly bool, user *models.UserInfo) ([]models.Departments, error) {
+	var depts []models.Departments
+	var err error
+
+	if mappedOnly {
+		// Used for Filter Dropdown: Only show Master categories that have users/granular data
+		depts, err = s.authRepo.ListDepartments(ctx)
+	} else {
+		// Used for Access Control: Show ALL Master categories
+		var masterDepts []models.DepartmentEntity
+		masterDepts, err = s.authRepo.ListMasterDepartments(ctx)
+		if err == nil {
+			for _, md := range masterDepts {
+				depts = append(depts, models.Departments{
+					Code: md.Code,
+					Name: md.Name,
+				})
+			}
+		}
+	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -399,7 +418,7 @@ func (s *authService) ListDepartments(ctx context.Context, user *models.UserInfo
 		}
 	}
 
-	filtered := []models.DepartmentEntity{}
+	filtered := []models.Departments{}
 	for _, d := range depts {
 		if strings.EqualFold(d.Code, "None") {
 			continue

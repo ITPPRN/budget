@@ -62,6 +62,7 @@ type Departments struct {
 	CentralID uint           `gorm:"uniqueIndex" json:"central_id"`
 	Name      string         `json:"name"`
 	Code      string         `json:"code"`
+	CodeMap   *string        `gorm:"index" json:"code_map"`
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
@@ -75,6 +76,7 @@ type Sections struct {
 	Name         string         `json:"name"`
 	Code         string         `json:"code"`
 	DepartmentID *uuid.UUID     `gorm:"type:uuid;index" json:"department_id"`
+	Department   *Departments   `gorm:"foreignKey:DepartmentID" json:"department,omitempty"`
 	CreatedAt    time.Time      `json:"created_at"`
 	UpdatedAt    time.Time      `json:"updated_at"`
 	DeletedAt    gorm.DeletedAt `gorm:"index" json:"deleted_at"`

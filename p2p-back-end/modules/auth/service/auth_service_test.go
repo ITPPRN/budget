@@ -59,9 +59,9 @@ func (m *MockUserRepository) SetUserPermissions(ctx context.Context, userID stri
 	return args.Error(0)
 }
 
-func (m *MockUserRepository) ListDepartments(ctx context.Context) ([]models.DepartmentEntity, error) {
+func (m *MockUserRepository) ListDepartments(ctx context.Context) ([]models.Departments, error) {
 	args := m.Called(ctx)
-	return args.Get(0).([]models.DepartmentEntity), args.Error(1)
+	return args.Get(0).([]models.Departments), args.Error(1)
 }
 
 func (m *MockUserRepository) GetDepartmentByNavCode(ctx context.Context, navCode string) (*models.DepartmentEntity, error) {
@@ -88,6 +88,14 @@ func (m *MockUserRepository) SyncUsers(ctx context.Context, users []models.UserE
 func (m *MockUserRepository) GetUsers(ctx context.Context, lastID uint, limit int) ([]models.UserEntity, error) {
 	args := m.Called(ctx, lastID, limit)
 	return args.Get(0).([]models.UserEntity), args.Error(1)
+}
+
+func (m *MockUserRepository) ListMasterDepartments(ctx context.Context) ([]models.DepartmentEntity, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]models.DepartmentEntity), args.Error(1)
 }
 
 func (m *MockUserRepository) UpdateUserID(ctx context.Context, oldID, newID string) error {

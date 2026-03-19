@@ -25,7 +25,7 @@ type AuthService interface {
 	ListUsersForManagement(ctx context.Context, optional map[string]interface{}, page, size int) ([]UserInfo, int, error)
 	GetUserPermissions(ctx context.Context, userID string) ([]UserPermissionInfo, error)
 	UpdateUserPermissions(ctx context.Context, userID string, perms []UserPermissionInfo) error
-	ListDepartments(ctx context.Context, user *UserInfo) ([]DepartmentEntity, error)
+	ListDepartments(ctx context.Context, mappedOnly bool, user *UserInfo) ([]Departments, error)
 }
 
 type UserRepository interface {
@@ -36,7 +36,8 @@ type UserRepository interface {
 	GetUserContext(ctx context.Context, userID string) (*UserEntity, error)
 	GetUserPermissions(ctx context.Context, userID string) ([]UserPermissionEntity, error)
 	SetUserPermissions(ctx context.Context, userID string, permissions []UserPermissionEntity) error
-	ListDepartments(ctx context.Context) ([]DepartmentEntity, error)
+	ListDepartments(ctx context.Context) ([]Departments, error)
+	ListMasterDepartments(ctx context.Context) ([]DepartmentEntity, error)
 	GetDepartmentByCode(ctx context.Context, code string) (*DepartmentEntity, error)
 	GetDepartmentByNavCode(ctx context.Context, navCode string) (*DepartmentEntity, error)
 	FindByUsername(ctx context.Context, username string) (*UserEntity, error)

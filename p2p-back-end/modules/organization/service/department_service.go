@@ -189,62 +189,78 @@ func (s *departmentService) ManageDepartments(ctx context.Context) error {
 		}
 	}
 
-	// 5. Repair existing users with broken or missing department links
+	// 5. Populate CodeMap in the 'departments' table (Integrated Mapping)
+	var allGranularDepts []models.Departments
+	granularMap := make(map[string]models.Departments)
+	if err := s.repo.GetDB().Find(&allGranularDepts).Error; err == nil {
+		// Create a lookup map for faster processing: GranularCode -> MasterCode
+		granularToMaster := make(map[string]string)
+		for _, row := range data {
+			for _, c := range row.ACG {
+				granularToMaster[c] = row.Master
+			}
+			for _, c := range row.HMW {
+				granularToMaster[c] = row.Master
+			}
+			for _, c := range row.CLIK {
+				granularToMaster[c] = row.Master
+			}
+		}
+
+		logs.Infof("Updating CodeMap for %d granular departments...", len(allGranularDepts))
+		for _, gd := range allGranularDepts {
+			granularMap[gd.Code] = gd
+			if master, ok := granularToMaster[gd.Code]; ok {
+				if gd.CodeMap == nil || *gd.CodeMap != master {
+					s.repo.GetDB().Model(&gd).Update("code_map", master)
+				}
+			} else if gd.CodeMap != nil {
+				s.repo.GetDB().Model(&gd).Update("code_map", nil)
+			}
+		}
+	}
+
+	// 6. Repair existing users with broken or missing department links
+	// Now linking to the 'departments' table instead of 'department_entities'
 	var usersToFix []models.UserEntity
-	// Find users where department_id is NULL OR current link doesn't exist anymore
 	s.repo.GetDB().Table("user_entities").
-		Joins("LEFT JOIN department_entities ON department_entities.id = user_entities.department_id").
-		Where("user_entities.department_id IS NULL OR department_entities.id IS NULL").
+		Joins("LEFT JOIN departments ON departments.id = user_entities.department_id").
+		Where("user_entities.department_id IS NULL OR departments.id IS NULL").
 		Find(&usersToFix)
 
 	if len(usersToFix) > 0 {
 		logs.Infof("Repair: Checking %d users for missing or broken department links...", len(usersToFix))
 		for _, u := range usersToFix {
 			fixed := false
-			// 1. Try to Fix based on ACTIVE permissions
+			var targetDeptCode string
+
+			// 1. Try to get code from ACTIVE permissions
 			var perms []models.UserPermissionEntity
 			s.repo.GetDB().Where("user_id = ? AND is_active = true", u.ID).Find(&perms)
-
 			if len(perms) > 0 {
-				masterDept, err := s.GetMasterDepartment(ctx, perms[0].DepartmentCode, "ACG")
-				if err == nil && masterDept != nil {
-					logs.Infof("   -> Fixing user %s: Linking to Master [%s] %s (from Permission Path %s)", u.Username, masterDept.Code, masterDept.Name, perms[0].DepartmentCode)
-					s.repo.GetDB().Model(&u).Update("department_id", masterDept.ID)
+				targetDeptCode = perms[0].DepartmentCode
+			}
+
+			// 2. Fallback to Section -> Dept mapping if not found in perms
+			if targetDeptCode == "" && u.SectionID != nil {
+				var section models.Sections
+				if err := s.repo.GetDB().Preload("Department").Where("id = ?", u.SectionID).First(&section).Error; err == nil {
+					if section.Department != nil {
+						targetDeptCode = section.Department.Code
+					}
+				}
+			}
+
+			if targetDeptCode != "" {
+				if dept, ok := granularMap[targetDeptCode]; ok {
+					logs.Infof("   -> Fixing user %s: Linking to Granular Dept [%s] (ID: %s)", u.Username, dept.Code, dept.ID)
+					s.repo.GetDB().Model(&u).Update("department_id", dept.ID)
 					fixed = true
 				}
 			}
 
-			// 2. Try to Fix based on SectionID mapping if not fixed by permissions
-			if !fixed && u.SectionID != nil {
-				var section models.Sections
-				if err := s.repo.GetDB().Where("id = ?", u.SectionID).First(&section).Error; err == nil {
-					// 2.1 Only try to fetch Child Dept if ID is valid (!= nil)
-					if section.DepartmentID != nil {
-						var childDept models.Departments
-						if err := s.repo.GetDB().Where("id = ?", section.DepartmentID).First(&childDept).Error; err == nil {
-							masterDept, err := s.GetMasterDepartment(ctx, childDept.Code, "ACG")
-							if err == nil && masterDept != nil {
-								logs.Infof("   -> Fixing user %s: Linking to Master [%s] %s (from Section %s -> Dept %s)", u.Username, masterDept.Code, masterDept.Name, section.Code, childDept.Code)
-								s.repo.GetDB().Model(&u).Update("department_id", masterDept.ID)
-								fixed = true
-							} else {
-								logs.Warnf("   -> Repair Note: Found Section %s for user %s, but Dept code %s has no Master mapping.", section.Code, u.Username, childDept.Code)
-							}
-						} else {
-							logs.Warnf("   -> Repair Note: Found Section %s for user %s, but linked Department ID %d not found in local DB.", section.Code, u.Username, section.DepartmentID)
-						}
-					} else {
-						logs.Warnf("   -> Repair Note: Section %s assigned to user %s has DepartmentID=0 (Master Data Gap).", section.Code, u.Username)
-					}
-				} else {
-					logs.Warnf("   -> Repair Note: SectionID %d on user %s not found in local DB.", u.SectionID, u.Username)
-				}
-			}
-
 			if !fixed {
-				// We leave it as NULL as per user request.
-				// This allows us to identify users with missing mapping (shows as '-' in UI)
-				logs.Warnf("   -> Fix Failed: User %s (%s) has no valid Permission Path or Section/Dept mapping.", u.Username, u.NameTh)
+				logs.Warnf("   -> Fix Failed: User %s (%s) has no valid granular department match for code '%s'.", u.Username, u.NameTh, targetDeptCode)
 			}
 		}
 	}

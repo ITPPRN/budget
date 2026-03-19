@@ -28,7 +28,8 @@ const UserManagePage = () => {
   // Modal State
   const [openModal, setOpenModal] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
-  const [departments, setDepartments] = useState([]);
+  const [filterDepartments, setFilterDepartments] = useState([]);
+  const [allDepartments, setAllDepartments] = useState([]);
   const [permissions, setPermissions] = useState([]); // List of perms for selected user
   const [isSaving, setIsSaving] = useState(false);
 
@@ -69,18 +70,23 @@ const UserManagePage = () => {
     }
   };
 
-  // Fetch departments (for modal)
-  const fetchDepartments = async () => {
+  // Fetch departments (for filter and modal)
+  const fetchDepartmentsData = async () => {
     try {
-      const response = await api.get('/auth/manage/departments');
-      setDepartments(Array.isArray(response.data.data) ? response.data.data : []);
+      // 1. Fetch for Filter (Populated only)
+      const resFilter = await api.get('/auth/manage/departments', { params: { mapped_only: true } });
+      setFilterDepartments(Array.isArray(resFilter.data.data) ? resFilter.data.data : resFilter.data || []);
+
+      // 2. Fetch for Modal (All Master Categories)
+      const resAll = await api.get('/auth/manage/departments', { params: { mapped_only: false } });
+      setAllDepartments(Array.isArray(resAll.data.data) ? resAll.data.data : resAll.data || []);
     } catch (error) {
       console.error('Failed to fetch departments:', error);
     }
   };
 
   useEffect(() => {
-    fetchDepartments();
+    fetchDepartmentsData();
   }, []);
 
   const handleOpenModal = async (user) => {
@@ -245,8 +251,8 @@ const UserManagePage = () => {
               sx={{ borderRadius: '8px', bgcolor: '#f1f5f9', '& .MuiOutlinedInput-notchedOutline': { border: 'none' }, fontSize: '13px' }}
             >
               <MenuItem value="ALL">ทั้งหมด</MenuItem>
-              {departments.map(d => (
-                <MenuItem key={d.id} value={d.code}>{d.code}</MenuItem>
+              {filterDepartments.map(d => (
+                <MenuItem key={d.code} value={d.code}>{d.code}</MenuItem>
               ))}
             </Select>
           </Grid>
@@ -479,11 +485,11 @@ const UserManagePage = () => {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {departments.map((dept) => {
+                {allDepartments.map((dept) => {
                   const perm = permissions.find(p => p.department_code === dept.code);
                   const isActive = perm?.is_active || false;
                   return (
-                    <TableRow key={dept.id} hover>
+                    <TableRow key={dept.id || dept.code} hover>
                       <TableCell sx={{ fontWeight: 700, color: '#1e293b' }}>{dept.code}</TableCell>
                       <TableCell>
                         <Select

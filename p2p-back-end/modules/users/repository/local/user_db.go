@@ -34,14 +34,14 @@ func applyJoins(condition *gorm.DB, optional map[string]interface{}, fieldTableM
 	joined := false
 
 	// 1. Join for Filters (Search/Sort)
-	if utils.NeedsJoin(optional, fieldTableMapping, "department_entities") {
-		condition = condition.Joins("LEFT JOIN department_entities ON department_entities.id = user_entities.department_id")
+	if utils.NeedsJoin(optional, fieldTableMapping, "departments") {
+		condition = condition.Joins("LEFT JOIN departments ON departments.id = user_entities.department_id")
 		joined = true
 	}
 
 	// 2. Join for Visibility
 	if !joined && optional["visibility_allowed_depts"] != nil {
-		condition = condition.Joins("LEFT JOIN department_entities ON department_entities.id = user_entities.department_id")
+		condition = condition.Joins("LEFT JOIN departments ON departments.id = user_entities.department_id")
 		joined = true
 	}
 
@@ -55,9 +55,11 @@ func (r *userRepositoryDB) GetAll(optional map[string]interface{}, ctx context.C
 	fieldTableMapping := map[string]string{
 		"username":        "user_entities.username",
 		"email":           "user_entities.email",
-		"department_name": "department_entities.name",
-		"department_code": "department_entities.code",
+		"department_name": "departments.name",
+		"department_code": "departments.code",
 	}
+
+	logs.Infof("Repo GetAll: offset=%d, size=%d, optional=%+v", offset, size, optional)
 
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
@@ -89,11 +91,11 @@ func (r *userRepositoryDB) GetAll(optional map[string]interface{}, ctx context.C
 		if len(allowedDepts) > 0 {
 			if role == "OWNER" {
 				// Owner: See Self OR (Allowed Departments AND NOT OTHER Owner/Admin)
-				visibilityQuery += " OR (department_entities.code IN ? AND " + notOwnerOrAdmin + ")"
+				visibilityQuery += " OR (departments.code IN ? AND " + notOwnerOrAdmin + ")"
 				args = append(args, allowedDepts)
 			} else if role == "DELEGATE" {
 				// Delegate: See Self OR (Allowed Departments AND NOT (Admin OR Owner))
-				visibilityQuery += " OR (department_entities.code IN ? AND " + notOwnerOrAdmin + ")"
+				visibilityQuery += " OR (departments.code IN ? AND " + notOwnerOrAdmin + ")"
 				args = append(args, allowedDepts)
 			}
 		}
@@ -105,9 +107,9 @@ func (r *userRepositoryDB) GetAll(optional map[string]interface{}, ctx context.C
 		if strings.HasPrefix(field, "visibility_") {
 			continue // Skip internal visibility keys
 		}
-		if field == "search" && value != nil {
+		if field == "search" && value != nil && value != "" {
 			searchStr := fmt.Sprintf("%%%v%%", value)
-			condition = condition.Where("(username ILIKE ? OR first_name ILIKE ? OR last_name ILIKE ? OR name_th ILIKE ? OR name_en ILIKE ?)",
+			condition = condition.Where("(user_entities.username ILIKE ? OR user_entities.first_name ILIKE ? OR user_entities.last_name ILIKE ? OR user_entities.name_th ILIKE ? OR user_entities.name_en ILIKE ?)",
 				searchStr, searchStr, searchStr, searchStr, searchStr)
 			continue
 		}
@@ -125,12 +127,14 @@ func (r *userRepositoryDB) GetAll(optional map[string]interface{}, ctx context.C
 				"%"+roleStr+"%", "%"+roleStr+"%")
 			continue
 		}
-		if column, ok := fieldTableMapping[field]; ok && value != nil && value != "ALL" {
+		if field == "department_code" && value != nil && value != "ALL" {
+			condition = condition.Where("departments.code = ?", value)
+		} else if column, ok := fieldTableMapping[field]; ok && value != nil && value != "ALL" {
 			condition = utils.AddCondition(condition, value, column)
 		}
 	}
 
-	if err := condition.Count(&totalRecords64).Error; err != nil {
+	if err := condition.Session(&gorm.Session{}).Count(&totalRecords64).Error; err != nil {
 		return nil, 0, fmt.Errorf("error counting user entities: %w", err)
 	}
 
@@ -210,11 +214,35 @@ func (r *userRepositoryDB) SetUserPermissions(ctx context.Context, userID string
 		return nil
 	})
 }
-func (r *userRepositoryDB) ListDepartments(ctx context.Context) ([]models.DepartmentEntity, error) {
+func (r *userRepositoryDB) ListDepartments(ctx context.Context) ([]models.Departments, error) {
+	var results []string
+	err := r.db.WithContext(ctx).
+		Table("departments").
+		Where("EXISTS (SELECT 1 FROM user_entities WHERE user_entities.department_id = departments.id)").
+		Distinct("code").
+		Order("code asc").
+		Pluck("code", &results).Error
+
+	if err != nil {
+		return nil, fmt.Errorf("userRepo.ListDepartments (Pluck CodeMap): %w", err)
+	}
+
+	depts := make([]models.Departments, len(results))
+	for i, code := range results {
+		// Use CodeMap as both code and name for the dropdown to show Master Categories
+		depts[i] = models.Departments{
+			Code: code,
+			Name: code,
+		}
+	}
+	return depts, nil
+}
+
+func (r *userRepositoryDB) ListMasterDepartments(ctx context.Context) ([]models.DepartmentEntity, error) {
 	var depts []models.DepartmentEntity
 	err := r.db.WithContext(ctx).Order("code asc").Find(&depts).Error
 	if err != nil {
-		return nil, fmt.Errorf("userRepo.ListDepartments: %w", err)
+		return nil, fmt.Errorf("userRepo.ListMasterDepartments: %w", err)
 	}
 	return depts, nil
 }

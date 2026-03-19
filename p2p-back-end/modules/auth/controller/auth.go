@@ -378,7 +378,8 @@ func (h *authController) setUserPermissions(ctx *fiber.Ctx, user *models.UserInf
 }
 
 func (h *authController) listDepartments(ctx *fiber.Ctx, user *models.UserInfo) error {
-	depts, err := h.authSrv.ListDepartments(ctx.Context(), user)
+	mappedOnly := ctx.QueryBool("mapped_only", false)
+	depts, err := h.authSrv.ListDepartments(ctx.Context(), mappedOnly, user)
 	if err != nil {
 		return responseWithError(ctx, err)
 	}
