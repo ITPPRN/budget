@@ -211,32 +211,30 @@ const OwnerDashboardContent = () => {
         if (!selectedYear && selectedYear !== '') return;
         setDataLoading(true);
         try {
-            // Get the synced Actuals configuration from localStorage
-            let syncConfig = JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}');
-
-            // Fallback to Backend if localStorage is empty (Fixes "Budget = 0" issue)
-            if (!syncConfig.selectedBudget) {
-                try {
-                    const configRes = await api.get('/budgets/configs');
-                    const configs = configRes.data || {};
-                    
-                    // Map backend config keys to front-end expected keys
-                    syncConfig = {
-                        selectedBudget: configs.selectedBudget || configs.selected_budget || "",
-                        selectedCapexBg: configs.selectedCapexBg || configs.selected_capex_bg || "",
-                        selectedCapexActual: configs.selectedCapexActual || configs.selected_capex_actual || "",
-                        actualYear: configs.actualYear || configs.actual_year || "",
-                        selectedMonths: JSON.parse(configs.selectedMonths || configs.selected_months || '[]')
-                    };
-                    
-                    if (syncConfig.selectedBudget) {
-                        localStorage.setItem('dm_lastSyncedConfig', JSON.stringify(syncConfig));
-                    }
-                } catch (e) { console.error("Failed to fetch fallback configs", e); }
+            // 🛠️ FIX: Always fetch from Backend to guarantee true Global synchronization
+            let syncConfig = {};
+            try {
+                const configRes = await api.get('/budgets/configs');
+                const configs = configRes.data || {};
+                
+                // Map backend config keys to front-end expected keys
+                syncConfig = {
+                    selectedBudget: configs.selectedBudget || configs.selected_budget || "",
+                    selectedCapexBg: configs.selectedCapexBg || configs.selected_capex_bg || "",
+                    selectedCapexActual: configs.selectedCapexActual || configs.selected_capex_actual || "",
+                    actualYear: configs.actualYear || configs.actual_year || "",
+                    selectedMonths: JSON.parse(configs.selectedMonths || configs.selected_months || '[]')
+                };
+                
+            } catch (e) {
+                console.error("Failed to fetch global configs", e);
+                // Fallback to local storage ONLY if API fails
+                syncConfig = JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}');
             }
 
             const payload = {
-                year: selectedYear === 'All' ? "" : selectedYear.replace('FY', ''),
+                year: syncConfig.actualYear ? String(syncConfig.actualYear) : "",
+                months: Array.isArray(syncConfig.selectedMonths) ? syncConfig.selectedMonths : [],
                 entities: selectedCompany && selectedCompany !== 'All' ? [selectedCompany] : [],
                 branches: selectedBranch && selectedBranch !== 'All' ? [selectedBranch] : [],
                 departments: selectedDept && selectedDept !== 'All' ? [selectedDept] : [],
@@ -491,19 +489,7 @@ const OwnerDashboardContent = () => {
                                     </Select>
                                 </FormControl>
 
-                                {/* Year Filter (Owner specific but styling match) */}
-                                <FormControl size="small" sx={{ minWidth: 120, bgcolor: 'white', borderRadius: 1 }}>
-                                    <InputLabel>Year</InputLabel>
-                                    <Select
-                                        value={selectedYear}
-                                        label="Year"
-                                        onChange={(e) => setSelectedYear(e.target.value)}
-                                    >
-                                        <MenuItem value="" disabled><em>Year</em></MenuItem>
-                                        <MenuItem value="All">All Years</MenuItem>
-                                        {filterYears.filter(y => y !== 'All').map((y) => <MenuItem key={y} value={y}>{y.replace('FY', '')}</MenuItem>)}
-                                    </Select>
-                                </FormControl>
+                                {/* Year Filter removed as per user request to use global Database Actuals */}
                             </Stack>
                         </Stack>
                     </Box>

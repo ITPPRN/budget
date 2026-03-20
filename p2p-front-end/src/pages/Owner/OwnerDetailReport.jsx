@@ -100,6 +100,28 @@ const OwnerDetailContent = () => {
             }
 
             try {
+                // 🛠️ FIX: Always fetch from Backend to guarantee true Global synchronization
+                let syncConfig = {};
+
+                try {
+                    const configRes = await api.get('/budgets/configs');
+                    const configs = configRes.data || {};
+                    
+                    // Map backend config keys to front-end expected keys
+                    syncConfig = {
+                        selectedBudget: configs.selectedBudget || configs.selected_budget || "",
+                        selectedCapexBg: configs.selectedCapexBg || configs.selected_capex_bg || "",
+                        selectedCapexActual: configs.selectedCapexActual || configs.selected_capex_actual || "",
+                        actualYear: configs.actualYear || configs.actual_year || "",
+                        selectedMonths: JSON.parse(configs.selectedMonths || configs.selected_months || '[]')
+                    };
+                } catch (e) {
+                    console.error("Failed to fetch fallback configs in Detail", e);
+                    syncConfig = JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}');
+                }
+
+                const actualYear = syncConfig.actualYear || new Date().getFullYear();
+
                 const payload = {
                     conso_gls: idsToFetch,
                     start_date: actualDateFilter.startDate,
@@ -107,7 +129,8 @@ const OwnerDetailContent = () => {
                     entities: selectedEntity ? [selectedEntity] : [],
                     branches: selectedBranch ? [selectedBranch] : [],
                     departments: selectedDepartment ? [selectedDepartment] : [],
-                    year: selectedActualYear, // Use the independent year filter
+                    year: String(actualYear),
+                    months: Array.isArray(syncConfig.selectedMonths) ? syncConfig.selectedMonths : [],
                     page: actualPage + 1,
                     limit: actualRowsPerPage
                 };
@@ -178,26 +201,12 @@ const OwnerDetailContent = () => {
                 </Box>
 
                 {/* Filter UI */}
-                <Stack direction="row" spacing={2} sx={{ minWidth: 800 }}>
-                    {/* Independent Year Filter (Actual Only) */}
-                    <FormControl size="small" sx={{ minWidth: 120, bgcolor: 'white', borderRadius: 1 }}>
-                        <InputLabel id="actual-year-label" shrink={!!selectedActualYear}>Year (ปี)</InputLabel>
-                        <Select
-                            labelId="actual-year-label"
-                            value={selectedActualYear}
-                            label="Year (ปี)"
-                            onChange={(e) => setSelectedActualYear(e.target.value)}
-                        >
-                            <MenuItem value="">FY All</MenuItem>
-                            {actualYears.map((year) => (
-                                <MenuItem key={year} value={year}>{`FY ${year}`}</MenuItem>
-                            ))}
-                        </Select>
-                    </FormControl>
+                <Stack direction="row" spacing={2}>
+                    {/* Independent Year Filter Removed as per User Request (Use Global Database Actuals) */}
 
                     {/* Entity Filter (Primary) */}
                     <FormControl size="small" sx={{ minWidth: 200, bgcolor: 'white', borderRadius: 1 }}>
-                        <InputLabel id="entity-label" shrink={!!selectedEntity}>Entity (บริษัท)</InputLabel>
+                        <InputLabel id="entity-label">Entity (บริษัท)</InputLabel>
                         <Select
                             labelId="entity-label"
                             value={selectedEntity}
@@ -217,7 +226,7 @@ const OwnerDetailContent = () => {
 
                     {/* Branch Filter (Secondary) */}
                     <FormControl size="small" sx={{ minWidth: 200, bgcolor: 'white', borderRadius: 1 }}>
-                        <InputLabel id="branch-label" shrink={!!selectedBranch}>Branch (สาขา)</InputLabel>
+                        <InputLabel id="branch-label">Branch (สาขา)</InputLabel>
                         <Select
                             labelId="branch-label"
                             value={selectedBranch}
@@ -236,7 +245,7 @@ const OwnerDetailContent = () => {
 
                     {/* Department Filter (Tertiary) */}
                     <FormControl size="small" sx={{ minWidth: 200, bgcolor: 'white', borderRadius: 1 }}>
-                        <InputLabel id="dept-label" shrink={!!selectedDepartment}>Department (แผนก)</InputLabel>
+                        <InputLabel id="dept-label">Department (แผนก)</InputLabel>
                         <Select
                             labelId="dept-label"
                             value={selectedDepartment}
@@ -245,14 +254,8 @@ const OwnerDetailContent = () => {
                         >
                             <MenuItem value="">All Departments</MenuItem>
                             {(() => {
-                                // 🛠️ Robust Logic: Merge Depts from OrgStructure with User's Allowed Permissions
-                                const deptsSet = new Set(availableDepartments);
-                                user?.permissions?.forEach(p => {
-                                    if (p.is_active && p.department_code) deptsSet.add(p.department_code.trim());
-                                });
-                                if (userDepartment) deptsSet.add(userDepartment.trim());
-
-                                const sortedDepts = Array.from(deptsSet).sort();
+                                // 🛠️ Simplified: Use only availableDepartments (already filtered by Backend permissions)
+                                const sortedDepts = Array.from(new Set(availableDepartments)).sort();
                                 return sortedDepts.map((dept) => (
                                     <MenuItem key={dept} value={dept}>{dept}</MenuItem>
                                 ));

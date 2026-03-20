@@ -118,23 +118,23 @@ const HomePageContent = () => {
 
     setLoading(true);
     try {
-      // Get the synced Actuals configuration from localStorage
-      let syncConfig = JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}');
+      // 🛠️ FIX: Always fetch from Backend to guarantee true Global synchronization
+      let syncConfig = {};
 
-      // If localStorage is empty, try fetching from Backend directly (Single Source of Truth)
-      if (!syncConfig.actualYear) {
-        try {
-          const configRes = await api.get('/budgets/configs');
-          const configs = configRes.data || {};
-          if (configs.actualYear) {
-            syncConfig = {
-              actualYear: configs.actualYear,
-              selectedMonths: JSON.parse(configs.selectedMonths || '[]')
-            };
-            // Cache it for subsequent loads
-            localStorage.setItem('dm_lastSyncedConfig', JSON.stringify(syncConfig));
-          }
-        } catch (e) { console.error("Failed to fetch fallback configs", e); }
+      try {
+        const configRes = await api.get('/budgets/configs');
+        const configs = configRes.data || {};
+        
+        syncConfig = {
+          actualYear: configs.actualYear || configs.actual_year || "",
+          selectedMonths: JSON.parse(configs.selectedMonths || configs.selected_months || '[]'),
+          selectedBudget: configs.selectedBudget || configs.selected_budget || "",
+          selectedCapexBg: configs.selectedCapexBg || configs.selected_capex_bg || "",
+          selectedCapexActual: configs.selectedCapexActual || configs.selected_capex_actual || ""
+        };
+      } catch (e) {
+        console.error("Failed to fetch fallback configs", e);
+        syncConfig = JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}');
       }
 
       const actualYear = syncConfig.actualYear || new Date().getFullYear();

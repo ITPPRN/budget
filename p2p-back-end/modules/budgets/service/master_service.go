@@ -246,7 +246,10 @@ func (s *masterDataService) DeleteBudgetStructure(ctx context.Context, id uint) 
 }
 
 func (s *masterDataService) GetUserConfigs(ctx context.Context, userID string) (map[string]string, error) {
-	configs, err := s.repo.GetUserConfigs(ctx, userID)
+	// Refactor: Make Data Management settings globally shared.
+	// Ignore the requesting userID and use a fixed global identifier.
+	globalID := "GLOBAL_ADMIN_SETTINGS"
+	configs, err := s.repo.GetUserConfigs(ctx, globalID)
 	if err != nil {
 		return nil, fmt.Errorf("masterDataSrv.GetUserConfigs: %w", err)
 	}
@@ -259,8 +262,11 @@ func (s *masterDataService) GetUserConfigs(ctx context.Context, userID string) (
 }
 
 func (s *masterDataService) SetUserConfig(ctx context.Context, userID string, key string, value string) error {
+	// Refactor: Make Data Management settings globally shared.
+	// Ignore the requesting userID and use a fixed global identifier.
+	globalID := "GLOBAL_ADMIN_SETTINGS"
 	config := &models.UserConfigEntity{
-		UserID:    userID,
+		UserID:    globalID,
 		ConfigKey: key,
 		Value:     value,
 	}
