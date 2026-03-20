@@ -21,6 +21,7 @@ type AuthService interface {
 	ChangePassword(ctx context.Context, oldPassword, newPassword string, userInfo *UserInfo) error
 	AdminResetUserPassword(ctx context.Context, targetUserID string, newPassword string) error
 	GetUserProfile(ctx context.Context, userID string) (*UserInfo, error)
+	ProvisionUser(ctx context.Context, user *UserInfo) (*UserInfo, error)
 	ListUsersForAdmin(ctx context.Context, optional map[string]interface{}, page, size int) ([]UserInfo, int, error)
 	ListUsersForManagement(ctx context.Context, optional map[string]interface{}, page, size int) ([]UserInfo, int, error)
 	GetUserPermissions(ctx context.Context, userID string) ([]UserPermissionInfo, error)

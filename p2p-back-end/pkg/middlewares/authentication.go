@@ -17,22 +17,17 @@ import (
 	"p2p-back-end/pkg/utils"
 )
 
-// --- Keycloak Configuration & JWKS Cache ---
-
 var (
-	keySet jwk.Set // Global variable to cache the public keys
-	once   sync.Once
-
-	// Global variables to store configuration pulled from Infisical
+	keySet           jwk.Set // Global variable to cache the public keys
+	once             sync.Once
 	keycloakIssuer   string
 	keycloakClientID string
 
-	internalSecret string // Secret for internal service-to-service communication
+	secretGateWay  string // Secret from API Gateway (e.g. APISIX)
+	internalSecret string // Secret for internal service-to-service calls
 )
 
 // InitKeycloakValidator fetches the Public Keys from Keycloak and caches them.
-// It now receives configuration parameters (Host, Port, Realm, ClientID)
-// which should be loaded from Infisical before calling this function.
 func InitKeycloakValidator(host string, port string, realm string, clientID string) {
 	once.Do(func() {
 		// Construct the necessary OIDC URLs
@@ -46,202 +41,58 @@ func InitKeycloakValidator(host string, port string, realm string, clientID stri
 		defer cancel()
 
 		var err error
-		// jwk.Fetch handles downloading, parsing, and internal key refreshing
 		keySet, err = jwk.Fetch(ctx, jwksURL)
 		if err != nil {
-			// CRITICAL ERROR: Cannot validate tokens without keys.
-			logs.Fatalf("FATAL: Failed to fetch Keycloak JWKS from %s: %v", jwksURL, err)
+			logs.Warnf("⚠️ Fallback Auth: Failed to fetch Keycloak JWKS from %s. Fallback might fail: %v", jwksURL, err)
+			return
 		}
-		// ✅ แสดงข้อมูล key ที่ดึงมา
-		logs.Infof("✅ Keycloak Public Keys (JWKS) successfully fetched and cached. Total keys: %d", keySet.Len())
-
+		logs.Infof("✅ Keycloak Public Keys (JWKS) cached for Fallback Auth. Total keys: %d", keySet.Len())
 	})
 }
 
-// InitInternalSecret sets the secret for internal communication validation.
 func InitInternalSecret(secret string) {
 	internalSecret = secret
 }
 
-func JwtAuthentication(authSrv models.AuthService, handler models.TokenHandler) fiber.Handler {
-	// We assume InitKeycloakValidator has been called in main()
+func InitGatewaySecret(secret string) {
+	secretGateWay = secret
+}
 
+// JwtAuthentication is Hybrid (Gateway Headers + JWT Fallback)
+func JwtAuthentication(authSrv models.AuthService, handler interface{}) fiber.Handler {
 	return func(c *fiber.Ctx) error {
+		// 1. Try Gateway Auth First (Senior's Pattern)
+		gatewaySecret := c.Get("X-Gateway-Secret")
+		if gatewaySecret != "" && secretGateWay != "" && gatewaySecret == secretGateWay {
+			user := GetUserFromHeaders(c)
+			if user != nil {
+				return processAuthenticatedUser(c, authSrv, user, handler)
+			}
+		}
+
+		// 2. Fallback to Local JWT Auth (Local Dev)
 		accessToken := extractAccessToken(c)
-		if accessToken == "" {
-			return unauthorizedResponse(c, "Authorization header is empty.")
-		}
-
-		claims, err := parseAndValidateToken(accessToken)
-		if err != nil {
-			// Logs the specific validation failure from jwx
-			logs.Error(fmt.Errorf("token validation failed: %v", err))
-			return unauthorizedResponse(c, "Invalid token or signature")
-		}
-
-		user := &models.UserInfo{
-			ID:       claims.ID,
-			Username: claims.Username,
-			Email:    claims.Email,
-			Roles:    claims.RealmAccess.Roles,
-			Name:     claims.Name,
-		}
-
-		// 🛠️ NEW FIX: Always fetch full profile from Local DB (following Senior's RabbitMQ logic)
-		if authSrv != nil {
-			profile, err := authSrv.GetUserProfile(c.UserContext(), user.ID)
-			if err == nil && profile != nil {
-				// Use the enriched profile from Local DB which contains Departments & fine-grained Roles
-				user = profile
-			} else {
-				logs.Warnf("JwtAuthentication: User %s authenticated but profile missing from Local DB: %v", user.Username, err)
+		if accessToken != "" {
+			claims, err := parseAndValidateToken(accessToken)
+			if err == nil {
+				user := &models.UserInfo{
+					ID:       claims.ID,
+					Username: claims.Username,
+					Email:    claims.Email,
+					Roles:    claims.RealmAccess.Roles,
+				}
+				return processAuthenticatedUser(c, authSrv, user, handler)
 			}
+			logs.Debugf("Local JWT fallback validation failed: %v", err)
 		}
 
-		// ✅ เก็บไว้ใน Context เผื่อ handler อื่นจะใช้ได้ง่าย
-		c.Locals("user", user)
-		c.Locals("userID", user.ID)
-
-		logs.Info(fmt.Sprintf("JwtAuthentication Success: UserID=%s Roles=%v", user.ID, user.Roles))
-
-
-		if handler == nil {
-			return c.Next()
-		}
-
-		return handler(c, user)
+		return unauthorizedResponse(c, "No valid Gateway session or Local JWT provided")
 	}
 }
 
-// --- Helper functions (Revised parseAndValidateToken) ---
-
-func extractAccessToken(c *fiber.Ctx) string {
-	// 1. ลองดึงจาก Cookie ก่อน (ชื่อต้องตรงกับที่ตั้งตอน Login)
-	token := c.Cookies("access_token")
-	if token != "" {
-		return token
-	}
-
-	// 2. (เผื่อไว้) ถ้าไม่มีใน Cookie ให้ลองดึงจาก Header แบบเดิม (รองรับ Postman หรือ Mobile App)
-	authHeader := c.Get("Authorization")
-	if strings.HasPrefix(authHeader, "Bearer ") {
-		return strings.TrimPrefix(authHeader, "Bearer ")
-	}
-
-	return ""
-}
-
-// parseAndValidateToken: REPLACED with JWKS Best Practice
-func parseAndValidateToken(accessToken string) (*models.JWTPayload, error) {
-	if keySet == nil {
-		return nil, errors.New("jwks cache is not initialized")
-	}
-
-	// 1. Parse and Validate the JWT using the cached JWKS
-	// This single call handles signature verification, expiration (exp),
-	// issuer (iss), and audience (aud) checks automatically.
-	token, err := jwxtoken.Parse(
-		[]byte(accessToken),
-		jwxtoken.WithKeySet(keySet),
-		jwxtoken.WithValidate(true),
-		jwxtoken.WithValidate(true),
-		// jwxtoken.WithIssuer(keycloakIssuer), // Disabled to allow internal IP vs localhost mismatch
-		// jwxtoken.WithAudience(keycloakClientID), // Enforce that the token is meant for this client
-	)
-
-	if err != nil {
-		return nil, fmt.Errorf("jwt validation failed: %w", err)
-	}
-
-	// 2. Extract and Map Claims
-	claimsMap := token.PrivateClaims()
-
-	var realmRoles []string
-	if rawAccess, ok := claimsMap["realm_access"].(map[string]interface{}); ok && rawAccess != nil {
-		if rawRoles, ok := rawAccess["roles"].([]interface{}); ok && rawRoles != nil {
-			realmRoles = utils.ConvertInterfaceSliceToStringSlice(rawRoles)
-		}
-	}
-
-	// 2.2 Client Roles (resource_access)
-	if rawResource, ok := claimsMap["resource_access"].(map[string]interface{}); ok && rawResource != nil {
-		// Keycloak usually groups by Client ID
-		if clientAccess, ok := rawResource[keycloakClientID].(map[string]interface{}); ok && clientAccess != nil {
-			if clientRoles, ok := clientAccess["roles"].([]interface{}); ok && clientRoles != nil {
-				cRoles := utils.ConvertInterfaceSliceToStringSlice(clientRoles)
-				realmRoles = append(realmRoles, cRoles...)
-			}
-		}
-	}
-	jwtPayload := models.JWTPayload{
-		// Azp key is typically present, but we use GetSafeString just in case or use a default
-		Azp:   utils.GetSafeString(claimsMap, "azp"),
-		Email: utils.GetSafeString(claimsMap, "email"), // ใช้ Safe Getter
-		Exp:   token.Expiration().Unix(),
-		Iat:   token.IssuedAt().Unix(),
-		ID:    token.Subject(), // Fix: Standard claim 'sub' is accessed via method
-		Iss:   token.Issuer(),
-		Jti:   token.JwtID(),
-		Name:  utils.GetSafeString(claimsMap, "name"),
-		Scope: utils.GetSafeString(claimsMap, "scope"),
-		Sid:   utils.GetSafeString(claimsMap, "sid"),
-
-		// แก้ไขตรงนี้: เปลี่ยนจาก "preferred_username" ไปเป็น "username"
-		// Keycloak usually sends 'preferred_username' in private claims
-		Username: getUsername(claimsMap), // Helper function (or inline logic)
-
-		RealmAccess: models.RealmAccess{
-			Roles: realmRoles, // ใช้ค่าที่ตรวจสอบแล้ว
-		},
-	}
-
-	return &jwtPayload, nil
-}
-
-func unauthorizedResponse(c *fiber.Ctx, message string) error {
-	logs.Debugf("Error:%v", message)
-	return c.Status(fiber.ErrUnauthorized.Code).JSON(fiber.Map{
-		"status":     fiber.ErrUnauthorized.Message,
-		"statusCode": fiber.ErrUnauthorized.Code,
-		"message":    fmt.Sprintf("Error: Unauthorized - %s", message),
-	})
-}
-
-func GetUserInfo(tokenString string) (*models.UserInfo, error) {
-	claims, err := parseAndValidateToken(tokenString)
-	if err != nil {
-		return nil, fmt.Errorf("error parsing token: %v", err)
-	}
-
-	// Since jwx handles expiration, we just proceed
-
-	userInfo := &models.UserInfo{
-		ID:       claims.ID,
-		Username: claims.Username,
-		Email:    claims.Email,
-		Roles:    claims.RealmAccess.Roles,
-		Name:     claims.Name,
-	}
-
-	return userInfo, nil
-}
-
-func getUsername(claims map[string]interface{}) string {
-	if u := utils.GetSafeString(claims, "preferred_username"); u != "" {
-		return u
-	}
-	if u := utils.GetSafeString(claims, "username"); u != "" {
-		return u
-	}
-	// logs.Warnf("Debug Claims: %+v", claims) // Uncomment to debug if needed
-	return ""
-}
+// InternalAuth handles service-to-service communication via a shared secret
 func InternalAuth(handler fiber.Handler) fiber.Handler {
 	return func(c *fiber.Ctx) error {
-		// Log for visibility
-		logs.Infof("InternalAuth: Accessing internal route: %s", c.Path())
-
-		// Validate internal secret from header
 		providedSecret := c.Get("X-Internal-Secret")
 		if providedSecret == "" || providedSecret != internalSecret {
 			logs.Warnf("InternalAuth: Unauthorized access attempt from %s", c.IP())
@@ -251,7 +102,116 @@ func InternalAuth(handler fiber.Handler) fiber.Handler {
 				"message":     "Invalid or missing internal secret",
 			})
 		}
-
 		return handler(c)
 	}
+}
+
+// GetUserFromHeaders extracts User info injected by API Gateway (APISIX/OIDC Plugin)
+func GetUserFromHeaders(c *fiber.Ctx) *models.UserInfo {
+	userID := c.Get("X-User-ID")
+	userName := c.Get("X-User-Name")
+	userEmail := c.Get("X-User-Email")
+
+	if userID == "" || userName == "" {
+		return nil
+	}
+
+	return &models.UserInfo{
+		ID:       userID,
+		Username: userName,
+		Email:    userEmail,
+	}
+}
+
+func processAuthenticatedUser(c *fiber.Ctx, authSrv models.AuthService, user *models.UserInfo, handler interface{}) error {
+	var profile *models.UserInfo
+	if authSrv != nil {
+		var err error
+		profile, err = authSrv.GetUserProfile(c.UserContext(), user.ID)
+		if err != nil {
+			// Auto-provision if missing
+			logs.Warnf("User profile not found for %s (%s). Attempting auto-provisioning...", user.Username, user.ID)
+			profile, err = authSrv.ProvisionUser(c.UserContext(), user)
+			if err != nil {
+				logs.Errorf("Auto-provisioning failed for %s: %v", user.Username, err)
+				profile = user // Fallback to basic info if provisioning fails
+			}
+		}
+	} else {
+		profile = user
+	}
+
+	c.Locals("user", profile)
+
+	// Call the wrapped handler if provided
+	if handler != nil {
+		if h, ok := handler.(models.TokenHandler); ok {
+			return h(c, profile)
+		}
+		if h, ok := handler.(func(*fiber.Ctx, *models.UserInfo) error); ok {
+			return h(c, profile)
+		}
+		// If it's a standard fiber.Handler, call it but it won't have the userInfo param
+		if h, ok := handler.(fiber.Handler); ok {
+			return h(c)
+		}
+	}
+
+	// Otherwise proceed to next middleware
+	return c.Next()
+}
+
+func extractAccessToken(c *fiber.Ctx) string {
+	token := c.Cookies("access_token")
+	if token != "" {
+		return token
+	}
+	authHeader := c.Get("Authorization")
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		return strings.TrimPrefix(authHeader, "Bearer ")
+	}
+	return ""
+}
+
+func parseAndValidateToken(accessToken string) (*models.JWTPayload, error) {
+	if keySet == nil {
+		return nil, errors.New("jwks cache is not initialized")
+	}
+
+	token, err := jwxtoken.Parse(
+		[]byte(accessToken),
+		jwxtoken.WithKeySet(keySet),
+		jwxtoken.WithValidate(true),
+		// jwxtoken.WithIssuer(keycloakIssuer), // Disabled for dev flexibility
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("jwt validation failed: %w", err)
+	}
+
+	claimsMap := token.PrivateClaims()
+	var realmRoles []string
+	if rawAccess, ok := claimsMap["realm_access"].(map[string]interface{}); ok && rawAccess != nil {
+		if rawRoles, ok := rawAccess["roles"].([]interface{}); ok && rawRoles != nil {
+			realmRoles = utils.ConvertInterfaceSliceToStringSlice(rawRoles)
+		}
+	}
+
+	return &models.JWTPayload{
+		ID:       token.Subject(),
+		Username: utils.GetSafeString(claimsMap, "preferred_username"),
+		Email:    utils.GetSafeString(claimsMap, "email"),
+		RealmAccess: models.RealmAccess{
+			Roles: realmRoles,
+		},
+	}, nil
+}
+
+func unauthorizedResponse(c *fiber.Ctx, message string) error {
+	logs.Debugf("Unauthorized: %v", message)
+	return c.Status(fiber.ErrUnauthorized.Code).JSON(fiber.Map{
+		"status":      fiber.ErrUnauthorized.Message,
+		"status_code": fiber.ErrUnauthorized.Code,
+		"message":     fmt.Sprintf("Error: Unauthorized - %s", message),
+	})
 }

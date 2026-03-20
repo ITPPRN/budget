@@ -42,15 +42,13 @@ func main() {
 	// Test logs
 	logs.Info("Application is starting...", zap.String("mode", cfg.App.Mode))
 
-	// Internal Security Setup
-	if cfg.App.InternalSecret == "" {
-		logs.Warn("Warning: INTERNAL_SECRET is missing. Internal auth will fail.")
-	}
+	// Internal & Gateway Security Setup
 	middlewares.InitInternalSecret(cfg.App.InternalSecret)
-	logs.Info("✅ Internal Security initialized.")
+	middlewares.InitGatewaySecret(cfg.App.GatewaySecret)
+	logs.Info("✅ Internal & Gateway Security initialized.")
 	_ = logs.Sync()
 
-	// Keycloak Validator Setup (JWKS)
+	// Keycloak Validator Setup (Deprecated but kept for compatibility)
 	middlewares.InitKeycloakValidator(
 		cfg.KeyCloak.Host,
 		cfg.KeyCloak.Port,

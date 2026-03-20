@@ -69,6 +69,7 @@ func LoadConfigs(cfg *Config) {
 	cfg.App.Port = setData(FiberPort)
 	cfg.App.Mode = setData(FiberMode)
 	cfg.App.InternalSecret = setData(InternalSecret)
+	cfg.App.GatewaySecret = setData(GatewaySecret)
 
 	// การตั้งค่าสำหรับ PostgreSQL (Database หลัก)
 	cfg.Postgres.Host = setData(PostgresHost)

@@ -211,6 +211,37 @@ func (s *authService) AdminResetUserPassword(ctx context.Context, targetUserID s
 	return err
 }
 
+func (s *authService) ProvisionUser(ctx context.Context, userInfo *models.UserInfo) (*models.UserInfo, error) {
+	// 1. Double check if user exists (to avoid race conditions)
+	existing, err := s.authRepo.GetUserContext(ctx, userInfo.ID)
+	if err == nil && existing != nil {
+		return s.GetUserProfile(ctx, userInfo.ID)
+	}
+
+	// 2. Map to Entity
+	rolesJson, _ := json.Marshal([]string{"USER"})
+	userEntity := &models.UserEntity{
+		ID:        userInfo.ID,
+		Username:  userInfo.Username,
+		Email:     userInfo.Email,
+		IsActive:  true,
+		Roles:     datatypes.JSON(rolesJson),
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	// 3. Create in DB
+	err = s.authRepo.CreateUser(ctx, userEntity)
+	if err != nil {
+		return nil, fmt.Errorf("failed to provision user: %v", err)
+	}
+
+	logs.Infof("✅ Auto-provisioned new user: %s (%s)", userInfo.Username, userInfo.ID)
+
+	// 4. Return the new profile
+	return s.GetUserProfile(ctx, userInfo.ID)
+}
+
 func (s *authService) GetUserProfile(ctx context.Context, userID string) (*models.UserInfo, error) {
 	// 1. Fetch User from DB
 	user, err := s.authRepo.GetUserContext(ctx, userID)

@@ -3,6 +3,7 @@ package configs
 type CfgKey string
 
 const (
+	GatewaySecret    CfgKey = "GATEWAY_SECRET"
 	InternalSecret   CfgKey = "INTERNAL_SECRET"
 	FiberPort        CfgKey = "APP_PORT"
 	FiberMode        CfgKey = "APP_MODE"
@@ -43,6 +44,16 @@ type Fiber struct {
 	Port           string
 	Mode           string
 	InternalSecret string
+	GatewaySecret  string
+}
+
+type RabbitMQ struct {
+	Host     string
+	Port     string
+	Username string
+	Password string `json:"-"`
+	VHost    string
+	URL      string // Keep for compatibility if needed, though senior uses granular
 }
 
 type PostgresSql struct {
@@ -72,11 +83,4 @@ type KeyCloak struct {
 	PublicKey     string // Used for manual key management if needed
 }
 
-type RabbitMQ struct {
-	Host     string
-	Port     string
-	Username string
-	Password string `json:"-"`
-	VHost    string
-	URL      string // Keep for compatibility if needed, though senior uses granular
-}
+
