@@ -33,7 +33,7 @@ func (r *repository) GetCapexVsActualData(ctx context.Context, filter map[string
 	}
 
 	var budgetResults []rawCapexRow
-	btx := r.db.Model(&models.CapexBudgetFactEntity{}).
+	btx := r.db.Table("capex_budget_fact_entities").
 		Select(`
 			capex_budget_fact_entities.entity,
 			capex_budget_fact_entities.department,
@@ -51,7 +51,7 @@ func (r *repository) GetCapexVsActualData(ctx context.Context, filter map[string
 	}
 
 	var actualResults []rawCapexRow
-	atx := r.db.Model(&models.CapexActualFactEntity{}).
+	atx := r.db.Table("capex_actual_fact_entities").
 		Select(`
 			capex_actual_fact_entities.entity,
 			capex_actual_fact_entities.department,
@@ -152,7 +152,7 @@ func (r *repository) applyCommonFilters(tx *gorm.DB, tableName string, filter ma
 			tx = tx.Where(tableName+".department IN ?", strs)
 		}
 	}
-	if tableName != "capex_budget_fact_entities" {
+	if tableName != "capex_budget_fact_entities" && tableName != "capex_actual_fact_entities" {
 		if val := utils.GetSafeString(filter, "year"); val != "" {
 			tx = tx.Where(tableName+".year = ?", val)
 		}
@@ -162,7 +162,7 @@ func (r *repository) applyCommonFilters(tx *gorm.DB, tableName string, filter ma
 			tx = tx.Where(tableName+".file_capex_budget_id = ?", val)
 		} else {
 			var latestFid string
-			tx.Session(&gorm.Session{}).Model(&models.CapexBudgetFactEntity{}).Order("created_at desc").Select("file_capex_budget_id").Limit(1).Take(&latestFid)
+			r.db.Model(&models.CapexBudgetFactEntity{}).Order("created_at desc").Select("file_capex_budget_id").Limit(1).Take(&latestFid)
 			if latestFid != "" {
 				tx = tx.Where(tableName+".file_capex_budget_id = ?", latestFid)
 			}
@@ -173,7 +173,7 @@ func (r *repository) applyCommonFilters(tx *gorm.DB, tableName string, filter ma
 			tx = tx.Where(tableName+".file_capex_actual_id = ?", val)
 		} else {
 			var latestFid string
-			tx.Session(&gorm.Session{}).Model(&models.CapexActualFactEntity{}).Order("created_at desc").Select("file_capex_actual_id").Limit(1).Take(&latestFid)
+			r.db.Model(&models.CapexActualFactEntity{}).Order("created_at desc").Select("file_capex_actual_id").Limit(1).Take(&latestFid)
 			if latestFid != "" {
 				tx = tx.Where(tableName+".file_capex_actual_id = ?", latestFid)
 			}

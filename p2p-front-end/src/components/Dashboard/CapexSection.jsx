@@ -100,35 +100,25 @@ const CapexSection = ({ globalEntity, orgStructure }) => {
 
     // --- Export Handlers ---
     const handleCapexDeptStatusExport = async () => {
-        let syncConfig = JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}');
-        const actualYear = syncConfig.actualYear || new Date().getFullYear();
-        
         const payload = {
             entities: selectedEntity ? [selectedEntity] : [],
             departments: selectedDepartment ? [selectedDepartment] : [],
-            year: String(actualYear),
-            budget_file_id: syncConfig.selectedBudget,
-            capex_file_id: syncConfig.selectedCapexBg,
-            capex_actual_file_id: syncConfig.selectedCapexActual,
+            sort_by: orderBy,
+            sort_order: order
         };
         
-        await downloadExcelFile('/export-capex-department-status-admin', payload, `Capex_Dept_Status_Report_${actualYear}.xlsx`);
+        await downloadExcelFile('/export-capex-department-status-admin', payload, `Capex_Dept_Status_Report.xlsx`);
     };
 
     const handleCapexVsActualExport = async () => {
-        let syncConfig = JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}');
-        const actualYear = syncConfig.actualYear || new Date().getFullYear();
-        
         const payload = {
             entities: selectedEntity ? [selectedEntity] : [],
             departments: selectedDepartment ? [selectedDepartment] : [],
-            year: String(actualYear),
-            budget_file_id: syncConfig.selectedBudget,
-            capex_file_id: syncConfig.selectedCapexBg,
-            capex_actual_file_id: syncConfig.selectedCapexActual,
+            sort_by: orderBy,
+            sort_order: order
         };
         
-        await downloadExcelFile('/export-capex-budget-vs-actual-admin', payload, `Capex_Vs_Actual_Report_${actualYear}.xlsx`);
+        await downloadExcelFile('/export-capex-budget-vs-actual-admin', payload, `Capex_Vs_Actual_Report.xlsx`);
     };
 
     return (

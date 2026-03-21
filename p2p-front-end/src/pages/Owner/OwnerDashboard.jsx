@@ -385,7 +385,7 @@ const OwnerDashboardContent = () => {
         const payload = {
             entities: selectedCompany && selectedCompany !== 'All' ? [selectedCompany] : [],
             branches: selectedBranch && selectedBranch !== 'All' ? [selectedBranch] : [],
-            departments: selectedDept && selectedDept !== 'All' ? [selectedDept] : [],
+            departments: selectedDept && selectedDept !== 'All' ? [selectedDept] : allDepartments,
             conso_gls: Array.from(selectedLeaves).map(id => id.split('|')[0]).filter(code => code !== ""),
             year: String(syncConfig.actualYear || new Date().getFullYear()),
             months: Array.isArray(syncConfig.selectedMonths) ? syncConfig.selectedMonths : [],
@@ -401,7 +401,7 @@ const OwnerDashboardContent = () => {
         const payload = {
             entities: selectedCompany && selectedCompany !== 'All' ? [selectedCompany] : [],
             branches: selectedBranch && selectedBranch !== 'All' ? [selectedBranch] : [],
-            departments: selectedDept && selectedDept !== 'All' ? [selectedDept] : [],
+            departments: selectedDept && selectedDept !== 'All' ? [selectedDept] : allDepartments,
             year: String(syncConfig.actualYear || new Date().getFullYear()),
             months: Array.isArray(syncConfig.selectedMonths) ? syncConfig.selectedMonths : [],
             budget_file_id: syncConfig.selectedBudget,
@@ -415,7 +415,7 @@ const OwnerDashboardContent = () => {
         let syncConfig = JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}');
         const payload = {
             entities: selectedCompany && selectedCompany !== 'All' ? [selectedCompany] : [],
-            departments: selectedDept && selectedDept !== 'All' ? [selectedDept] : [],
+            departments: selectedDept && selectedDept !== 'All' ? [selectedDept] : allDepartments,
             year: String(syncConfig.actualYear || new Date().getFullYear()),
             budget_file_id: syncConfig.selectedBudget,
             capex_file_id: syncConfig.selectedCapexBg,

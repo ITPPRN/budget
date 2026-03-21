@@ -28,7 +28,7 @@ func (r *repository) GetCapexDeptStatus(ctx context.Context, filter map[string]i
 
 	// 1. Get Capex Budgets per Department
 	var budgetRows []summaryRow
-	btx := r.db.Model(&models.CapexBudgetFactEntity{}).Select("department, SUM(year_total) as total")
+	btx := r.db.Table("capex_budget_fact_entities").Select("department, SUM(year_total) as total")
 	btx = r.applyCommonFilters(btx, "capex_budget_fact_entities", filter)
 	if err := btx.WithContext(ctx).Group("department").Scan(&budgetRows).Error; err != nil {
 		return nil, err
@@ -36,7 +36,7 @@ func (r *repository) GetCapexDeptStatus(ctx context.Context, filter map[string]i
 
 	// 2. Get Capex Actuals per Department
 	var actualRows []summaryRow
-	atx := r.db.Model(&models.CapexActualFactEntity{}).Select("department, SUM(year_total) as total")
+	atx := r.db.Table("capex_actual_fact_entities").Select("department, SUM(year_total) as total")
 	atx = r.applyCommonFilters(atx, "capex_actual_fact_entities", filter)
 	if err := atx.WithContext(ctx).Group("department").Scan(&actualRows).Error; err != nil {
 		return nil, err
@@ -95,7 +95,7 @@ func (r *repository) applyCommonFilters(tx *gorm.DB, tableName string, filter ma
 			tx = tx.Where(tableName+".department IN ?", strs)
 		}
 	}
-	if tableName != "capex_budget_fact_entities" {
+	if tableName != "capex_budget_fact_entities" && tableName != "capex_actual_fact_entities" {
 		if val := utils.GetSafeString(filter, "year"); val != "" {
 			tx = tx.Where(tableName+".year = ?", val)
 		}
@@ -105,7 +105,7 @@ func (r *repository) applyCommonFilters(tx *gorm.DB, tableName string, filter ma
 			tx = tx.Where(tableName+".file_capex_budget_id = ?", val)
 		} else {
 			var latestFid string
-			tx.Session(&gorm.Session{}).Model(&models.CapexBudgetFactEntity{}).Order("created_at desc").Select("file_capex_budget_id").Limit(1).Take(&latestFid)
+			r.db.Model(&models.CapexBudgetFactEntity{}).Order("created_at desc").Select("file_capex_budget_id").Limit(1).Take(&latestFid)
 			if latestFid != "" {
 				tx = tx.Where(tableName+".file_capex_budget_id = ?", latestFid)
 			}
@@ -116,7 +116,7 @@ func (r *repository) applyCommonFilters(tx *gorm.DB, tableName string, filter ma
 			tx = tx.Where(tableName+".file_capex_actual_id = ?", val)
 		} else {
 			var latestFid string
-			tx.Session(&gorm.Session{}).Model(&models.CapexActualFactEntity{}).Order("created_at desc").Select("file_capex_actual_id").Limit(1).Take(&latestFid)
+			r.db.Model(&models.CapexActualFactEntity{}).Order("created_at desc").Select("file_capex_actual_id").Limit(1).Take(&latestFid)
 			if latestFid != "" {
 				tx = tx.Where(tableName+".file_capex_actual_id = ?", latestFid)
 			}
