@@ -38,3 +38,9 @@ cypress/videos
 cypress/screenshots
 cypress/reports
 cypress/downloads
+
+node_modules/
+dist/
+build/
+*.exe
+*.log
