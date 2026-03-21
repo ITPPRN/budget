@@ -4,7 +4,7 @@ import FlagIcon from '@mui/icons-material/Flag';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import DownloadIcon from '@mui/icons-material/Download';
 
-const DepartmentTable = ({ data, count, page, rowsPerPage, onPageChange, onRowsPerPageChange, orderBy, order, onRequestSort, selectedDept, onRowClick, onBack }) => {
+const DepartmentTable = ({ data, count, page, rowsPerPage, onPageChange, onRowsPerPageChange, orderBy, order, onRequestSort, selectedDept, onRowClick, onBack, onDownload }) => {
     // Helper to format numbers (Always in MB)
     const formatMoney = (amount) => {
         const mb = amount / 1000000;
@@ -51,7 +51,7 @@ const DepartmentTable = ({ data, count, page, rowsPerPage, onPageChange, onRowsP
                         {selectedDept ? `Department: ${selectedDept}` : 'Department Budget Status (Top Spenders)'}
                     </Typography>
                 </Box>
-                <IconButton size="small" sx={{ color: 'primary.main' }}>
+                <IconButton size="small" onClick={onDownload} sx={{ color: 'primary.main' }} disabled={!onDownload || !data || data.length === 0}>
                     <DownloadIcon sx={{ fontSize: 20 }} />
                 </IconButton>
             </Box>

@@ -3,7 +3,7 @@ import { Paper, Typography, Table, TableBody, TableCell, TableContainer, TableHe
 import DownloadIcon from '@mui/icons-material/Download';
 import FlagIcon from '@mui/icons-material/Flag';
 
-const CapexDepartmentTable = ({ data, count, page, rowsPerPage, onPageChange, onRowsPerPageChange, orderBy, order, onRequestSort, selectedDept, onRowClick }) => {
+const CapexDepartmentTable = ({ data, count, page, rowsPerPage, onPageChange, onRowsPerPageChange, orderBy, order, onRequestSort, selectedDept, onRowClick, onDownload }) => {
     // Helper to format numbers (Always in MB)
     const formatMoney = (amount) => {
         const mb = amount / 1000000;
@@ -34,7 +34,7 @@ const CapexDepartmentTable = ({ data, count, page, rowsPerPage, onPageChange, on
                 <Typography variant="h6" sx={{ fontWeight: 'bold', color: 'secondary.main', bgcolor: '#f3e5f5', px: 2, py: 0.5, borderRadius: 2 }}>
                     Capex Department Status
                 </Typography>
-                <IconButton size="small" sx={{ color: 'primary.main' }}>
+                <IconButton size="small" onClick={onDownload} sx={{ color: 'primary.main' }} disabled={!onDownload || !data || data.length === 0}>
                     <DownloadIcon sx={{ fontSize: 20 }} />
                 </IconButton>
             </Box>

@@ -33,7 +33,8 @@ const ActualTable = React.memo(({
     rowsPerPage,
     totalCount,
     onPageChange,
-    onRowsPerPageChange
+    onRowsPerPageChange,
+    onDownload
 }) => {
     const [openFullScreen, setOpenFullScreen] = useState(false);
 
@@ -174,9 +175,9 @@ const ActualTable = React.memo(({
                     <IconButton onClick={() => setOpenFullScreen(true)} size="small" sx={{ color: '#424242' }}>
                         <FullscreenIcon />
                     </IconButton>
-                    <IconButton size="small" sx={{ color: '#424242' }}>
-                    <DownloadIcon sx={{ fontSize: 18 }} />
-                </IconButton>
+                    <IconButton size="small" onClick={onDownload} sx={{ color: '#424242' }} disabled={!onDownload || loading || data.length === 0}>
+                        <DownloadIcon sx={{ fontSize: 18 }} />
+                    </IconButton>
                 </Box>
                 </Box>
             </Box>

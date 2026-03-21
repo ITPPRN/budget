@@ -4,6 +4,7 @@ import api from '../../utils/api/axiosInstance';
 import { TotalBudgetCard, RemainingBudgetCard, DepartmentAlertCard } from '../Dashboard/BudgetStatsCard';
 import CapexDepartmentTable from '../Dashboard/CapexDepartmentTable';
 import BudgetChart from '../Dashboard/BudgetChart';
+import { downloadExcelFile } from '../../utils/exportUtils';
 
 const CapexSection = ({ globalEntity, orgStructure }) => {
     const [loading, setLoading] = useState(true);
@@ -97,6 +98,39 @@ const CapexSection = ({ globalEntity, orgStructure }) => {
         setPage(0);
     };
 
+    // --- Export Handlers ---
+    const handleCapexDeptStatusExport = async () => {
+        let syncConfig = JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}');
+        const actualYear = syncConfig.actualYear || new Date().getFullYear();
+        
+        const payload = {
+            entities: selectedEntity ? [selectedEntity] : [],
+            departments: selectedDepartment ? [selectedDepartment] : [],
+            year: String(actualYear),
+            budget_file_id: syncConfig.selectedBudget,
+            capex_file_id: syncConfig.selectedCapexBg,
+            capex_actual_file_id: syncConfig.selectedCapexActual,
+        };
+        
+        await downloadExcelFile('/export-capex-department-status-admin', payload, `Capex_Dept_Status_Report_${actualYear}.xlsx`);
+    };
+
+    const handleCapexVsActualExport = async () => {
+        let syncConfig = JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}');
+        const actualYear = syncConfig.actualYear || new Date().getFullYear();
+        
+        const payload = {
+            entities: selectedEntity ? [selectedEntity] : [],
+            departments: selectedDepartment ? [selectedDepartment] : [],
+            year: String(actualYear),
+            budget_file_id: syncConfig.selectedBudget,
+            capex_file_id: syncConfig.selectedCapexBg,
+            capex_actual_file_id: syncConfig.selectedCapexActual,
+        };
+        
+        await downloadExcelFile('/export-capex-budget-vs-actual-admin', payload, `Capex_Vs_Actual_Report_${actualYear}.xlsx`);
+    };
+
     return (
         <Box sx={{ mt: 6, mb: 4, width: '100%', borderTop: '1px dashed #ccc', pt: 4 }}>
             {/* Header & Filter */}
@@ -159,6 +193,7 @@ const CapexSection = ({ globalEntity, orgStructure }) => {
                         onRequestSort={handleRequestSort}
                         selectedDept={selectedDepartment}
                         onRowClick={handleDepartmentClick}
+                        onDownload={handleCapexDeptStatusExport}
                     />
                 </Box>
                 <Box sx={{ flex: 1, minWidth: 0, height: 500 }}>
@@ -166,6 +201,7 @@ const CapexSection = ({ globalEntity, orgStructure }) => {
                         data={chartData}
                         title="CAPEX Budget vs Actual"
                         selectedDept={selectedDepartment || "ALL"}
+                        onDownload={handleCapexVsActualExport}
                     />
                 </Box>
             </Stack>

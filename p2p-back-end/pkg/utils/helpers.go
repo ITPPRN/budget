@@ -3,10 +3,16 @@ package utils
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/go-redis/redis/v8"
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
+
+func isDigit(b byte) bool {
+	return b >= '0' && b <= '9'
+}
 
 func NeedsJoin(optional map[string]interface{}, fieldTableMapping map[string]string, tablePrefix string) bool {
 	for field := range optional {
@@ -56,23 +62,6 @@ func ClearAllCache(rdb redis.Cmdable) error {
 }
 
 // /////// auth ///////////
-func ConvertInterfaceSliceToStringSlice(slice []interface{}) []string {
-	strSlice := make([]string, len(slice))
-	for i, v := range slice {
-		// ต้องมั่นใจว่า v สามารถแปลงเป็น string ได้
-		strSlice[i] = v.(string)
-	}
-	return strSlice
-}
-
-func GetSafeString(claims map[string]interface{}, key string) string {
-	if v, ok := claims[key]; ok && v != nil {
-		if s, ok := v.(string); ok {
-			return s
-		}
-	}
-	return ""
-}
 
 // NaturalLess compares strings numerically where possible (e.g. "ADM1" < "ADM10")
 func NaturalLess(s1, s2 string) bool {
@@ -100,10 +89,6 @@ func NaturalLess(s1, s2 string) bool {
 	return len(s1) < len(s2)
 }
 
-func isDigit(b byte) bool {
-	return b >= '0' && b <= '9'
-}
-
 func parseNum(s string, start int) (int, int) {
 	end := start
 	val := 0
@@ -112,4 +97,14 @@ func parseNum(s string, start int) (int, int) {
 		end++
 	}
 	return val, end
+}
+
+// GetTimestamp returns current time in YYYYMMDDHHMMSS format
+func GetTimestamp() string {
+	return strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(time.Now().Format("2006-01-02 15:04:05"), "-", ""), ":", ""), " ", "")
+}
+
+// ToDecimal converts float64 to decimal safely
+func ToDecimal(f float64) decimal.Decimal {
+	return decimal.NewFromFloat(f)
 }

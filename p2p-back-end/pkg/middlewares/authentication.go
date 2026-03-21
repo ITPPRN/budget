@@ -142,6 +142,7 @@ func processAuthenticatedUser(c *fiber.Ctx, authSrv models.AuthService, user *mo
 	}
 
 	c.Locals("user", profile)
+	c.Locals("userID", profile.ID)
 
 	// Call the wrapped handler if provided
 	if handler != nil {

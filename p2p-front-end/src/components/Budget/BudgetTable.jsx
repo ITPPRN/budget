@@ -21,7 +21,7 @@ import DownloadIcon from '@mui/icons-material/Download';
 
 const months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
 
-const BudgetTable = React.memo(({ loading, data, selectedCount }) => {
+const BudgetTable = React.memo(({ loading, data, selectedCount, onDownload }) => {
     const [openFullScreen, setOpenFullScreen] = React.useState(false);
     const [page, setPage] = React.useState(0);
     const [rowsPerPage, setRowsPerPage] = React.useState(10);
@@ -139,7 +139,7 @@ const BudgetTable = React.memo(({ loading, data, selectedCount }) => {
                 <IconButton onClick={() => setOpenFullScreen(true)} size="small" sx={{ color: '#424242' }}>
                     <FullscreenIcon />
                 </IconButton>
-                <IconButton size="small" sx={{ color: '#424242' }}>
+                <IconButton size="small" onClick={onDownload} sx={{ color: '#424242' }} disabled={!onDownload || loading || data.length === 0}>
                     <DownloadIcon sx={{ fontSize: 18 }} />
                 </IconButton>
                 </Box>

@@ -26,6 +26,7 @@ import ErrorBoundary from '../../components/ErrorBoundary';
 import { BudgetProvider, useBudget } from '../../contexts/BudgetContext';
 import FilterPane from '../../components/Budget/FilterPane';
 import { toast } from 'react-toastify';
+import { downloadExcelFile } from '../../utils/exportUtils';
 
 // Calculate formatter
 const formatCurrency = (value) => {
@@ -378,6 +379,51 @@ const OwnerDashboardContent = () => {
         return summary.chartData;
     }, [summary.chartData, chartMode]);
 
+    // --- Export Handlers ---
+    const handleOwnerBudgetVsActualExport = async () => {
+        let syncConfig = JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}');
+        const payload = {
+            entities: selectedCompany && selectedCompany !== 'All' ? [selectedCompany] : [],
+            branches: selectedBranch && selectedBranch !== 'All' ? [selectedBranch] : [],
+            departments: selectedDept && selectedDept !== 'All' ? [selectedDept] : [],
+            conso_gls: Array.from(selectedLeaves).map(id => id.split('|')[0]).filter(code => code !== ""),
+            year: String(syncConfig.actualYear || new Date().getFullYear()),
+            months: Array.isArray(syncConfig.selectedMonths) ? syncConfig.selectedMonths : [],
+            budget_file_id: syncConfig.selectedBudget,
+            capex_file_id: syncConfig.selectedCapexBg,
+            capex_actual_file_id: syncConfig.selectedCapexActual,
+        };
+        await downloadExcelFile('/export-budget-vs-actual-owner', payload, `Owner_Budget_Vs_Actual_${payload.year}.xlsx`);
+    };
+
+    const handleOwnerTopExpenseExport = async () => {
+        let syncConfig = JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}');
+        const payload = {
+            entities: selectedCompany && selectedCompany !== 'All' ? [selectedCompany] : [],
+            branches: selectedBranch && selectedBranch !== 'All' ? [selectedBranch] : [],
+            departments: selectedDept && selectedDept !== 'All' ? [selectedDept] : [],
+            year: String(syncConfig.actualYear || new Date().getFullYear()),
+            months: Array.isArray(syncConfig.selectedMonths) ? syncConfig.selectedMonths : [],
+            budget_file_id: syncConfig.selectedBudget,
+            capex_file_id: syncConfig.selectedCapexBg,
+            capex_actual_file_id: syncConfig.selectedCapexActual,
+        };
+        await downloadExcelFile('/export-top-expense-owner', payload, `Owner_Top_Expense_${payload.year}.xlsx`);
+    };
+
+    const handleOwnerCapexBudgetExport = async () => {
+        let syncConfig = JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}');
+        const payload = {
+            entities: selectedCompany && selectedCompany !== 'All' ? [selectedCompany] : [],
+            departments: selectedDept && selectedDept !== 'All' ? [selectedDept] : [],
+            year: String(syncConfig.actualYear || new Date().getFullYear()),
+            budget_file_id: syncConfig.selectedBudget,
+            capex_file_id: syncConfig.selectedCapexBg,
+            capex_actual_file_id: syncConfig.selectedCapexActual,
+        };
+        await downloadExcelFile('/export-capex-budget-owner', payload, `Owner_Capex_Budget_${payload.year}.xlsx`);
+    };
+
     // Optimized Loading State: Only block IF we have absolutely NO data and NO year yet.
     // If we have a year (from localStorage), let the UI render.
     if (loading && !selectedYear) {
@@ -614,7 +660,7 @@ const OwnerDashboardContent = () => {
                                                    <FilterAltIcon sx={{ fontSize: 18 }} />
                                                 </Badge>
                                             </IconButton>
-                                            <IconButton size="small" sx={{ bgcolor: '#4d6eff', color: 'white', '&:hover': { bgcolor: '#3d59cc' } }}>
+                                            <IconButton size="small" onClick={handleOwnerBudgetVsActualExport} sx={{ bgcolor: '#4d6eff', color: 'white', '&:hover': { bgcolor: '#3d59cc' } }}>
                                                 <DownloadIcon sx={{ fontSize: 18 }} />
                                             </IconButton>
                                         </Box>
@@ -660,9 +706,6 @@ const OwnerDashboardContent = () => {
                                         </Typography>
                                         <IconButton size="small" onClick={() => setIsTopExpenseExpanded(!isTopExpenseExpanded)} sx={{ bgcolor: '#4d6eff', color: 'white', '&:hover': { bgcolor: '#3d59cc' } }}>
                                             {isTopExpenseExpanded ? <ChevronRightIcon sx={{ fontSize: 20 }} /> : <ChevronLeftIcon sx={{ fontSize: 20 }} />}
-                                        </IconButton>
-                                        <IconButton size="small" sx={{ bgcolor: '#4d6eff', color: 'white', '&:hover': { bgcolor: '#3d59cc' } }}>
-                                            <DownloadIcon sx={{ fontSize: 20 }} />
                                         </IconButton>
                                     </Stack>
                                     <Box sx={{ flexGrow: 1, width: '100%', position: 'relative', minHeight: 280, display: 'flex', gap: 2 }}>
@@ -730,7 +773,7 @@ const OwnerDashboardContent = () => {
                                                 CAPEX Budget
                                             </Typography>
                                         </Stack>
-                                        <IconButton size="small" sx={{ color: 'white' }}>
+                                        <IconButton size="small" onClick={handleOwnerCapexBudgetExport} sx={{ color: 'white' }}>
                                             <DownloadIcon sx={{ fontSize: 22 }} />
                                         </IconButton>
                                     </Stack>

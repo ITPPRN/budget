@@ -17,6 +17,7 @@ import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
 import { useNavigate } from 'react-router-dom';
 import ErrorBoundary from '../components/ErrorBoundary';
 import FilterPane from '../components/Budget/FilterPane';
+import { downloadExcelFile } from '../utils/exportUtils';
 
 const gridItemStyle = { display: 'flex', flexDirection: 'column' }; // Re-add if missing or define inline
 
@@ -266,6 +267,50 @@ const HomePageContent = () => {
     }
   };
 
+  // --- Export Handlers ---
+  const handleDeptStatusExport = async () => {
+    let syncConfig = JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}');
+    const actualYear = syncConfig.actualYear || new Date().getFullYear();
+    const selectedMonths = Array.isArray(syncConfig.selectedMonths) ? syncConfig.selectedMonths : [];
+
+    const payload = {
+        entities: selectedEntity ? [selectedEntity] : [],
+        branches: selectedBranch ? [selectedBranch] : [],
+        departments: selectedDepartment ? [selectedDepartment] : [],
+        year: String(actualYear),
+        months: selectedMonths,
+        budget_file_id: syncConfig.selectedBudget,
+        capex_file_id: syncConfig.selectedCapexBg,
+        capex_actual_file_id: syncConfig.selectedCapexActual,
+    };
+    
+    await downloadExcelFile('/export-department-budget-status-admin', payload, `Dept_Status_Report_${actualYear}.xlsx`);
+  };
+
+  const handleBudgetVsActualExport = async () => {
+    let syncConfig = JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}');
+    const actualYear = syncConfig.actualYear || new Date().getFullYear();
+    const selectedMonths = Array.isArray(syncConfig.selectedMonths) ? syncConfig.selectedMonths : [];
+    
+    const contextDept = selectedDepartment;
+    const focusNavCode = selectedSubDept;
+    
+    const payload = {
+        entities: selectedEntity ? [selectedEntity] : [],
+        branches: selectedBranch ? [selectedBranch] : [],
+        departments: contextDept ? [contextDept] : [],
+        nav_codes: focusNavCode ? [focusNavCode] : [],
+        budget_gls: Array.from(selectedLeaves).map(id => id.split('|')[0]).filter(code => code !== ""),
+        year: String(actualYear),
+        months: selectedMonths,
+        budget_file_id: syncConfig.selectedBudget,
+        capex_file_id: syncConfig.selectedCapexBg,
+        capex_actual_file_id: syncConfig.selectedCapexActual,
+    };
+    
+    await downloadExcelFile('/export-budget-vs-actual-admin', payload, `Budget_Vs_Actual_Report_${actualYear}.xlsx`);
+  };
+
   // Format Helpers
   const formatMB = (val) => {
     const m = val / 1000000;
@@ -415,6 +460,7 @@ const HomePageContent = () => {
                 setSelectedSubDept('');
                 setPage(0);
               }}
+              onDownload={handleDeptStatusExport}
             />
           </Box>
 
@@ -424,6 +470,7 @@ const HomePageContent = () => {
               data={chartData}
               title="Budget vs Actual"
               selectedDept={selectedSubDept || selectedDepartment || "ALL"}
+              onDownload={handleBudgetVsActualExport}
             />
           </Box>
         </Stack>

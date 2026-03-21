@@ -4,7 +4,7 @@ import { Paper, Typography, Box, Chip, IconButton } from '@mui/material'; // Add
 import DownloadIcon from '@mui/icons-material/Download';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
-const BudgetChart = ({ data, title, selectedDept }) => {
+const BudgetChart = ({ data, title, selectedDept, onDownload }) => {
     return (
         <Paper sx={{ p: 2, height: '100%', width: '100%', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
@@ -18,7 +18,7 @@ const BudgetChart = ({ data, title, selectedDept }) => {
                         variant={selectedDept && selectedDept !== 'ALL' ? "filled" : "outlined"}
                         size="small" // Optional: makes it look neater
                     />
-                    <IconButton size="small" sx={{ color: 'primary.main' }}>
+                    <IconButton size="small" onClick={onDownload} sx={{ color: 'primary.main' }} disabled={!onDownload || !data || data.length === 0}>
                         <DownloadIcon sx={{ fontSize: 20 }} />
                     </IconButton>
                 </Box>

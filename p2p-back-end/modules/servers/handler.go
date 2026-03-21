@@ -11,9 +11,45 @@ import (
 	_capexCon "p2p-back-end/modules/capex/controller"
 	_ownerCon "p2p-back-end/modules/owner/controller"
 	"p2p-back-end/pkg/middlewares"
-
 	"github.com/gofiber/swagger"
+
 	_ "p2p-back-end/docs"
+
+	// Export Modules (Admin)
+	_bdEC "p2p-back-end/modules/exports/budget_detail_export/controller"
+	_bdES "p2p-back-end/modules/exports/budget_detail_export/service"
+	_bdER "p2p-back-end/modules/exports/budget_detail_export/repository"
+
+	_adEC "p2p-back-end/modules/exports/actual_detail_export/controller"
+	_adES "p2p-back-end/modules/exports/actual_detail_export/service"
+	_adER "p2p-back-end/modules/exports/actual_detail_export/repository"
+
+	_dbsEC "p2p-back-end/modules/exports/department_budget_status_export_admin/controller"
+	_dbsES "p2p-back-end/modules/exports/department_budget_status_export_admin/service"
+	_dbsER "p2p-back-end/modules/exports/department_budget_status_export_admin/repository"
+
+	_bvaEC "p2p-back-end/modules/exports/budget_vs_actual_export_admin/controller"
+	_bvaES "p2p-back-end/modules/exports/budget_vs_actual_export_admin/service"
+	_bvaER "p2p-back-end/modules/exports/budget_vs_actual_export_admin/repository"
+
+	_cdsEC "p2p-back-end/modules/exports/capex_department_status_export_admin/controller"
+	_cdsES "p2p-back-end/modules/exports/capex_department_status_export_admin/service"
+	_cdsER "p2p-back-end/modules/exports/capex_department_status_export_admin/repository"
+
+	_cvaEC "p2p-back-end/modules/exports/capex_budget_vs_actual_export_admin/controller"
+	_cvaES "p2p-back-end/modules/exports/capex_budget_vs_actual_export_admin/service"
+	_cvaER "p2p-back-end/modules/exports/capex_budget_vs_actual_export_admin/repository"
+
+	// Export Modules (Owner)
+	_bvaoEC "p2p-back-end/modules/exports/budgetvsactual_export_owner/controller"
+	_bvaoES "p2p-back-end/modules/exports/budgetvsactual_export_owner/service"
+	_bvaoER "p2p-back-end/modules/exports/budgetvsactual_export_owner/repository"
+
+
+
+	_cbeEC "p2p-back-end/modules/exports/capex_budget_export_owner/controller"
+	_cbeES "p2p-back-end/modules/exports/capex_budget_export_owner/service"
+	_cbeER "p2p-back-end/modules/exports/capex_budget_export_owner/repository"
 )
 
 func (s *server) Handlers() error {
@@ -52,6 +88,18 @@ func (s *server) Handlers() error {
 	ownerGroup := v1.Group("/owner")
 	ownerGroup.Use(middlewares.JwtAuthentication(s.Shd.AuthService, nil))
 	_ownerCon.NewOwnerController(ownerGroup, s.Shd.OwnerService)
+
+	// --- Export Module Initialization ---
+	_bdEC.NewExportController(v1, _bdES.NewService(_bdER.NewRepository(s.Db)))
+	_adEC.NewExportController(v1, _adES.NewService(_adER.NewRepository(s.Db)))
+	_dbsEC.NewExportController(v1, _dbsES.NewService(_dbsER.NewRepository(s.Db)))
+	_bvaEC.NewExportController(v1, _bvaES.NewService(_bvaER.NewRepository(s.Db)))
+	_cdsEC.NewExportController(v1, _cdsES.NewService(_cdsER.NewRepository(s.Db)))
+	_cvaEC.NewExportController(v1, _cvaES.NewService(_cvaER.NewRepository(s.Db)))
+
+	_bvaoEC.NewExportController(v1, _bvaoES.NewService(_bvaoER.NewRepository(s.Db)))
+
+	_cbeEC.NewExportController(v1, _cbeES.NewService(_cbeER.NewRepository(s.Db)))
 
 	s.App.Use(func(c *fiber.Ctx) error {
 		return c.Status(fiber.ErrInternalServerError.Code).JSON(fiber.Map{

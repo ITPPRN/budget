@@ -5,6 +5,7 @@ import { BudgetProvider, useBudget } from '../contexts/BudgetContext';
 import FilterPane from '../components/Budget/FilterPane';
 import BudgetTable from '../components/Budget/BudgetTable';
 import ActualTable from '../components/Budget/ActualTable';
+import { downloadExcelFile } from '../utils/exportUtils';
 
 // Inner component that consumes the context
 const DetailContent = () => {
@@ -193,6 +194,59 @@ const DetailContent = () => {
     };
   }, [selectedLeaves, getAllLeafIds, actualDateFilter, selectedEntity, selectedBranch, selectedDepartment, actualPage, actualRowsPerPage]); // Add dependencies
 
+  // --- Export Handlers ---
+  const handleBudgetExport = async () => {
+    const idsToFetch = selectedLeaves.size > 0
+        ? Array.from(selectedLeaves).map(id => id.split('|')[0]).filter(code => code !== "")
+        : [];
+        
+    let syncConfig = JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}');
+    const actualYear = syncConfig.actualYear || new Date().getFullYear();
+    const selectedMonths = Array.isArray(syncConfig.selectedMonths) ? syncConfig.selectedMonths : [];
+
+    const payload = {
+        conso_gls: idsToFetch,
+        entities: selectedEntity ? [selectedEntity] : [],
+        branches: selectedBranch ? [selectedBranch] : [],
+        departments: selectedDepartment ? [selectedDepartment] : [],
+        year: String(actualYear),
+        months: selectedMonths,
+        budget_file_id: syncConfig.selectedBudget,
+        capex_file_id: syncConfig.selectedCapexBg,
+        capex_actual_file_id: syncConfig.selectedCapexActual,
+        // No pagination for export
+    };
+
+    await downloadExcelFile('/export-budget-detail', payload, `Budget_Detail_Report_${actualYear}.xlsx`);
+  };
+
+  const handleActualExport = async () => {
+    const idsToFetch = selectedLeaves.size > 0
+        ? Array.from(selectedLeaves).map(id => id.split('|')[0]).filter(code => code !== "")
+        : [];
+        
+    let syncConfig = JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}');
+    const actualYear = syncConfig.actualYear || new Date().getFullYear();
+    const selectedMonths = Array.isArray(syncConfig.selectedMonths) ? syncConfig.selectedMonths : [];
+
+    const payload = {
+        conso_gls: idsToFetch,
+        start_date: actualDateFilter.startDate,
+        end_date: actualDateFilter.endDate,
+        entities: selectedEntity ? [selectedEntity] : [],
+        branches: selectedBranch ? [selectedBranch] : [],
+        departments: selectedDepartment ? [selectedDepartment] : [],
+        year: String(actualYear),
+        months: selectedMonths,
+        budget_file_id: syncConfig.selectedBudget,
+        capex_file_id: syncConfig.selectedCapexBg,
+        capex_actual_file_id: syncConfig.selectedCapexActual,
+        // No pagination for export
+    };
+
+    await downloadExcelFile('/export-actual-detail', payload, `Actual_Detail_Report_${actualYear}.xlsx`);
+  };
+
   return (
     <Box sx={{ p: 2, height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
@@ -287,6 +341,7 @@ const DetailContent = () => {
             loading={loadingDetails}
             data={budgetDetails}
             selectedCount={selectedLeaves.size}
+            onDownload={handleBudgetExport}
           />
 
           {/* Bottom: Actual Table */}
@@ -300,6 +355,7 @@ const DetailContent = () => {
             totalCount={actualTotalCount}
             onPageChange={setActualPage}
             onRowsPerPageChange={setActualRowsPerPage}
+            onDownload={handleActualExport}
           />
         </Box>
 
