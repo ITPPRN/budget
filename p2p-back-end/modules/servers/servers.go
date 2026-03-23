@@ -22,6 +22,7 @@ package servers
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/Nerzal/gocloak/v13"
@@ -48,6 +49,7 @@ type server struct {
 	Cron      *cron.Cron
 	MqConn    *amqp.Connection
 	MqChannel *amqp.Channel
+	SyncMutex sync.Mutex
 
 	Shd *SharedDeps
 }
@@ -128,16 +130,31 @@ func (s *server) Start() {
 func (s *server) startRabbitMQ() {
 	go func() {
 		for {
+			if s.MqConn == nil || s.MqConn.IsClosed() {
+				time.Sleep(5 * time.Second)
+				continue
+			}
+
 			logs.Info("🐰 RabbitMQ: Attempting to setup consumer...")
 
+			// Create a dedicated channel for Consumer to avoid protocol interference with Producer
+			ch, err := s.MqConn.Channel()
+			if err != nil {
+				logs.Error("Failed to open consumer channel", zap.Error(err))
+				time.Sleep(5 * time.Second)
+				continue
+			}
+
 			// 1. ตั้งค่า QoS
-			if err := s.MqChannel.Qos(10, 0, false); err != nil {
+			if err := ch.Qos(10, 0, false); err != nil {
+				ch.Close()
 				logs.Fatal("Failed to set QoS", zap.Error(err))
 			}
 
 			// 2. Declare Queue และ Bind
-			q, err := s.MqChannel.QueueDeclare("p2p_service_sync_queue", true, false, false, false, nil)
+			q, err := ch.QueueDeclare("p2p_service_sync_queue", true, false, false, false, nil)
 			if err != nil {
+				ch.Close()
 				logs.Error("Failed to declare queue", zap.Error(err))
 				time.Sleep(5 * time.Second)
 				continue
@@ -151,21 +168,23 @@ func (s *server) startRabbitMQ() {
 				"autocorp.user.change",
 			}
 			for _, key := range keys {
-				if err := s.MqChannel.QueueBind(q.Name, key, "authen_event_topic", false, nil); err != nil {
+				if err := ch.QueueBind(q.Name, key, "authen_event_topic", false, nil); err != nil {
+					ch.Close()
 					logs.Fatal(fmt.Sprintf("Failed to bind queue %s to key %s", q.Name, key), zap.Error(err))
 				}
 			}
 
 			// 3. เริ่มฟังข้อความ
-			msgs, err := s.MqChannel.Consume(q.Name, "", false, false, false, false, nil)
+			msgs, err := ch.Consume(q.Name, "", false, false, false, false, nil)
 			if err != nil {
+				ch.Close()
 				logs.Error("Failed to start consuming", zap.Error(err))
 				time.Sleep(5 * time.Second)
 				continue
 			}
 
 			// ดักจับตอนหลุด
-			notifyClose := s.MqChannel.NotifyClose(make(chan *amqp.Error))
+			notifyClose := ch.NotifyClose(make(chan *amqp.Error))
 
 			// 4. รัน Consumer loop
 			go func() {
@@ -176,9 +195,8 @@ func (s *server) startRabbitMQ() {
 
 			// Block รอจนกว่า Channel จะล่ม
 			errClose := <-notifyClose
-			logs.Warn("❌ RabbitMQ Channel closed. Retrying connection...", zap.Error(errClose))
-
-			s.reconnectChannel()
+			logs.Warn("❌ RabbitMQ Consumer Channel closed. Retrying...", zap.Error(errClose))
+			ch.Close()
 		}
 	}()
 }

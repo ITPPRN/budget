@@ -101,6 +101,15 @@ func LoadConfigs(cfg *Config) {
 	cfg.RabbitMQ.Password = setData(RabbitMqPassword)
 	cfg.RabbitMQ.VHost = setData(RabbitMqVHost)
 
+	// การตั้งค่าสำหรับ PostgreSQL (DW Source)
+	cfg.Postgres2.Host = setData(Postgres2Host)
+	cfg.Postgres2.Port = setData(Postgres2Port)
+	cfg.Postgres2.Username = setData(Postgres2Username)
+	cfg.Postgres2.Password = setData(Postgres2Password)
+	cfg.Postgres2.DatabaseName = setData(Postgres2Database)
+	cfg.Postgres2.Schema = setData(Postgres2Schema)
+	cfg.Postgres2.SslMode = setData(Postgres2SslMode)
+
 	printLog(cfg)
 }
 
@@ -122,6 +131,10 @@ func printLog(cfg *Config) {
 		RabbitMqPort:     cfg.RabbitMQ.Port,
 		RabbitMqUsername: cfg.RabbitMQ.Username,
 		RabbitMqVHost:    cfg.RabbitMQ.VHost,
+
+		// Source DW
+		Postgres2Host:     cfg.Postgres2.Host,
+		Postgres2Database: cfg.Postgres2.DatabaseName,
 	}
 
 	for key, value := range fields {

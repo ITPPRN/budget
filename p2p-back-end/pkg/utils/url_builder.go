@@ -24,6 +24,16 @@ func UrlBuilder(urlType string, cfg *configs.Config) (string, error) {
 			cfg.Postgres.SslMode,
 			10, // 10 seconds timeout
 		)
+	case "central_postgres":
+		url = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s connect_timeout=%d TimeZone=Asia/Bangkok",
+			cfg.Postgres2.Host,
+			cfg.Postgres2.Port,
+			cfg.Postgres2.Username,
+			cfg.Postgres2.Password,
+			cfg.Postgres2.DatabaseName,
+			cfg.Postgres2.SslMode,
+			20, // Higher timeout for DW
+		)
 
 	case "redis":
 		url = fmt.Sprintf("%s:%s", cfg.Redis.Host, cfg.Redis.Port)

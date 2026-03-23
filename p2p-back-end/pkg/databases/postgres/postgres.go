@@ -106,6 +106,7 @@ func getModelsToMigrate() []interface{} {
 
 		// Centralized Transaction Table
 		&models.ActualTransactionEntity{},
-		&models.GeneralLedgerEntriesClik{},
+		&models.AchHmwGleEntity{},
+		&models.ClikGleEntity{},
 	}
 }

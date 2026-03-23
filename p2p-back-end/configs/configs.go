@@ -29,6 +29,15 @@ const (
 	RabbitMqUsername CfgKey = "RQ_USER"
 	RabbitMqPassword CfgKey = "RQ_PASS"
 	RabbitMqVHost    CfgKey = "RQ_VHOST"
+
+	// Secondary DB (Data Warehouse)
+	Postgres2Host     CfgKey = "DB2_HOST"
+	Postgres2Port     CfgKey = "DB2_PORT"
+	Postgres2Username CfgKey = "DB2_USER"
+	Postgres2Password CfgKey = "DB2_PASSWORD"
+	Postgres2Database CfgKey = "DB2_NAME"
+	Postgres2Schema   CfgKey = "DB2_SCHEMA"
+	Postgres2SslMode  CfgKey = "DB2_SSLMODE"
 )
 
 type Config struct {

@@ -19,6 +19,8 @@ import (
 	_userReLo "p2p-back-end/modules/users/repository/local"
 	_userReSou "p2p-back-end/modules/users/repository/source"
 	_userSer "p2p-back-end/modules/users/service"
+	_extSyncRe "p2p-back-end/modules/external_sync/repository"
+	_extSyncSer "p2p-back-end/modules/external_sync/service"
 )
 
 type SharedDeps struct {
@@ -34,6 +36,7 @@ type SharedDeps struct {
 	OwnerService       models.OwnerService
 	ConsumerController models.ConsumerController
 	UserService        models.UsersService
+	ExternalSyncService models.ExternalSyncService
 }
 
 func initSharedDeps(s *server) *SharedDeps {
@@ -79,6 +82,13 @@ func initSharedDeps(s *server) *SharedDeps {
 	ownerRepo := _ownerRe.NewOwnerRepository(s.Db)
 	ownerService := _ownerSer.NewOwnerService(ownerRepo, authService, capexService)
 
+	// --- External Sync Module (DW) ---
+	var externalSyncService models.ExternalSyncService
+	if s.Db2 != nil {
+		extSyncRepo := _extSyncRe.NewExternalSyncRepository(s.Db, s.Db2)
+		externalSyncService = _extSyncSer.NewExternalSyncService(extSyncRepo, actualService)
+	}
+
 	// --- Consumer Module ---
 	var consumerController models.ConsumerController
 	if userService != nil && masterService != nil {
@@ -98,5 +108,6 @@ func initSharedDeps(s *server) *SharedDeps {
 		OwnerService:       ownerService,
 		ConsumerController: consumerController,
 		UserService:        userService,
+		ExternalSyncService: externalSyncService,
 	}
 }

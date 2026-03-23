@@ -37,6 +37,9 @@ func (s *server) StartCronJob() {
 	// 2. Job: Tier 2 - Full Maintenance Sync (Daily @ 02:00 AM)
 	// Synchronize all data from 2025 to Present to ensure full consistency during off-peak hours.
 	if _, err := s.Cron.AddFunc("0 2 * * *", func() {
+		s.SyncMutex.Lock()
+		defer s.SyncMutex.Unlock()
+
 		logs.Info("⏰ Tier 2 Job: Full Maintenance Sync Started")
 
 		startYear := 2025
@@ -86,6 +89,23 @@ func (s *server) StartCronJob() {
 			// Also push our own local data if anyone is listening
 			s.Shd.MasterService.BroadcastAllData(context.Background())
 		}()
+	}
+
+	// 4. Job: DW Auto-Sync (Scheduled Daily @ Midnight)
+	if s.Shd.ExternalSyncService != nil {
+		// --- Scheduled Job ---
+		if _, err := s.Cron.AddFunc("0 0 * * *", func() {
+			s.SyncMutex.Lock()
+			defer s.SyncMutex.Unlock()
+
+			logs.Info("⏰ Job: DW Auto-Sync Started (Daily @ Midnight)")
+			if err := s.Shd.ExternalSyncService.SyncFromDW(context.Background()); err != nil {
+				logs.Errorf("Job: DW Auto-Sync Failed: %v", err)
+			}
+			logs.Info("⏰ Job: DW Auto-Sync Completed")
+		}); err != nil {
+			logs.Fatal(fmt.Sprintf("Failed to register DW Sync Cron Job: %v", err))
+		}
 	}
 
 	// Start the Cron scheduler

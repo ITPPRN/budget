@@ -260,7 +260,8 @@ func (s *departmentService) ManageDepartments(ctx context.Context) error {
 			}
 
 			if !fixed {
-				logs.Warnf("   -> Fix Failed: User %s (%s) has no valid granular department match for code '%s'.", u.Username, u.NameTh, targetDeptCode)
+				// Comment out to reduce log spam as requested by user
+				// logs.Warnf("   -> Fix Failed: User %s (%s) has no valid granular department match for code '%s'.", u.Username, u.NameTh, targetDeptCode)
 			}
 		}
 	}

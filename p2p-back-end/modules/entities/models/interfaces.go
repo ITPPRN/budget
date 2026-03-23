@@ -210,6 +210,18 @@ type ActualService interface {
 	GetRawDate(ctx context.Context) (string, error)
 }
 
+// 6. External Sync Domain (NAV/DW)
+type ExternalSyncRepository interface {
+	FetchHMWInBatches(ctx context.Context, year int, month int, batchSize int, handle func([]AchHmwGleEntity) error) error
+	FetchCLIKInBatches(ctx context.Context, year int, month int, batchSize int, handle func([]ClikGleEntity) error) error
+	UpsertHMWLocal(ctx context.Context, data []AchHmwGleEntity) error
+	UpsertCLIKLocal(ctx context.Context, data []ClikGleEntity) error
+}
+
+type ExternalSyncService interface {
+	SyncFromDW(ctx context.Context) error
+}
+
 // 4. Master Data Domain
 type MasterDataRepository interface {
 	WithTrx(trxHandle func(repo MasterDataRepository) error) error

@@ -152,7 +152,7 @@ func (r *actualRepository) GetAggregatedHMW(ctx context.Context, year string, mo
 		query = query.Where("UPPER(TO_CHAR(\"Posting_Date\"::DATE, 'MON')) IN ?", months)
 	}
 
-	if err := query.Group(`company, branch, "Global_Dimension_1_Code", "G_L_Account_No", "G_L_Account_Name", "Vendor_Name", UPPER(TO_CHAR("Posting_Date\"::DATE, 'MON'))`).
+	if err := query.Group(`company, branch, "Global_Dimension_1_Code", "G_L_Account_No", "G_L_Account_Name", "Vendor_Name", UPPER(TO_CHAR("Posting_Date"::DATE, 'MON'))`).
 		Scan(&results).Error; err != nil {
 		return nil, fmt.Errorf("actualRepo.GetAggregatedHMW: %w", err)
 	}
@@ -165,7 +165,7 @@ func (r *actualRepository) GetRawTransactionsHMW(ctx context.Context, year strin
 		Select(`
 			'HMW' as source,
 			TO_CHAR("Posting_Date"::DATE, 'YYYY-MM-DD') as posting_date,
-			"Document_No" as doc_no,
+			"Document_No" as doc_no, 
 			"Description" as description, 
 			"G_L_Account_No" as entity_gl,
 			"G_L_Account_Name" as gl_account_name,
