@@ -39,6 +39,7 @@ const DataManagePage = () => {
   const [actualYear, setActualYear] = useState('');
   const [selectedMonths, setSelectedMonths] = useState([]);
   const [actualYears, setActualYears] = useState([]);
+  const [availableMonths, setAvailableMonths] = useState([]); // New: Months with data
 
   const [open, setOpen] = useState(false);
   const [modalType, setModalType] = useState(''); // 'BUDGET', 'CAPEX_BG', 'CAPEX_ACTUAL'
@@ -82,6 +83,25 @@ const DataManagePage = () => {
   useEffect(() => {
     fetchAllVersions();
   }, []);
+
+  // --- Fetch Available Months when year changes ---
+  const fetchAvailableMonths = useCallback(async (year) => {
+    if (!year) {
+      setAvailableMonths([]);
+      return;
+    }
+    try {
+      const res = await api.get(`/budgets/available-months?year=${year}`);
+      setAvailableMonths(res.data || []);
+    } catch (error) {
+      console.error("Failed to fetch available months:", error);
+      setAvailableMonths([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchAvailableMonths(actualYear);
+  }, [actualYear, fetchAvailableMonths]);
 
   // --- Handlers ---
   const handleOpenModal = (type, title) => {
@@ -192,7 +212,8 @@ const DataManagePage = () => {
     if (selectedMonths.length > 0 && selectedMonths[selectedMonths.length - 1] === month) {
       setSelectedMonths([]);
     } else {
-      const newSelected = MONTHS.slice(0, monthIdx + 1);
+      // Select range from JAN up to clicked month, but ONLY include months that have data
+      const newSelected = MONTHS.slice(0, monthIdx + 1).filter(m => availableMonths.includes(m));
       setSelectedMonths(newSelected);
     }
   };
@@ -531,12 +552,15 @@ const DataManagePage = () => {
               }}>
                 {MONTHS.map((month) => {
                   const isSelected = selectedMonths.includes(month);
+                  const isAvailable = availableMonths.includes(month);
+
                   return (
                     <Button
                       key={month}
                       fullWidth
                       variant={isSelected ? "contained" : "outlined"}
                       onClick={() => toggleMonth(month)}
+                      disabled={!isAvailable} // Disable if no data
                       sx={{
                         height: '36px',
                         minWidth: 'auto',
@@ -545,11 +569,17 @@ const DataManagePage = () => {
                         fontSize: '0.75rem',
                         fontWeight: isSelected ? 'bold' : 500,
                         bgcolor: isSelected ? '#043478' : 'white',
-                        color: isSelected ? 'white' : '#043478',
-                        borderColor: isSelected ? 'transparent' : '#eceff1',
+                        color: isSelected ? 'white' : (isAvailable ? '#043478' : '#bdbdbd'), // Dim text if unavailable
+                        borderColor: isSelected ? 'transparent' : (isAvailable ? '#eceff1' : '#f5f5f5'),
                         '&:hover': {
-                          bgcolor: isSelected ? '#043478' : '#f5f5f5',
-                          borderColor: '#043478'
+                          bgcolor: isSelected ? '#043478' : (isAvailable ? '#f5f5f5' : 'white'),
+                          borderColor: isAvailable ? '#043478' : '#f5f5f5'
+                        },
+                        '&.Mui-disabled': {
+                          bgcolor: '#f5f5f5',
+                          color: '#bdbdbd',
+                          borderColor: '#f5f5f5',
+                          opacity: 0.7
                         }
                       }}
                     >

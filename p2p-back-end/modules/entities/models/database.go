@@ -382,6 +382,7 @@ type ActualTransactionEntity struct {
 	Description string          `json:"description"`
 	Amount      decimal.Decimal `gorm:"type:decimal(20,2)" json:"amount"`
 	VendorName  string          `json:"vendor"`
+	GLAccountName string        `json:"gl_account_name"`
 
 	// Dimensional Data (Mapped/Centralized)
 	Entity     string `gorm:"index" json:"entity"`
@@ -407,6 +408,15 @@ type UserConfigEntity struct {
 }
 
 func (UserConfigEntity) TableName() string { return "user_config_entities" }
+
+// DataInventoryEntity tracks years and months that have data in staging tables
+type DataInventoryEntity struct {
+	Year      string    `gorm:"primaryKey;index" json:"year"`
+	Month     string    `gorm:"primaryKey;index" json:"month"` // JAN, FEB...
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func (DataInventoryEntity) TableName() string { return "data_inventory_entities" }
 
 // --- Source (Central) Entities & DTOs ---
 

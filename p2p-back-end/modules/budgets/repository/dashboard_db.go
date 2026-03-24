@@ -222,9 +222,18 @@ func (r *dashboardRepository) GetActualTransactions(ctx context.Context, filter 
 			actual_transaction_entities.doc_no as doc_no,
 			actual_transaction_entities.vendor_name as vendor,
 			actual_transaction_entities.description,
-			actual_transaction_entities.entity_gl as gl_account_no,
+			COALESCE(
+				NULLIF(mapping.conso_gl, ''),
+				NULLIF((SELECT conso_gl FROM gl_mapping_entities WHERE entity_gl = actual_transaction_entities.entity_gl AND conso_gl != '' LIMIT 1), ''),
+				actual_transaction_entities.entity_gl
+			) as gl_account_no,
 			actual_transaction_entities.conso_gl as conso_gl,
-			mapping.account_name as gl_account_name,
+			COALESCE(
+				NULLIF(mapping.account_name, ''),
+				NULLIF((SELECT account_name FROM gl_mapping_entities WHERE entity_gl = actual_transaction_entities.entity_gl AND account_name != '' LIMIT 1), ''),
+				NULLIF(actual_transaction_entities.gl_account_name, ''),
+				'Unmapped GL'
+			) as gl_account_name,
 			actual_transaction_entities.amount,
 			actual_transaction_entities.department,
 			actual_transaction_entities.entity as company,
@@ -447,9 +456,8 @@ func (r *dashboardRepository) GetDashboardAggregates(ctx context.Context, filter
 	fmt.Printf("[DEBUG] Aggregates Budget Count: %d, SQL: %s\n", len(budgetDept), tx1.ToSQL(func(tx *gorm.DB) *gorm.DB { return tx }))
 
 	// Actual
-	// Actual
 	var actualDept []DeptResult
-	tx2 := r.db.Model(&models.ActualFactEntity{})
+	tx2 := r.db.Model(&models.ActualFactEntity{}).Select(selectCol + ", SUM(actual_fact_entities.year_total) as total")
 
 	// If months filter is provided, we must sum from the amount table instead of using year_total
 	if val, ok := filter["months"]; ok {
@@ -459,12 +467,12 @@ func (r *dashboardRepository) GetDashboardAggregates(ctx context.Context, filter
 				Joins("JOIN actual_amount_entities ON actual_amount_entities.actual_fact_id = actual_fact_entities.id").
 				Where("actual_amount_entities.month IN ?", mstrs)
 		} else {
-			// Strict Month Filter: No months = 0 actual
-			tx2 = tx2.Where("1 = 0")
+			// No months selected: set total to 0 explicitly to avoid SQL errors
+			tx2 = tx2.Select(selectCol + ", 0 as total").Where("1 = 0")
 		}
 	} else {
-		// Strict Month Filter: No months = 0 actual
-		tx2 = tx2.Where("1 = 0")
+		// No month filter: Use the pre-aggregated year_total (Default behavior)
+		// No changes needed, tx2 already has the default Select
 	}
 
 	tx2 = applyFilter(tx2, "actual_fact_entities")
@@ -677,4 +685,21 @@ func (r *dashboardRepository) GetActualYears(ctx context.Context) ([]string, err
 		return nil, fmt.Errorf("dashboardRepo.GetActualYears: %w", err)
 	}
 	return years, nil
+}
+
+func (r *dashboardRepository) GetAvailableMonths(ctx context.Context, year string) ([]string, error) {
+	var months []string
+	// Query from the fast Data Inventory metadata table
+	if err := r.db.WithContext(ctx).Model(&models.DataInventoryEntity{}).
+		Where("year = ?", year).
+		Order(`CASE 
+			WHEN month = 'JAN' THEN 1 WHEN month = 'FEB' THEN 2 WHEN month = 'MAR' THEN 3
+			WHEN month = 'APR' THEN 4 WHEN month = 'MAY' THEN 5 WHEN month = 'JUN' THEN 6
+			WHEN month = 'JUL' THEN 7 WHEN month = 'AUG' THEN 8 WHEN month = 'SEP' THEN 9
+			WHEN month = 'OCT' THEN 10 WHEN month = 'NOV' THEN 11 WHEN month = 'DEC' THEN 12
+		END`).
+		Pluck("month", &months).Error; err != nil {
+		return nil, fmt.Errorf("dashboardRepo.GetAvailableMonths: %w", err)
+	}
+	return months, nil
 }

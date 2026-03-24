@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -271,4 +272,50 @@ func (r *actualRepository) GetRawDate(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("actualRepo.GetRawDate: %w", err)
 	}
 	return fmt.Sprintf("CLIK Date: %s", rawDate), nil
+}
+
+func (r *actualRepository) RefreshDataInventory(ctx context.Context) error {
+	// 1. Get all unique year-month pairs from staging tables
+	query := `
+		SELECT DISTINCT TO_CHAR("Posting_Date", 'YYYY') as year, UPPER(TO_CHAR("Posting_Date", 'MON')) as month FROM achhmw_gle_api
+		UNION
+		SELECT DISTINCT TO_CHAR("Posting_Date", 'YYYY') as year, UPPER(TO_CHAR("Posting_Date", 'MON')) as month FROM general_ledger_entries_clik
+	`
+	type yearMonth struct {
+		Year  string
+		Month string
+	}
+	var pairs []yearMonth
+	if err := r.db.WithContext(ctx).Raw(query).Scan(&pairs).Error; err != nil {
+		return fmt.Errorf("actualRepo.RefreshDataInventory.Scan: %w", err)
+	}
+
+	// 2. Clear old inventory and bulk insert new pairs
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// We use a full refresh approach for simplicity and accuracy
+		if err := tx.Exec("TRUNCATE TABLE data_inventory_entities").Error; err != nil {
+			return fmt.Errorf("actualRepo.RefreshDataInventory.Truncate: %w", err)
+		}
+
+		if len(pairs) > 0 {
+			var entities []models.DataInventoryEntity
+			now := time.Now()
+			for _, p := range pairs {
+				if p.Year == "" || p.Month == "" {
+					continue
+				}
+				entities = append(entities, models.DataInventoryEntity{
+					Year:      p.Year,
+					Month:     p.Month,
+					UpdatedAt: now,
+				})
+			}
+			if len(entities) > 0 {
+				if err := tx.CreateInBatches(entities, 500).Error; err != nil {
+					return fmt.Errorf("actualRepo.RefreshDataInventory.Create: %w", err)
+				}
+			}
+		}
+		return nil
+	})
 }

@@ -252,3 +252,7 @@ func (s *dashboardService) GetActualTransactions(ctx context.Context, filter map
 func (s *dashboardService) GetActualYears(ctx context.Context) ([]string, error) {
 	return s.repo.GetActualYears(ctx)
 }
+
+func (s *dashboardService) GetAvailableMonths(ctx context.Context, year string) ([]string, error) {
+	return s.repo.GetAvailableMonths(ctx, year)
+}

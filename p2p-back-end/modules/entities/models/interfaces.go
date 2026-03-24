@@ -202,12 +202,14 @@ type ActualRepository interface {
 	GetRawTransactionsCLIK(ctx context.Context, year string, months []string) ([]ActualTransactionDTO, error)
 	CreateActualTransactions(ctx context.Context, txs []ActualTransactionEntity) error
 	GetRawDate(ctx context.Context) (string, error)
+	RefreshDataInventory(ctx context.Context) error
 }
 
 type ActualService interface {
 	SyncActuals(ctx context.Context, year string, months []string) error
 	DeleteActualFacts(ctx context.Context, year string) error
 	GetRawDate(ctx context.Context) (string, error)
+	RefreshDataInventory(ctx context.Context) error
 }
 
 // 6. External Sync Domain (NAV/DW)
@@ -275,6 +277,7 @@ type DashboardRepository interface {
 	GetActualTransactions(ctx context.Context, filter map[string]interface{}) (*PaginatedActualTransactionDTO, error)
 	GetDashboardAggregates(ctx context.Context, filter map[string]interface{}) (*DashboardSummaryDTO, error)
 	GetActualYears(ctx context.Context) ([]string, error)
+	GetAvailableMonths(ctx context.Context, year string) ([]string, error)
 }
 
 type DashboardService interface {
@@ -286,6 +289,7 @@ type DashboardService interface {
 	GetDashboardSummary(ctx context.Context, filter map[string]interface{}) (*DashboardSummaryDTO, error)
 	GetActualTransactions(ctx context.Context, filter map[string]interface{}) (*PaginatedActualTransactionDTO, error)
 	GetActualYears(ctx context.Context) ([]string, error)
+	GetAvailableMonths(ctx context.Context, year string) ([]string, error)
 }
 
 // --- Owner ---

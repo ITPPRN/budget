@@ -10,6 +10,32 @@ import (
 
 func (s *server) StartCronJob() {
 	logs.Info("⏰ Initializing Cron Jobs...")
+ 
+	// 0. Job: Startup Sync (Run immediately on startup)
+	go func() {
+		s.SyncMutex.Lock()
+		defer s.SyncMutex.Unlock()
+ 
+		logs.Info("⏰ Job: Initial Startup Sync Started")
+		ctx := context.Background()
+		// 1. Full Maintenance Sync from 2025 to Present
+		startYear := 2025
+		currentYear := time.Now().Year()
+ 
+		for year := startYear; year <= currentYear; year++ {
+			yStr := fmt.Sprintf("%d", year)
+			logs.Infof("⏰ Job: Startup Sync - Syncing Full Year %s...", yStr)
+			if err := s.Shd.ActualService.SyncActuals(ctx, yStr, []string{}); err != nil {
+				logs.Errorf("Job: Startup Sync Failed for year %s: %v", yStr, err)
+			}
+		}
+ 
+		// Refresh Inventory Metadata
+		if err := s.Shd.ActualService.RefreshDataInventory(ctx); err != nil {
+			logs.Errorf("Job: Startup Sync Metadata Refresh Failed: %v", err)
+		}
+		logs.Info("⏰ Job: Initial Startup Sync Completed")
+	}()
 
 	// 1. Job: Tier 1 - Fast Sync (Every 5 mins)
 	// Sync only the current month of the current year for real-time reactivity.
@@ -25,6 +51,9 @@ func (s *server) StartCronJob() {
 		}
 		mName := monthMap[monCode]
 
+		s.SyncMutex.Lock()
+		defer s.SyncMutex.Unlock()
+ 
 		logs.Infof("⏰ Tier 1 Job: Fast-Sync Current Month (%s %s) Started", mName, yearStr)
 		if err := s.Shd.ActualService.SyncActuals(context.Background(), yearStr, []string{mName}); err != nil {
 			logs.Errorf("Tier 1 Job: Fast-Sync Failed: %v", err)
@@ -101,6 +130,11 @@ func (s *server) StartCronJob() {
 			logs.Info("⏰ Job: DW Auto-Sync Started (Daily @ Midnight)")
 			if err := s.Shd.ExternalSyncService.SyncFromDW(context.Background()); err != nil {
 				logs.Errorf("Job: DW Auto-Sync Failed: %v", err)
+			}
+
+			// Finalize: Refresh Data Inventory Metadata for Admin UI
+			if err := s.Shd.ActualService.RefreshDataInventory(context.Background()); err != nil {
+				logs.Errorf("Job: DW Auto-Sync Failed to refresh inventory: %v", err)
 			}
 			logs.Info("⏰ Job: DW Auto-Sync Completed")
 		}); err != nil {

@@ -66,6 +66,7 @@ func NewBudgetController(
 	router.Post("/details", controller.getBudgetDetails)
 	router.Post("/dashboard-summary", controller.getDashboardSummary) // New
 	router.Get("/actual-years", controller.getActualYears)            // New: Distinct Years
+	router.Get("/available-months", controller.getAvailableMonths)    // New: Available months for year
 	router.Get("/debug-date", controller.getDebugDate)                // Debug
 
 	// GL Mapping APIs
@@ -135,6 +136,19 @@ func (c *budgetController) getActualYears(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return ctx.JSON(years)
+}
+
+func (c *budgetController) getAvailableMonths(ctx *fiber.Ctx) error {
+	year := ctx.Query("year")
+	if year == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Year is required"})
+	}
+
+	months, err := c.dashSrv.GetAvailableMonths(ctx.UserContext(), year)
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	return ctx.JSON(months)
 }
 
 func (c *budgetController) getFilterOptions(ctx *fiber.Ctx) error {

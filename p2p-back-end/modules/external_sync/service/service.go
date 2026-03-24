@@ -62,10 +62,14 @@ func (s *externalSyncService) SyncFromDW(ctx context.Context) error {
 		}
 
 		// 3. Trigger Internal Actual Sync for this year after raw data update
-		logs.Infof("🔄 DW Sync: Triggering internal fact re-sync for year %d...", year)
 		yearStr := fmt.Sprintf("%d", year)
 		if err := s.actualSrv.SyncActuals(ctx, yearStr, []string{}); err != nil {
 			logs.Errorf("DW Sync: Internal Fact Sync failed for year %s: %v", yearStr, err)
+		}
+
+		// 4. Refresh Data Inventory Metadata for Admin UI
+		if err := s.actualSrv.RefreshDataInventory(ctx); err != nil {
+			logs.Errorf("DW Sync: Inventory Refresh failed: %v", err)
 		}
 	}
 

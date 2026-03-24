@@ -39,9 +39,17 @@ func (s *actualService) SyncActuals(ctx context.Context, year string, months []s
 		return fmt.Errorf("actualService.SyncActuals: %w", err)
 	}
 	mappingMap := make(map[string]models.GlMappingEntity)
+	globalMappingMap := make(map[string]models.GlMappingEntity) // Fallback for any company
 	for _, m := range mappings {
 		if m.IsActive {
-			mappingMap[m.EntityGL] = m
+			// Specific mapping: Company + GL
+			key := fmt.Sprintf("%s_%s", m.Entity, m.EntityGL)
+			mappingMap[key] = m
+			
+			// Global mapping: Just GL (Pick the first active one found)
+			if _, exists := globalMappingMap[m.EntityGL]; !exists {
+				globalMappingMap[m.EntityGL] = m
+			}
 		}
 	}
 
@@ -141,16 +149,37 @@ func (s *actualService) SyncActuals(ctx context.Context, year string, months []s
 				return fmt.Errorf("transaction.GetCLIKRows(%s): %w", mName, err)
 			}
 
+			totalRows := 0
+			mappedRows := 0
+			filteredRows := 0
+
 			var transactions []models.ActualTransactionEntity
 
 			processRowsBatch := func(rows []models.ActualTransactionDTO) {
 				for _, row := range rows {
-					mapping, ok := mappingMap[row.EntityGL]
+					company := mapToCode(row.Company, entityNameMap)
+					// 1. Look up specific mapping (Company + GL)
+					key := fmt.Sprintf("%s_%s", company, row.EntityGL)
+					mapping, ok := mappingMap[key]
+
+					// 2. If not found, look up global mapping (Any Company + GL)
 					if !ok {
+						mapping = globalMappingMap[row.EntityGL]
+					}
+
+					totalRows++
+
+					// NEW: Filter - Only sync if the GL is mapped (Exclude junk/unmapped GLs)
+					if mapping.ConsoGL == "" {
+						filteredRows++
 						continue
 					}
 
-					company := mapToCode(row.Company, entityNameMap)
+					mappedRows++
+
+					// We now have the best possible mapping (Specific > Global)
+
+
 					branch := mapToCode(row.Branch, branchNameMap)
 					deptCode := row.Department
 					lookupDept := normalize(row.Department)
@@ -171,17 +200,24 @@ func (s *actualService) SyncActuals(ctx context.Context, year string, months []s
 						Branch:      branch,
 						Department:  deptCode,
 						EntityGL:    row.EntityGL,
-						ConsoGL:     mapping.ConsoGL,
-						Year:        year,
+						ConsoGL:       mapping.ConsoGL,
+						Year:          year,
+						GLAccountName: row.GLAccountName,
 					})
 
 					// 2. Aggregate for Fact Table
 					if len(row.PostingDate) >= 7 {
 						monCode := row.PostingDate[5:7]
 						if mon, ok := monthToCodeMap[monCode]; ok {
+							// Determine GL Name: Use Mapped name if exists, else Original name
+							glName := mapping.AccountName
+							if glName == "" {
+								glName = row.GLAccountName
+							}
+
 							k := AggKey{
 								Entity: company, Branch: branch, Dept: deptCode, NavCode: row.Department,
-								EntityGL: row.EntityGL, ConsoGL: mapping.ConsoGL, GLName: mapping.AccountName,
+								EntityGL: row.EntityGL, ConsoGL: mapping.ConsoGL, GLName: glName,
 								VendorName: row.Vendor, Month: mon,
 							}
 							mergedFactMap[k] = mergedFactMap[k].Add(row.Amount)
@@ -192,6 +228,8 @@ func (s *actualService) SyncActuals(ctx context.Context, year string, months []s
 
 			processRowsBatch(hmwRows)
 			processRowsBatch(clikRows)
+
+			fmt.Printf("[Sync] Month %s Result: Total %d, Mapped %d, Filtered %d (Optimized)\n", mName, totalRows, mappedRows, filteredRows)
 
 			// 3. Save Transactions IMMEDIATELY to free memory
 			if len(transactions) > 0 {
@@ -254,6 +292,12 @@ func (s *actualService) SyncActuals(ctx context.Context, year string, months []s
 				}
 			}
 		}
+
+		// Update Data Inventory Metadata
+		if err := trxRepo.RefreshDataInventory(ctx); err != nil {
+			fmt.Printf("[WARN] Failed to refresh data inventory: %v\n", err)
+		}
+
 		return nil
 	})
 }
@@ -265,9 +309,15 @@ func (s *actualService) DeleteActualFacts(ctx context.Context, year string) erro
 	if err := s.repo.DeleteActualFactsByYear(ctx, year); err != nil {
 		return fmt.Errorf("actualService.DeleteActualFacts: %w", err)
 	}
+	// Refresh inventory after deletion
+	_ = s.repo.RefreshDataInventory(ctx)
 	return nil
 }
 
 func (s *actualService) GetRawDate(ctx context.Context) (string, error) {
 	return s.repo.GetRawDate(ctx)
+}
+
+func (s *actualService) RefreshDataInventory(ctx context.Context) error {
+	return s.repo.RefreshDataInventory(ctx)
 }

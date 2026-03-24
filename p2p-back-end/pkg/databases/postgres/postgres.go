@@ -108,5 +108,6 @@ func getModelsToMigrate() []interface{} {
 		&models.ActualTransactionEntity{},
 		&models.AchHmwGleEntity{},
 		&models.ClikGleEntity{},
+		&models.DataInventoryEntity{},
 	}
 }

@@ -19,7 +19,6 @@ package servers
 // @securityDefinitions.apikey ApiKeyAuth
 // @in header
 // @name Authorization
-
 import (
 	"fmt"
 	"sync"
@@ -102,7 +101,7 @@ func (s *server) Start() {
 	if err := s.Handlers(); err != nil {
 		logs.Fatal("Failed to setup handlers", zap.Error(err))
 	}
-
+ 
 	// --- Phase 2: RabbitMQ Resilience ---
 	if s.MqChannel != nil {
 		s.startRabbitMQ()
