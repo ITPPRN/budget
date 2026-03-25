@@ -325,18 +325,37 @@ func (r *capexRepositoryDB) GetCapexDashboardAggregates(ctx context.Context, fil
 
 	// Status Counts
 	var overBudgetCount, nearLimitCount int
+
+	// Thresholds from filter (Default: Red >= 100%, Yellow >= 80% [20% remaining])
+	redLimit := 100.0
+	yellowLimit := 80.0
+	if val, ok := filter["red_threshold"].(float64); ok && val > 0 {
+		redLimit = val
+	} else if val, ok := filter["red_threshold"].(int); ok && val > 0 {
+		redLimit = float64(val)
+	}
+	if val, ok := filter["yellow_threshold"].(float64); ok && val > 0 {
+		yellowLimit = val
+	} else if val, ok := filter["yellow_threshold"].(int); ok && val > 0 {
+		yellowLimit = float64(val)
+	}
+
 	for _, d := range allDepts {
 		budget := d.Budget
 		actual := d.Actual
-		remaining := budget - actual
 
-		if (budget == 0 && actual > 0) || remaining < 0 {
-			overBudgetCount++
-		} else if budget > 0 {
-			ratio := remaining / budget
-			if ratio <= 0.2 {
-				nearLimitCount++
+		if budget == 0 {
+			if actual > 0 {
+				overBudgetCount++
 			}
+			continue
+		}
+
+		spendPct := (actual / budget) * 100
+		if spendPct >= redLimit {
+			overBudgetCount++
+		} else if spendPct >= yellowLimit {
+			nearLimitCount++
 		}
 	}
 	summary.OverBudgetCount = overBudgetCount

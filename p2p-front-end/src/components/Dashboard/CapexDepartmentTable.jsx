@@ -3,7 +3,7 @@ import { Paper, Typography, Table, TableBody, TableCell, TableContainer, TableHe
 import DownloadIcon from '@mui/icons-material/Download';
 import FlagIcon from '@mui/icons-material/Flag';
 
-const CapexDepartmentTable = ({ data, count, page, rowsPerPage, onPageChange, onRowsPerPageChange, orderBy, order, onRequestSort, selectedDept, onRowClick, onDownload }) => {
+const CapexDepartmentTable = ({ data, count, page, rowsPerPage, onPageChange, onRowsPerPageChange, orderBy, order, onRequestSort, selectedDept, onRowClick, onDownload, onSettings, thresholds }) => {
     // Helper to format numbers (Always in MB)
     const formatMoney = (amount) => {
         const mb = amount / 1000000;
@@ -12,16 +12,18 @@ const CapexDepartmentTable = ({ data, count, page, rowsPerPage, onPageChange, on
 
     // Helper to determine status color based on usage
     const getStatusColor = (budget, used) => {
-        if (budget === 0) {
-            if (used > 0) return '#e74a3b';
-            return 'text.secondary';
-        }
-        const remaining = budget - used;
-        const remainingPercentage = (remaining / budget) * 100;
+        const redLimit = Number(thresholds?.red) || 100;
+        const yellowLimit = Number(thresholds?.yellow) || 80;
 
-        if (remaining < 0) return '#e74a3b';
-        if (remainingPercentage <= 20) return '#f6c23e';
-        return '#1cc88a';
+        if (budget === 0) {
+            if (used > 0) return '#e74a3b'; // Red
+            return '#1cc88a'; // Green
+        }
+        const spendPct = (used / budget) * 100;
+
+        if (spendPct >= redLimit) return '#e74a3b'; // Red
+        if (spendPct >= yellowLimit) return '#f6c23e'; // Yellow
+        return '#1cc88a'; // Green
     };
 
     const createSortHandler = (property) => (event) => {
@@ -34,9 +36,14 @@ const CapexDepartmentTable = ({ data, count, page, rowsPerPage, onPageChange, on
                 <Typography variant="h6" sx={{ fontWeight: 'bold', color: 'secondary.main', bgcolor: '#f3e5f5', px: 2, py: 0.5, borderRadius: 2 }}>
                     Capex Department Status
                 </Typography>
-                <IconButton size="small" onClick={onDownload} sx={{ color: 'primary.main' }} disabled={!onDownload || !data || data.length === 0}>
-                    <DownloadIcon sx={{ fontSize: 20 }} />
-                </IconButton>
+                <Box sx={{ display: 'flex', gap: 0.5 }}>
+                    <IconButton size="small" onClick={onSettings} sx={{ color: 'text.secondary' }}>
+                        <Typography sx={{ fontSize: '10px', mr: 0.5, fontWeight: 'bold' }}>SET</Typography>
+                    </IconButton>
+                    <IconButton size="small" onClick={onDownload} sx={{ color: 'primary.main' }} disabled={!onDownload || !data || data.length === 0}>
+                        <DownloadIcon sx={{ fontSize: 20 }} />
+                    </IconButton>
+                </Box>
             </Box>
 
             <TableContainer sx={{ flexGrow: 1, overflow: 'auto' }}>
@@ -75,13 +82,13 @@ const CapexDepartmentTable = ({ data, count, page, rowsPerPage, onPageChange, on
                                     Remaining
                                 </TableSortLabel>
                             </TableCell>
-                            <TableCell align="right" sortDirection={orderBy === 'remaining_pct' ? order : false} sx={{ fontWeight: 'bold', bgcolor: '#eaecf4', width: '10%', minWidth: '60px', padding: '6px 4px' }}>
+                            <TableCell align="right" sortDirection={orderBy === 'actual'} sx={{ fontWeight: 'bold', bgcolor: '#eaecf4', width: '10%', minWidth: '60px', padding: '6px 4px' }}>
                                 <TableSortLabel
-                                    active={orderBy === 'remaining_pct'}
-                                    direction={orderBy === 'remaining_pct' ? order : 'asc'}
-                                    onClick={createSortHandler('remaining_pct')}
+                                    active={orderBy === 'actual'}
+                                    direction={orderBy === 'actual' ? order : 'asc'}
+                                    onClick={createSortHandler('actual')}
                                 >
-                                    %
+                                    %spend
                                 </TableSortLabel>
                             </TableCell>
                         </TableRow>
@@ -114,8 +121,8 @@ const CapexDepartmentTable = ({ data, count, page, rowsPerPage, onPageChange, on
                                     <TableCell align="right" sx={{ color: remaining < 0 ? 'error.main' : 'success.main', fontWeight: 'bold', fontSize: '0.75rem' }}>
                                         {formatMoney(remaining)}
                                     </TableCell>
-                                    <TableCell align="right" sx={{ color: remaining < 0 ? 'error.main' : 'success.main', fontWeight: 'bold', fontSize: '0.75rem' }}>
-                                        {remainingPct.toFixed(2)}%
+                                    <TableCell align="right" sx={{ color: statusColor, fontWeight: 'bold', fontSize: '0.75rem' }}>
+                                        {budget > 0 ? (spending / budget * 100).toFixed(2) : (spending > 0 ? '100.00' : '0.00')}%
                                     </TableCell>
                                 </TableRow>
                             );

@@ -361,10 +361,28 @@ func (r *dashboardRepository) GetDashboardAggregates(ctx context.Context, filter
 				tx = tx.Where(tableName+".branch IN ?", strs)
 			}
 		}
-		// Added: Departments Filter
+		// Added: Departments Filter (Handles "None" for unmapped data)
 		if val, ok := filter["departments"]; ok {
 			if strs := toStringSlice(val); len(strs) > 0 {
-				tx = tx.Where(tableName+".department IN ?", strs)
+				hasNone := false
+				var filteredStrs []string
+				for _, s := range strs {
+					if strings.EqualFold(strings.TrimSpace(s), "None") {
+						hasNone = true
+					} else if s != "" {
+						filteredStrs = append(filteredStrs, s)
+					}
+				}
+
+				if hasNone {
+					if len(filteredStrs) > 0 {
+						tx = tx.Where("("+tableName+".department IN ? OR "+tableName+".department = '' OR "+tableName+".department IS NULL OR "+tableName+".department = 'None')", filteredStrs)
+					} else {
+						tx = tx.Where("("+tableName+".department = '' OR "+tableName+".department IS NULL OR "+tableName+".department = 'None')")
+					}
+				} else {
+					tx = tx.Where(tableName+".department IN ?", strs)
+				}
 			}
 		}
 		// Added: NavCodes Filter (For Sub-Department Drill-down)
@@ -521,20 +539,36 @@ func (r *dashboardRepository) GetDashboardAggregates(ctx context.Context, filter
 
 	// คำนวณสถานะภาพรวม (ก่อนแบ่งหน้า)
 	var overBudgetCount, nearLimitCount int
+
+	redLimit := 100.0
+	yellowLimit := 80.0
+	if val, ok := filter["red_threshold"].(float64); ok && val > 0 {
+		redLimit = val
+	} else if val, ok := filter["red_threshold"].(int); ok && val > 0 {
+		redLimit = float64(val)
+	}
+	if val, ok := filter["yellow_threshold"].(float64); ok && val > 0 {
+		yellowLimit = val
+	} else if val, ok := filter["yellow_threshold"].(int); ok && val > 0 {
+		yellowLimit = float64(val)
+	}
+
 	for _, d := range allDepts {
 		budget := d.Budget
 		actual := d.Actual
-		remaining := budget - actual
 
-		// เกินงบ: (Budget=0 & Actual>0) หรือ (คงเหลือ < 0)
-		if (budget == 0 && actual > 0) || remaining < 0 {
-			overBudgetCount++
-		} else if budget > 0 {
-			// ใกล้เต็ม: คงเหลือ < 20%
-			ratio := remaining / budget
-			if ratio <= 0.2 {
-				nearLimitCount++
+		if budget == 0 {
+			if actual > 0 {
+				overBudgetCount++
 			}
+			continue
+		}
+
+		spendPct := (actual / budget) * 100
+		if spendPct >= redLimit {
+			overBudgetCount++
+		} else if spendPct >= yellowLimit {
+			nearLimitCount++
 		}
 	}
 	summary.OverBudgetCount = overBudgetCount

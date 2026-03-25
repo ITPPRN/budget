@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"p2p-back-end/modules/entities/models"
 	"p2p-back-end/pkg/utils"
+	"strings"
 
 	"gorm.io/gorm"
 )
@@ -28,7 +29,7 @@ func (r *repository) GetActualExportDetails(ctx context.Context, filter map[stri
 		Select(`
 			actual_transaction_entities.entity,
 			actual_transaction_entities.branch,
-			actual_transaction_entities.department,
+			COALESCE(NULLIF(actual_transaction_entities.department, ''), actual_transaction_entities.nav_code) as department,
 			bs.group1 as "group",
 			bs.group2,
 			bs.group3,
@@ -47,7 +48,25 @@ func (r *repository) GetActualExportDetails(ctx context.Context, filter map[stri
 		if val, ok := filter[key]; ok {
 			strs := utils.ToStringSlice(val)
 			if len(strs) > 0 {
-				query = query.Where(fmt.Sprintf("actual_transaction_entities.%s IN ?", dbCol), strs)
+				hasNone := false
+				var filteredStrs []string
+				for _, s := range strs {
+					if strings.EqualFold(strings.TrimSpace(s), "None") {
+						hasNone = true
+					} else if s != "" {
+						filteredStrs = append(filteredStrs, s)
+					}
+				}
+
+				if hasNone {
+					if len(filteredStrs) > 0 {
+						query = query.Where(fmt.Sprintf("(actual_transaction_entities.%s IN ? OR actual_transaction_entities.%s = '' OR actual_transaction_entities.%s IS NULL OR actual_transaction_entities.%s = 'None')", dbCol, dbCol, dbCol, dbCol), filteredStrs)
+					} else {
+						query = query.Where(fmt.Sprintf("(actual_transaction_entities.%s = '' OR actual_transaction_entities.%s IS NULL OR actual_transaction_entities.%s = 'None')", dbCol, dbCol, dbCol))
+					}
+				} else {
+					query = query.Where(fmt.Sprintf("actual_transaction_entities.%s IN ?", dbCol), strs)
+				}
 			}
 		}
 	}

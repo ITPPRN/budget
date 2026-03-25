@@ -4,7 +4,7 @@ import FlagIcon from '@mui/icons-material/Flag';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import DownloadIcon from '@mui/icons-material/Download';
 
-const DepartmentTable = ({ data, count, page, rowsPerPage, onPageChange, onRowsPerPageChange, orderBy, order, onRequestSort, selectedDept, onRowClick, onBack, onDownload }) => {
+const DepartmentTable = ({ data, count, page, rowsPerPage, onPageChange, onRowsPerPageChange, orderBy, order, onRequestSort, selectedDept, onRowClick, onBack, onDownload, onSettings, thresholds }) => {
     // Helper to format numbers (Always in MB)
     const formatMoney = (amount) => {
         const mb = amount / 1000000;
@@ -13,25 +13,19 @@ const DepartmentTable = ({ data, count, page, rowsPerPage, onPageChange, onRowsP
 
     // Helper to determine status color based on usage
     const getStatusColor = (budget, used) => {
-        // 1. Invalid/No Budget
+        const redLimit = Number(thresholds?.red) || 100;
+        const yellowLimit = Number(thresholds?.yellow) || 80;
+
         if (budget === 0) {
-            // If spending occurs without budget -> Red (Critical)
-            if (used > 0) return '#e74a3b';
-            // No budget, no spend -> Grey (Inactive)
-            return 'text.secondary';
+            if (used > 0) return '#e74a3b'; // Red
+            return '#1cc88a'; // Green
         }
 
-        const remaining = budget - used;
-        const remainingPercentage = (remaining / budget) * 100;
+        const spendPct = (used / budget) * 100;
 
-        // 2. Red (Over Budget): Spend > Budget (Remaining < 0)
-        if (remaining < 0) return '#e74a3b';
-
-        // 3. Yellow (Warning): Remaining is Low (e.g. < 20% left)
-        if (remainingPercentage <= 20) return '#f6c23e';
-
-        // 4. Green (Healthy): Safe zone
-        return '#1cc88a';
+        if (spendPct >= redLimit) return '#e74a3b'; // Red
+        if (spendPct >= yellowLimit) return '#f6c23e'; // Yellow
+        return '#1cc88a'; // Green
     };
 
     const createSortHandler = (property) => (event) => {
@@ -51,9 +45,14 @@ const DepartmentTable = ({ data, count, page, rowsPerPage, onPageChange, onRowsP
                         {selectedDept ? `Department: ${selectedDept}` : 'Department Budget Status (Top Spenders)'}
                     </Typography>
                 </Box>
-                <IconButton size="small" onClick={onDownload} sx={{ color: 'primary.main' }} disabled={!onDownload || !data || data.length === 0}>
-                    <DownloadIcon sx={{ fontSize: 20 }} />
-                </IconButton>
+                <Box sx={{ display: 'flex', gap: 0.5 }}>
+                    <IconButton size="small" onClick={onSettings} sx={{ color: 'text.secondary' }}>
+                        <Typography sx={{ fontSize: '10px', mr: 0.5, fontWeight: 'bold' }}>SET</Typography>
+                    </IconButton>
+                    <IconButton size="small" onClick={onDownload} sx={{ color: 'primary.main' }} disabled={!onDownload || !data || data.length === 0}>
+                        <DownloadIcon sx={{ fontSize: 20 }} />
+                    </IconButton>
+                </Box>
             </Box>
 
             <TableContainer sx={{ flexGrow: 1, overflow: 'auto' }}>
@@ -92,13 +91,13 @@ const DepartmentTable = ({ data, count, page, rowsPerPage, onPageChange, onRowsP
                                     Remaining
                                 </TableSortLabel>
                             </TableCell>
-                            <TableCell align="right" sortDirection={orderBy === 'remaining_pct' ? order : false} sx={{ fontWeight: 'bold', bgcolor: '#eaecf4', width: '10%', minWidth: '60px', padding: '6px 4px' }}>
+                            <TableCell align="right" sortDirection={orderBy === 'actual'} sx={{ fontWeight: 'bold', bgcolor: '#eaecf4', width: '10%', minWidth: '60px', padding: '6px 4px' }}>
                                 <TableSortLabel
-                                    active={orderBy === 'remaining_pct'}
-                                    direction={orderBy === 'remaining_pct' ? order : 'asc'}
-                                    onClick={createSortHandler('remaining_pct')}
+                                    active={orderBy === 'actual'}
+                                    direction={orderBy === 'actual' ? order : 'asc'}
+                                    onClick={createSortHandler('actual')}
                                 >
-                                    ( % )
+                                    %spend
                                 </TableSortLabel>
                             </TableCell>
                         </TableRow>
@@ -133,8 +132,8 @@ const DepartmentTable = ({ data, count, page, rowsPerPage, onPageChange, onRowsP
                                     <TableCell align="right" sx={{ color: remaining < 0 ? 'error.main' : 'success.main', fontWeight: 'bold', fontSize: '0.75rem' }}>
                                         {formatMoney(remaining)}
                                     </TableCell>
-                                    <TableCell align="right" sx={{ color: remaining < 0 ? 'error.main' : 'success.main', fontWeight: 'bold', fontSize: '0.75rem' }}>
-                                        ({remainingPct.toFixed(2)}%)
+                                    <TableCell align="right" sx={{ color: statusColor, fontWeight: 'bold', fontSize: '0.75rem' }}>
+                                        {budget > 0 ? (spending / budget * 100).toFixed(2) : (spending > 0 ? '100.00' : '0.00')}%
                                     </TableCell>
                                 </TableRow>
                             );

@@ -8,6 +8,7 @@ import { TotalBudgetCard, RemainingBudgetCard, DepartmentAlertCard } from '../co
 import DepartmentTable from '../components/Dashboard/DepartmentTable';
 import BudgetChart from '../components/Dashboard/BudgetChart';
 import CapexSection from '../components/Dashboard/CapexSection';
+import AlertSettingsModal from '../components/Dashboard/AlertSettingsModal';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
 import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
@@ -58,17 +59,14 @@ const HomePageContent = () => {
   // Sorting State
   const [order, setOrder] = useState('desc');
   const [orderBy, setOrderBy] = useState('actual');
+ 
+  // Alert Threshold State
+  const [plThresholds, setPlThresholds] = useState({ red: 100, yellow: 80 });
+  const [capexThresholds, setCapexThresholds] = useState({ red: 100, yellow: 80 });
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [activeSettingType, setActiveSettingType] = useState('pl'); // 'pl' or 'capex'
 
-  // Derived state for branches
-  const availableBranches = useMemo(() => {
-    if (!selectedEntity) return [];
-    const entityObj = orgStructure.find(o => o.entity === selectedEntity);
-    return entityObj ? entityObj.branches : [];
-  }, [selectedEntity, orgStructure]);
-
-  // Derived state for departments - REMOVED
-
-  // Fetch Filter Options
+  // Fetch Filters & Settings
   useEffect(() => {
     const fetchFilters = async () => {
       try {
@@ -79,7 +77,52 @@ const HomePageContent = () => {
       }
     };
     fetchFilters();
+ 
+    const fetchSettings = async () => {
+      try {
+        const res = await api.get('/budgets/configs');
+        const configs = res.data || {};
+        
+        setPlThresholds({ 
+          red: parseInt(configs.dashboard_alert_red) || 100,
+          yellow: parseInt(configs.dashboard_alert_yellow) || 80
+        });
+
+        setCapexThresholds({
+          red: parseInt(configs.capex_alert_red) || 100,
+          yellow: parseInt(configs.capex_alert_yellow) || 80
+        });
+      } catch (err) {
+        console.error("Failed to fetch alert settings", err);
+      }
+    };
+    fetchSettings();
   }, []);
+ 
+  const handleSaveThresholds = async (newValues) => {
+    const type = activeSettingType;
+    const prefix = type === 'pl' ? 'dashboard_alert' : 'capex_alert';
+    try {
+      await api.post(`/budgets/configs/${prefix}_red`, { value: String(newValues.red) });
+      await api.post(`/budgets/configs/${prefix}_yellow`, { value: String(newValues.yellow) });
+      
+      if (type === 'pl') {
+        setPlThresholds(newValues);
+      } else {
+        setCapexThresholds(newValues);
+      }
+      setIsSettingsOpen(false);
+    } catch (err) {
+      alert("Failed to save settings: " + err.message);
+    }
+  };
+
+  // Derived state for branches
+  const availableBranches = useMemo(() => {
+    if (!selectedEntity) return [];
+    const entityObj = orgStructure.find(o => o.entity === selectedEntity);
+    return entityObj ? entityObj.branches : [];
+  }, [selectedEntity, orgStructure]);
 
   // Handlers
   const handleChangePage = (event, newPage) => {
@@ -155,7 +198,9 @@ const HomePageContent = () => {
         page: page + 1,
         limit: rowsPerPage,
         sort_by: orderBy,
-        sort_order: order
+        sort_order: order,
+        red_threshold: plThresholds.red,
+        yellow_threshold: plThresholds.yellow
       };
 
       console.log(`Dashboard Fetch (${isChartFocus ? 'Focus' : 'Context'}):`, payload);
@@ -216,7 +261,8 @@ const HomePageContent = () => {
   // Effect: Context Change (Global Filters, Pagination, Master Drill-Down)
   useEffect(() => {
     fetchDashboardData({ isChartFocus: false });
-  }, [selectedEntity, selectedBranch, selectedDepartment, selectedLeaves, page, rowsPerPage, orderBy, order]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedEntity, selectedBranch, selectedDepartment, selectedLeaves, page, rowsPerPage, orderBy, order, plThresholds]);
 
 
   // Effect: Sub-Dept Change (Chart Focus)
@@ -315,6 +361,12 @@ const HomePageContent = () => {
   const formatMB = (val) => {
     const m = val / 1000000;
     return `${m.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MB`;
+  };
+
+  // Handle Opening Settings with Type
+  const openSettings = (type) => {
+    setActiveSettingType(type);
+    setIsSettingsOpen(true);
   };
 
   return (
@@ -461,6 +513,8 @@ const HomePageContent = () => {
                 setPage(0);
               }}
               onDownload={handleDeptStatusExport}
+              onSettings={() => openSettings('pl')}
+              thresholds={plThresholds}
             />
           </Box>
 
@@ -479,6 +533,15 @@ const HomePageContent = () => {
         <CapexSection
           globalEntity={selectedEntity}
           orgStructure={orgStructure}
+          thresholds={capexThresholds}
+          onSettings={() => openSettings('capex')}
+        />
+ 
+        <AlertSettingsModal
+          open={isSettingsOpen}
+          initialValues={activeSettingType === 'pl' ? plThresholds : capexThresholds}
+          onClose={() => setIsSettingsOpen(false)}
+          onSave={handleSaveThresholds}
         />
       </Box>
     </ErrorBoundary>

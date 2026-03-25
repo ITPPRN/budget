@@ -6,7 +6,7 @@ import CapexDepartmentTable from '../Dashboard/CapexDepartmentTable';
 import BudgetChart from '../Dashboard/BudgetChart';
 import { downloadExcelFile } from '../../utils/exportUtils';
 
-const CapexSection = ({ globalEntity, orgStructure }) => {
+const CapexSection = ({ globalEntity, orgStructure, thresholds, onSettings }) => {
     const [loading, setLoading] = useState(true);
     const [selectedEntity, setSelectedEntity] = useState(globalEntity || ''); // Local State
 
@@ -43,7 +43,9 @@ const CapexSection = ({ globalEntity, orgStructure }) => {
                     page: page + 1,
                     limit: rowsPerPage,
                     sort_by: orderBy,
-                    sort_order: order
+                    sort_order: order,
+                    red_threshold: thresholds?.red || 100,
+                    yellow_threshold: thresholds?.yellow || 80
                 };
 
                 const { data } = await api.post('/capex/dashboard-summary', payload);
@@ -75,7 +77,7 @@ const CapexSection = ({ globalEntity, orgStructure }) => {
         };
 
         fetchCapexData();
-    }, [selectedEntity, selectedDepartment, page, rowsPerPage, orderBy, order]);
+    }, [selectedEntity, selectedDepartment, page, rowsPerPage, orderBy, order, thresholds]);
 
     const handleChangePage = (event, newPage) => {
         setPage(newPage);
@@ -184,6 +186,8 @@ const CapexSection = ({ globalEntity, orgStructure }) => {
                         selectedDept={selectedDepartment}
                         onRowClick={handleDepartmentClick}
                         onDownload={handleCapexDeptStatusExport}
+                        onSettings={onSettings}
+                        thresholds={thresholds}
                     />
                 </Box>
                 <Box sx={{ flex: 1, minWidth: 0, height: 500 }}>

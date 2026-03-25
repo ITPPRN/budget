@@ -9,6 +9,7 @@ const HomePage = Loadable(lazy(() => import("../pages/HomePage")));
 const DetailPage = Loadable(lazy(() => import("../pages/Detail")));
 const UserManagePage = Loadable(lazy(() => import("../pages/UserManage")));
 const DataManagePage = Loadable(lazy(() => import("../pages/DataManage")));
+const LogPage = Loadable(lazy(() => import("../pages/LogPage")));
 
 // --- Owner Pages ---
 const OwnerDashboard = Loadable(lazy(() => import("../pages/Owner/OwnerDashboard")));
@@ -40,6 +41,7 @@ const Routes = (isLoggedIn, user) => [
       { path: "detail", element: <DetailPage /> },
       { path: "user", element: <UserManagePage /> },
       { path: "data", element: <DataManagePage /> },
+      { path: "logs", element: <LogPage /> },
 
       // ... ใส่หน้าอื่นๆ เพิ่มตรงนี้ ...
 

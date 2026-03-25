@@ -5,6 +5,7 @@ import (
 	"p2p-back-end/modules/entities/models"
 	"p2p-back-end/pkg/utils"
 	"sort"
+	"strings"
 
 	"gorm.io/gorm"
 )
@@ -28,7 +29,7 @@ func (r *repository) GetBudgetVsActualData(ctx context.Context, filter map[strin
 		Select(`
 			budget_fact_entities.entity,
 			budget_fact_entities.branch,
-			budget_fact_entities.department,
+			COALESCE(NULLIF(budget_fact_entities.department, ''), budget_fact_entities.nav_code) as department,
 			bs.group1 as "group",
 			bs.group2,
 			bs.group3,
@@ -51,7 +52,7 @@ func (r *repository) GetBudgetVsActualData(ctx context.Context, filter map[strin
 		Select(`
 			actual_fact_entities.entity,
 			actual_fact_entities.branch,
-			actual_fact_entities.department,
+			COALESCE(NULLIF(actual_fact_entities.department, ''), actual_fact_entities.nav_code) as department,
 			bs.group1 as "group",
 			bs.group2,
 			bs.group3,
@@ -160,7 +161,25 @@ func (r *repository) applyCommonFilters(tx *gorm.DB, tableName string, filter ma
 	}
 	if val, ok := filter["departments"]; ok {
 		if strs := utils.ToStringSlice(val); len(strs) > 0 {
-			tx = tx.Where(tableName+".department IN ?", strs)
+			hasNone := false
+			var filteredStrs []string
+			for _, s := range strs {
+				if strings.EqualFold(strings.TrimSpace(s), "None") {
+					hasNone = true
+				} else if s != "" {
+					filteredStrs = append(filteredStrs, s)
+				}
+			}
+
+			if hasNone {
+				if len(filteredStrs) > 0 {
+					tx = tx.Where("("+tableName+".department IN ? OR "+tableName+".department = '' OR "+tableName+".department IS NULL OR "+tableName+".department = 'None')", filteredStrs)
+				} else {
+					tx = tx.Where("("+tableName+".department = '' OR "+tableName+".department IS NULL OR "+tableName+".department = 'None')")
+				}
+			} else {
+				tx = tx.Where(tableName+".department IN ?", strs)
+			}
 		}
 	}
 	if tableName != "budget_fact_entities" {

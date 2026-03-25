@@ -4,6 +4,7 @@ import (
 	"context"
 	"p2p-back-end/modules/entities/models"
 	"p2p-back-end/pkg/utils"
+	"strings"
 
 	"gorm.io/gorm"
 )
@@ -28,9 +29,9 @@ func (r *repository) GetDeptBudgetStatus(ctx context.Context, filter map[string]
 
 	// 1. Get Budgets per Department
 	var budgetRows []summaryRow
-	btx := r.db.Model(&models.BudgetFactEntity{}).Select("department, SUM(year_total) as total")
+	btx := r.db.Model(&models.BudgetFactEntity{}).Select("COALESCE(NULLIF(department, ''), nav_code) as department, SUM(year_total) as total")
 	btx = r.applyCommonFilters(btx, "budget_fact_entities", filter)
-	if err := btx.WithContext(ctx).Group("department").Scan(&budgetRows).Error; err != nil {
+	if err := btx.WithContext(ctx).Group("COALESCE(NULLIF(department, ''), nav_code)").Scan(&budgetRows).Error; err != nil {
 		return nil, err
 	}
 
@@ -42,18 +43,18 @@ func (r *repository) GetDeptBudgetStatus(ctx context.Context, filter map[string]
 	if months, ok := filter["months"]; ok {
 		mstrs := utils.ToStringSlice(months)
 		if len(mstrs) > 0 {
-			atx = atx.Select("actual_fact_entities.department, SUM(actual_amount_entities.amount) as total").
+			atx = atx.Select("COALESCE(NULLIF(actual_fact_entities.department, ''), actual_fact_entities.nav_code) as department, SUM(actual_amount_entities.amount) as total").
 				Joins("JOIN actual_amount_entities ON actual_amount_entities.actual_fact_id = actual_fact_entities.id").
 				Where("actual_amount_entities.month IN ?", mstrs)
 		} else {
 			atx = atx.Where("1 = 0")
 		}
 	} else {
-		atx = atx.Select("department, SUM(year_total) as total")
+		atx = atx.Select("COALESCE(NULLIF(department, ''), nav_code) as department, SUM(year_total) as total")
 	}
 
 	atx = r.applyCommonFilters(atx, "actual_fact_entities", filter)
-	if err := atx.WithContext(ctx).Group("department").Scan(&actualRows).Error; err != nil {
+	if err := atx.WithContext(ctx).Group("COALESCE(NULLIF(department, ''), nav_code)").Scan(&actualRows).Error; err != nil {
 		return nil, err
 	}
 
@@ -113,7 +114,25 @@ func (r *repository) applyCommonFilters(tx *gorm.DB, tableName string, filter ma
 	}
 	if val, ok := filter["departments"]; ok {
 		if strs := utils.ToStringSlice(val); len(strs) > 0 {
-			tx = tx.Where(tableName+".department IN ?", strs)
+			hasNone := false
+			var filteredStrs []string
+			for _, s := range strs {
+				if strings.EqualFold(strings.TrimSpace(s), "None") {
+					hasNone = true
+				} else if s != "" {
+					filteredStrs = append(filteredStrs, s)
+				}
+			}
+
+			if hasNone {
+				if len(filteredStrs) > 0 {
+					tx = tx.Where("("+tableName+".department IN ? OR "+tableName+".department = '' OR "+tableName+".department IS NULL OR "+tableName+".department = 'None')", filteredStrs)
+				} else {
+					tx = tx.Where("("+tableName+".department = '' OR "+tableName+".department IS NULL OR "+tableName+".department = 'None')")
+				}
+			} else {
+				tx = tx.Where(tableName+".department IN ?", strs)
+			}
 		}
 	}
 	if tableName != "budget_fact_entities" {

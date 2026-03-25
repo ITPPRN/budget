@@ -26,11 +26,15 @@ export const MENU_ITEMS = [
     title: 'User Management',
     path: '/user',
     icon: <PersonIcon />
+    
   },
   {
     title: 'Data Management',
-    path: '/data',
-    icon: <SettingsIcon />
+    icon: <SettingsIcon />,
+    children: [
+      { title: 'Setting', path: '/data' },
+      { title: 'Log', path: '/logs' }
+    ]
   }
 ];
 
