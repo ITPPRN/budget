@@ -29,7 +29,7 @@ func (r *repository) GetActualExportDetails(ctx context.Context, filter map[stri
 		Select(`
 			actual_transaction_entities.entity,
 			actual_transaction_entities.branch,
-			COALESCE(NULLIF(actual_transaction_entities.department, ''), actual_transaction_entities.nav_code) as department,
+			actual_transaction_entities.department,
 			bs.group1 as "group",
 			bs.group2,
 			bs.group3,
@@ -41,7 +41,7 @@ func (r *repository) GetActualExportDetails(ctx context.Context, filter map[stri
 			actual_transaction_entities.description,
 			actual_transaction_entities.posting_date
 		`).
-		Joins("LEFT JOIN budget_structure_entities bs ON actual_transaction_entities.conso_gl = bs.conso_gl")
+		Joins("LEFT JOIN (SELECT conso_gl, group1, group2, group3, MAX(account_name) as account_name FROM gl_grouping_entities GROUP BY conso_gl, group1, group2, group3) bs ON actual_transaction_entities.conso_gl = bs.conso_gl")
 
 	// Apply Dynamic Filters (Normalized by Service)
 	applyFilter := func(key string, dbCol string) {

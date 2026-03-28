@@ -35,8 +35,9 @@ type SharedDeps struct {
 	ProducerService    models.ProducerService
 	OwnerService       models.OwnerService
 	ConsumerController models.ConsumerController
-	UserService        models.UsersService
+	UserService         models.UsersService
 	ExternalSyncService models.ExternalSyncService
+	AuditService        models.AuditService
 }
 
 func initSharedDeps(s *server) *SharedDeps {
@@ -78,6 +79,10 @@ func initSharedDeps(s *server) *SharedDeps {
 	capexRepo := _capexRe.NewCapexRepositoryDB(s.Db)
 	capexService := _capexSer.NewCapexService(capexRepo)
 
+	// --- Audit Module ---
+	auditRepo := _budgetRe.NewAuditRepository(s.Db)
+	auditService := _budgetSer.NewAuditService(auditRepo, dashRepo, userRepo)
+
 	// --- Owner Module ---
 	ownerRepo := _ownerRe.NewOwnerRepository(s.Db)
 	ownerService := _ownerSer.NewOwnerService(ownerRepo, authService, capexService)
@@ -109,5 +114,6 @@ func initSharedDeps(s *server) *SharedDeps {
 		ConsumerController: consumerController,
 		UserService:        userService,
 		ExternalSyncService: externalSyncService,
+		AuditService:       auditService,
 	}
 }

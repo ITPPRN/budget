@@ -355,7 +355,7 @@ const OwnerUserManagePage = () => {
                                 </TableCell>
                                 <TableCell>{getStatusChip(user)}</TableCell>
                                 <TableCell sx={{ color: '#64748b' }}>
-                                    {user.department_code || user.department || '-'}
+                                    {user.mapped_department || '-'}
                                 </TableCell>
                                 <TableCell sx={{ color: '#64748b' }}>
                                     {(() => {

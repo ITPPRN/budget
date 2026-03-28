@@ -34,6 +34,7 @@ type UserRepository interface {
 	IsUserExistByID(ctx context.Context, id string) (bool, error)
 	CreateUser(ctx context.Context, user *UserEntity) error
 	UpdateUser(ctx context.Context, user *UserEntity) error
+	ReactivateUser(ctx context.Context, userID string) error
 	GetUserContext(ctx context.Context, userID string) (*UserEntity, error)
 	GetUserPermissions(ctx context.Context, userID string) ([]UserPermissionEntity, error)
 	UpdateUserPermissionsAndRoles(ctx context.Context, userID string, permissions []UserPermissionEntity, roles []string) error
@@ -227,21 +228,14 @@ type ExternalSyncService interface {
 // 4. Master Data Domain
 type MasterDataRepository interface {
 	WithTrx(trxHandle func(repo MasterDataRepository) error) error
-	ListGLMappings(ctx context.Context) ([]GlMappingEntity, error)
-	GetGLMappingByID(ctx context.Context, id string) (*GlMappingEntity, error)
-	CreateGLMapping(ctx context.Context, m *GlMappingEntity) error
-	UpdateGLMapping(ctx context.Context, m *GlMappingEntity) error
-	DeleteGLMapping(ctx context.Context, id string) error
-	GetGLInfo(ctx context.Context, entity string, entityGL string, target *GlMappingEntity) error
-	CheckExactGLMapping(ctx context.Context, entity, entityGL, consoGL, accountName string) (bool, error)
 
-	GetBudgetStructure(ctx context.Context) ([]BudgetStructureEntity, error)
-	GetBudgetStructureByID(ctx context.Context, id uint) (*BudgetStructureEntity, error)
-	CreateBudgetStructure(ctx context.Context, entity *BudgetStructureEntity) error
-	UpdateBudgetStructure(ctx context.Context, entity *BudgetStructureEntity) error
-	DeleteBudgetStructure(ctx context.Context, id uint) error
-	InsertBudgetStructures(ctx context.Context, entities []BudgetStructureEntity) error
-	DeleteAllBudgetStructures(ctx context.Context) error
+	// Unified GL Grouping
+	ListGLGroupings(ctx context.Context) ([]GlGroupingEntity, error)
+	GetGLGroupingByID(ctx context.Context, id string) (*GlGroupingEntity, error)
+	CreateGLGrouping(ctx context.Context, g *GlGroupingEntity) error
+	UpdateGLGrouping(ctx context.Context, g *GlGroupingEntity) error
+	DeleteGLGrouping(ctx context.Context, id string) error
+	GetGLGroupingInfo(ctx context.Context, entity string, entityGL string, target *GlGroupingEntity) error
 
 	// User Config
 	GetUserConfigs(ctx context.Context, userID string) ([]UserConfigEntity, error)
@@ -249,19 +243,13 @@ type MasterDataRepository interface {
 }
 
 type MasterDataService interface {
-	ListGLMappings(ctx context.Context) ([]GlMappingEntity, error)
-	GetGLMappingByID(ctx context.Context, id string) (*GlMappingEntity, error)
-	CreateGLMapping(ctx context.Context, m *GlMappingEntity) error
-	UpdateGLMapping(ctx context.Context, m *GlMappingEntity) error
-	DeleteGLMapping(ctx context.Context, id string) error
-	ImportGLMapping(ctx context.Context, file *multipart.FileHeader) error
-
 	GetBudgetStructureTree(ctx context.Context) (interface{}, error)
-	ListBudgetStructure(ctx context.Context) ([]BudgetStructureEntity, error)
-	GetBudgetStructureByID(ctx context.Context, id uint) (*BudgetStructureEntity, error)
-	CreateBudgetStructure(ctx context.Context, entity *BudgetStructureEntity) error
-	UpdateBudgetStructure(ctx context.Context, entity *BudgetStructureEntity) error
-	DeleteBudgetStructure(ctx context.Context, id uint) error
+	ListGLGroupings(ctx context.Context) ([]GlGroupingEntity, error)
+	GetGLGroupingByID(ctx context.Context, id string) (*GlGroupingEntity, error)
+	CreateGLGrouping(ctx context.Context, g *GlGroupingEntity) error
+	UpdateGLGrouping(ctx context.Context, g *GlGroupingEntity) error
+	DeleteGLGrouping(ctx context.Context, id string) error
+	ImportGLGrouping(ctx context.Context, file *multipart.FileHeader) error
 
 	// User Config
 	GetUserConfigs(ctx context.Context, userID string) (map[string]string, error)
@@ -313,6 +301,25 @@ type OwnerService interface {
 	GetOrganizationStructure(ctx context.Context, user *UserInfo) ([]OrganizationDTO, error)
 	GetOwnerFilterLists(ctx context.Context, user *UserInfo) (*OwnerFilterListsDTO, error)
 	GetActualYears(ctx context.Context, user *UserInfo) ([]string, error)
+	InjectPermissions(ctx context.Context, user *UserInfo, filter map[string]interface{}) map[string]interface{}
+}
+
+// 7. Audit Log Domain
+type AuditRepository interface {
+	SaveAuditLog(ctx context.Context, log *AuditLogEntity) error
+	SaveRejectedItems(ctx context.Context, items []AuditLogRejectedItemEntity) error
+	GetAuditLogs(ctx context.Context, filter map[string]interface{}) ([]AuditLogEntity, error)
+	GetRejectedItemsByLogID(ctx context.Context, logID string) ([]AuditLogRejectedItemEntity, error)
+	GetTransactionsByIDs(ctx context.Context, ids []uuid.UUID) ([]ActualTransactionEntity, error)
+	GetTransactionsByFilter(ctx context.Context, filter map[string]interface{}) ([]ActualTransactionEntity, error)
+}
+
+type AuditService interface {
+	Approve(ctx context.Context, user *UserInfo, payload map[string]interface{}) error
+	Report(ctx context.Context, user *UserInfo, payload map[string]interface{}) error
+	ListLogs(ctx context.Context, filter map[string]interface{}) ([]AuditLogEntity, error)
+	GetRejectedItemDetails(ctx context.Context, logID string) ([]AuditLogRejectedItemEntity, error)
+	GetReportableTransactions(ctx context.Context, user *UserInfo, payload map[string]interface{}) ([]ActualTransactionEntity, error)
 }
 
 // --- Organization ---
@@ -342,8 +349,8 @@ type BranchDTO struct {
 }
 
 type DashboardSummaryDTO struct {
-	TotalBudget     float64             `json:"total_budget"`
-	TotalActual     float64             `json:"total_actual"`
+	TotalBudget     decimal.Decimal     `json:"total_budget"`
+	TotalActual     decimal.Decimal     `json:"total_actual"`
 	DepartmentData  []DepartmentStatDTO `json:"department_data"`
 	ChartData       []MonthlyStatDTO    `json:"chart_data"`
 	TopExpenses     []TopExpenseDTO     `json:"top_expenses"`
@@ -355,15 +362,15 @@ type DashboardSummaryDTO struct {
 }
 
 type DepartmentStatDTO struct {
-	Department string  `json:"department"`
-	Budget     float64 `json:"budget"`
-	Actual     float64 `json:"actual"`
+	Department string          `json:"department"`
+	Budget     decimal.Decimal `json:"budget"`
+	Actual     decimal.Decimal `json:"actual"`
 }
 
 type MonthlyStatDTO struct {
-	Month  string  `json:"month"`
-	Budget float64 `json:"budget"`
-	Actual float64 `json:"actual"`
+	Month  string          `json:"month"`
+	Budget decimal.Decimal `json:"budget"`
+	Actual decimal.Decimal `json:"actual"`
 }
 
 type ActualAggregatedDTO struct {
@@ -395,13 +402,13 @@ type ActualTransactionDTO struct {
 type BudgetDetailDTO struct {
 	ConsoGL       string            `json:"conso_gl"`
 	GLName        string            `json:"gl_name"`
-	YearTotal     float64           `json:"year_total"`
+	YearTotal     decimal.Decimal   `json:"year_total"`
 	BudgetAmounts []BudgetAmountDTO `json:"budget_amounts"`
 }
 
 type BudgetAmountDTO struct {
-	Month  string  `json:"month"`
-	Amount float64 `json:"amount"`
+	Month  string          `json:"month"`
+	Amount decimal.Decimal `json:"amount"`
 }
 
 type PaginatedActualTransactionDTO struct {
@@ -413,8 +420,8 @@ type PaginatedActualTransactionDTO struct {
 
 type OwnerDashboardSummaryDTO struct {
 	DashboardSummaryDTO
-	CapexBudget float64 `json:"capex_budget"`
-	CapexActual float64 `json:"capex_actual"`
+	CapexBudget decimal.Decimal `json:"capex_budget"`
+	CapexActual decimal.Decimal `json:"capex_actual"`
 }
 
 type OwnerFilterListsDTO struct {
@@ -424,6 +431,6 @@ type OwnerFilterListsDTO struct {
 }
 
 type TopExpenseDTO struct {
-	Name   string  `json:"name"`
-	Amount float64 `json:"amount"`
+	Name   string          `json:"name"`
+	Amount decimal.Decimal `json:"amount"`
 }

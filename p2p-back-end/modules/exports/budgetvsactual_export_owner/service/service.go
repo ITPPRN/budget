@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"p2p-back-end/modules/entities/models"
 	"p2p-back-end/modules/exports/budgetvsactual_export_owner/repository"
 	"p2p-back-end/pkg/utils"
 
@@ -10,24 +11,28 @@ import (
 )
 
 type OwnerBudgetVsActualService interface {
-	ExportOwnerBudgetVsActualExcel(ctx context.Context, filter map[string]interface{}) ([]byte, string, error)
+	ExportOwnerBudgetVsActualExcel(ctx context.Context, user *models.UserInfo, filter map[string]interface{}) ([]byte, string, error)
 }
 
 type service struct {
-	repo repository.OwnerBudgetVsActualRepository
+	repo     repository.OwnerBudgetVsActualRepository
+	ownerSrv models.OwnerService
 }
 
-func NewService(repo repository.OwnerBudgetVsActualRepository) OwnerBudgetVsActualService {
-	return &service{repo: repo}
+func NewService(repo repository.OwnerBudgetVsActualRepository, ownerSrv models.OwnerService) OwnerBudgetVsActualService {
+	return &service{repo: repo, ownerSrv: ownerSrv}
 }
 
-func (s *service) ExportOwnerBudgetVsActualExcel(ctx context.Context, filter map[string]interface{}) ([]byte, string, error) {
+func (s *service) ExportOwnerBudgetVsActualExcel(ctx context.Context, user *models.UserInfo, filter map[string]interface{}) ([]byte, string, error) {
 	// 1. Sanitize Filters
 	sanitizedFilter := make(map[string]interface{})
 	for k, v := range filter {
 		nk, nv := utils.SanitizeFilter(k, v)
 		sanitizedFilter[nk] = nv
 	}
+
+	// 🛠️ Enforce RBAC
+	sanitizedFilter = s.ownerSrv.InjectPermissions(ctx, user, sanitizedFilter)
 
 	// 2. Fetch Data
 	data, err := s.repo.GetOwnerBudgetVsActual(ctx, sanitizedFilter)

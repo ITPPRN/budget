@@ -33,32 +33,36 @@ type HeaderKey struct {
 func (s *actualService) SyncActuals(ctx context.Context, year string, months []string) error {
 	fmt.Printf("[DEBUG] SyncActuals: Start DB Sync (Optimized Batch) for Year %s, Months %v...\n", year, months)
 
-	// 1. Fetch Mapping Metadata (GL Whitening)
-	mappings, err := s.masterSrv.ListGLMappings(ctx)
+	// 1. Fetch Unified GL Grouping (Mapping & Hierarchy)
+	groupings, err := s.masterSrv.ListGLGroupings(ctx)
 	if err != nil {
 		return fmt.Errorf("actualService.SyncActuals: %w", err)
 	}
-	mappingMap := make(map[string]models.GlMappingEntity)
-	globalMappingMap := make(map[string]models.GlMappingEntity) // Fallback for any company
-	for _, m := range mappings {
-		if m.IsActive {
-			// Specific mapping: Company + GL
-			key := fmt.Sprintf("%s_%s", m.Entity, m.EntityGL)
-			mappingMap[key] = m
-			
+
+	mappingMap := make(map[string]models.GlGroupingEntity)
+	globalMappingMap := make(map[string]models.GlGroupingEntity) // Fallback for any company
+	glProfileMap := make(map[string]string)                      // ConsoGL -> Group1 (Profile)
+
+	for _, g := range groupings {
+		if g.IsActive {
+			// Specific mapping: Normalized Company + GL
+			normEntity := NormalizeEntityCode(g.Entity)
+			key := fmt.Sprintf("%s_%s", normEntity, g.EntityGL)
+			mappingMap[key] = g
+
 			// Global mapping: Just GL (Pick the first active one found)
-			if _, exists := globalMappingMap[m.EntityGL]; !exists {
-				globalMappingMap[m.EntityGL] = m
+			if _, exists := globalMappingMap[g.EntityGL]; !exists {
+				globalMappingMap[g.EntityGL] = g
+			}
+
+			// Store ConsoGL -> Profile (Group 1)
+			if g.ConsoGL != "" && g.Group1 != "" {
+				glProfileMap[g.ConsoGL] = g.Group1
 			}
 		}
 	}
 
-	// 2. Define Mapping Configs (Move maps outside loops)
-	entityNameMap := map[string]string{
-		"HONDA MALIWAN":    "HMW",
-		"AUTOCORP HOLDING": "ACG",
-		"CLIK":             "CLIK",
-	}
+	// 2. Define Mapping Configs (Consolidated in common_service)
 	branchNameMap := map[string]string{
 		"BURIRUM": "BUR", "HEAD OFFICE": "HOF", "KRABI": "KBI",
 		"MINI_SURIN": "MSR", "MUEANG KRABI": "MKB", "NAKA": "NAK",
@@ -102,14 +106,7 @@ func (s *actualService) SyncActuals(ctx context.Context, year string, months []s
 	}
 	fullYearSync := len(months) == 0
 
-	// 3. GL Profile Map for Fact Building (Safe memory size)
-	glProfileMap := make(map[string]string)
-	structures, _ := s.masterSrv.ListBudgetStructure(ctx)
-	for _, st := range structures {
-		if st.ConsoGL != "" {
-			glProfileMap[st.ConsoGL] = st.Group1
-		}
-	}
+	// 3. (Legacy) GL Profile Map is now built during Grouping fetch above.
 
 	// 4. Persistence with Transaction & Batching
 	return s.repo.WithTrx(func(trxRepo models.ActualRepository) error {
@@ -157,7 +154,7 @@ func (s *actualService) SyncActuals(ctx context.Context, year string, months []s
 
 			processRowsBatch := func(rows []models.ActualTransactionDTO) {
 				for _, row := range rows {
-					company := mapToCode(row.Company, entityNameMap)
+					company := NormalizeEntityCode(row.Company)
 					// 1. Look up specific mapping (Company + GL)
 					key := fmt.Sprintf("%s_%s", company, row.EntityGL)
 					mapping, ok := mappingMap[key]
@@ -207,7 +204,23 @@ func (s *actualService) SyncActuals(ctx context.Context, year string, months []s
 
 					// 2. Aggregate for Fact Table
 					if len(row.PostingDate) >= 7 {
-						monCode := row.PostingDate[5:7]
+						// Robust Month Extraction: Find any 2-digit number between separators
+						// E.g., 2026-03-25 or 25/03/2026 or 2026/03/25
+						monCode := ""
+						parts := strings.FieldsFunc(row.PostingDate, func(r rune) bool {
+							return r == '-' || r == '/' || r == '.'
+						})
+						for _, p := range parts {
+							if len(p) == 2 && p != "20" && p != "26" { // Heuristic: Month is a 2-digit part excluding common years
+								monCode = p
+								break
+							}
+						}
+						// Fallback to substring if heuristic fails (but is standard ISO)
+						if monCode == "" && strings.Contains(row.PostingDate, "-") && len(row.PostingDate) >= 7 {
+							monCode = row.PostingDate[5:7]
+						}
+
 						if mon, ok := monthToCodeMap[monCode]; ok {
 							// Determine GL Name: Use Mapped name if exists, else Original name
 							glName := mapping.AccountName

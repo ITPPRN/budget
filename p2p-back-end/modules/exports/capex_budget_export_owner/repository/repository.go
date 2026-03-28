@@ -32,8 +32,8 @@ func (r *repository) GetOwnerCapexData(ctx context.Context, filter map[string]in
 
 	var budgetRows []capexRow
 	btx := r.db.Table("capex_budget_fact_entities").
-		Select("entity, department, capex_no, MAX(capex_name) as capex_name, MAX(capex_category) as capex_category, SUM(year_total) as total").
-		Group("entity, department, capex_no")
+		Select("entity, COALESCE(NULLIF(department, ''), nav_code) as department, capex_no, MAX(capex_name) as capex_name, MAX(capex_category) as capex_category, SUM(year_total) as total").
+		Group("entity, COALESCE(NULLIF(department, ''), nav_code), capex_no")
 	btx = r.applyCommonFilters(btx, "capex_budget_fact_entities", filter)
 	if err := btx.Scan(&budgetRows).Error; err != nil {
 		return nil, err
@@ -41,8 +41,8 @@ func (r *repository) GetOwnerCapexData(ctx context.Context, filter map[string]in
 
 	var actualRows []capexRow
 	atx := r.db.Table("capex_actual_fact_entities").
-		Select("entity, department, capex_no, SUM(year_total) as total").
-		Group("entity, department, capex_no")
+		Select("entity, COALESCE(NULLIF(department, ''), nav_code) as department, capex_no, SUM(year_total) as total").
+		Group("entity, COALESCE(NULLIF(department, ''), nav_code), capex_no")
 	atx = r.applyCommonFilters(atx, "capex_actual_fact_entities", filter)
 	if err := atx.Scan(&actualRows).Error; err != nil {
 		return nil, err
@@ -101,7 +101,7 @@ func (r *repository) applyCommonFilters(tx *gorm.DB, tableName string, filter ma
 	}
 	if val, ok := filter["departments"]; ok {
 		if strs := utils.ToStringSlice(val); len(strs) > 0 {
-			tx = tx.Where(tableName+".department IN ?", strs)
+			tx = tx.Where("COALESCE(NULLIF("+tableName+".department, ''), "+tableName+".nav_code) IN ?", strs)
 		}
 	}
 	if tableName != "capex_budget_fact_entities" && tableName != "capex_actual_fact_entities" {

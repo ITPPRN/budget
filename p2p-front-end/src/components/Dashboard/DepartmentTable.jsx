@@ -5,10 +5,13 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import DownloadIcon from '@mui/icons-material/Download';
 
 const DepartmentTable = ({ data, count, page, rowsPerPage, onPageChange, onRowsPerPageChange, orderBy, order, onRequestSort, selectedDept, onRowClick, onBack, onDownload, onSettings, thresholds }) => {
-    // Helper to format numbers (Always in MB)
+    // Helper to format numbers (Truncate MB to 2 decimals as requested)
     const formatMoney = (amount) => {
+        if (!amount) return "0.00 MB";
         const mb = amount / 1000000;
-        return `${mb.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MB`;
+        // Truncate to 2 decimal places (Strict No-Rounding)
+        const truncated = Math.trunc(mb * 100) / 100;
+        return `${truncated.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MB`;
     };
 
     // Helper to determine status color based on usage
@@ -107,7 +110,8 @@ const DepartmentTable = ({ data, count, page, rowsPerPage, onPageChange, onRowsP
                             const budget = row.budget || 0;
                             const spending = row.spending || 0;
                             const remaining = budget - spending;
-                            const remainingPct = budget > 0 ? (remaining / budget) * 100 : 0;
+                            // Calculate percentage using absolute values for negative budget handling
+                            const spendPct = Math.abs(budget) > 0 ? (spending / budget) * 100 : (spending > 0 ? 100 : 0);
                             const statusColor = getStatusColor(budget, spending);
 
                             const isSelected = selectedDept === row.deptRaw;
@@ -129,11 +133,11 @@ const DepartmentTable = ({ data, count, page, rowsPerPage, onPageChange, onRowsP
                                     <TableCell sx={{ fontWeight: 'bold', fontSize: '0.75rem' }}>{row.name}</TableCell>
                                     <TableCell align="right" sx={{ fontSize: '0.75rem' }}>{formatMoney(row.budget)}</TableCell>
                                     <TableCell align="right" sx={{ fontSize: '0.75rem' }}>{formatMoney(spending)}</TableCell>
-                                    <TableCell align="right" sx={{ color: remaining < 0 ? 'error.main' : 'success.main', fontWeight: 'bold', fontSize: '0.75rem' }}>
+                                    <TableCell align="right" sx={{ color: statusColor, fontWeight: 'bold', fontSize: '0.75rem' }}>
                                         {formatMoney(remaining)}
                                     </TableCell>
                                     <TableCell align="right" sx={{ color: statusColor, fontWeight: 'bold', fontSize: '0.75rem' }}>
-                                        {budget > 0 ? (spending / budget * 100).toFixed(2) : (spending > 0 ? '100.00' : '0.00')}%
+                                        {spendPct.toFixed(2)}%
                                     </TableCell>
                                 </TableRow>
                             );

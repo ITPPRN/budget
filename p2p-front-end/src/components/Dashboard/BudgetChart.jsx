@@ -36,8 +36,14 @@ const BudgetChart = ({ data, title, selectedDept, onDownload }) => {
                     >
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="name" />
-                        <YAxis tickFormatter={(value) => `${(value / 1000000).toFixed(1)} `} />
-                        <Tooltip formatter={(value) => value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} />
+                        <YAxis tickFormatter={(value) => `${Math.floor(value / 1000000)}M`} />
+                        <Tooltip 
+                            formatter={(value) => {
+                                const mb = value / 1000000;
+                                const truncated = Math.floor(mb * 100) / 100;
+                                return `${truncated.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MB`;
+                            }} 
+                        />
                         <Legend />
                         <Line type="monotone" dataKey="budget" stroke="#1976d2" activeDot={{ r: 8 }} name="Budget" strokeWidth={2} />
                         <Line type="monotone" dataKey="actual" stroke="#00bcd4" name="Actual" strokeWidth={2} />

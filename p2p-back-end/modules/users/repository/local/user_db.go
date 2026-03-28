@@ -126,11 +126,14 @@ func (r *userRepositoryDB) GetAll(optional map[string]interface{}, ctx context.C
 			continue
 		}
 		if field == "department_code" && value != nil && value != "ALL" {
-			condition = condition.Where("departments.code = ?", value)
+			condition = condition.Where("departments.code_map = ?", value)
 		} else if column, ok := fieldTableMapping[field]; ok && value != nil && value != "ALL" {
 			condition = utils.AddCondition(condition, value, column)
 		}
 	}
+
+	// --- Soft Delete Filter (NULL-Safe for transition) ---
+	condition = condition.Where("(user_entities.deleted = false OR user_entities.deleted IS NULL)")
 
 	if err := condition.Session(&gorm.Session{}).Count(&totalRecords64).Error; err != nil {
 		return nil, 0, fmt.Errorf("error counting user entities: %w", err)
@@ -175,6 +178,12 @@ func (r *userRepositoryDB) CreateUser(ctx context.Context, user *models.UserEnti
 func (r *userRepositoryDB) UpdateUser(ctx context.Context, user *models.UserEntity) error {
 	if err := r.db.WithContext(ctx).Model(user).Updates(user).Error; err != nil {
 		return fmt.Errorf("userRepo.UpdateUser: %w", err)
+	}
+	return nil
+}
+func (r *userRepositoryDB) ReactivateUser(ctx context.Context, userID string) error {
+	if err := r.db.WithContext(ctx).Model(&models.UserEntity{}).Where("id = ?", userID).Update("deleted", false).Error; err != nil {
+		return fmt.Errorf("userRepo.ReactivateUser: %w", err)
 	}
 	return nil
 }
@@ -227,9 +236,10 @@ func (r *userRepositoryDB) ListDepartments(ctx context.Context) ([]models.Depart
 	err := r.db.WithContext(ctx).
 		Table("departments").
 		Where("EXISTS (SELECT 1 FROM user_entities WHERE user_entities.department_id = departments.id)").
-		Distinct("code").
-		Order("code asc").
-		Pluck("code", &results).Error
+		Where("code_map IS NOT NULL AND code_map != 'None' AND code_map != ''").
+		Distinct("code_map").
+		Order("code_map asc").
+		Pluck("code_map", &results).Error
 
 	if err != nil {
 		return nil, fmt.Errorf("userRepo.ListDepartments (Pluck CodeMap): %w", err)
@@ -325,6 +335,7 @@ func (r *userRepositoryDB) SyncUsers(ctx context.Context, users []models.UserEnt
 			"department_id": gorm.Expr("EXCLUDED.department_id"),
 			"section_id":    gorm.Expr("EXCLUDED.section_id"),
 			"position_id":   gorm.Expr("EXCLUDED.position_id"),
+			"deleted":       gorm.Expr("EXCLUDED.deleted"),
 			"updated_at":    gorm.Expr("NOW()"),
 		}),
 		Where: clause.Where{
@@ -335,7 +346,8 @@ func (r *userRepositoryDB) SyncUsers(ctx context.Context, users []models.UserEnt
 					user_entities.company_id    IS DISTINCT FROM EXCLUDED.company_id OR
 					user_entities.department_id IS DISTINCT FROM EXCLUDED.department_id OR
 					user_entities.section_id    IS DISTINCT FROM EXCLUDED.section_id OR
-					user_entities.position_id   IS DISTINCT FROM EXCLUDED.position_id
+					user_entities.position_id   IS DISTINCT FROM EXCLUDED.position_id OR
+					user_entities.deleted       IS DISTINCT FROM EXCLUDED.deleted
 				`),
 			},
 		},
@@ -355,7 +367,9 @@ func (r *userRepositoryDB) SyncUsers(ctx context.Context, users []models.UserEnt
 
 func (r *userRepositoryDB) GetUsers(ctx context.Context, lastID uint, limit int) ([]models.UserEntity, error) {
 	var users []models.UserEntity
-	err := r.db.WithContext(ctx).Preload("Company").Preload("Department").Preload("Section").Preload("Position").Where("central_id > ?", lastID).Order("central_id ASC").Limit(limit).Find(&users).Error
+	err := r.db.WithContext(ctx).Preload("Company").Preload("Department").Preload("Section").Preload("Position").
+		Where("central_id > ? AND (deleted = false OR deleted IS NULL)", lastID).
+		Order("central_id ASC").Limit(limit).Find(&users).Error
 	if err != nil {
 		return nil, fmt.Errorf("userRepo.GetUsers: %w", err)
 	}

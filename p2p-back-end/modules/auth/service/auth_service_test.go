@@ -23,6 +23,11 @@ func (m *MockUserRepository) UpdateUser(ctx context.Context, user *models.UserEn
 	return args.Error(0)
 }
 
+func (m *MockUserRepository) ReactivateUser(ctx context.Context, id string) error {
+	args := m.Called(ctx, id)
+	return args.Error(0)
+}
+
 func (m *MockUserRepository) GetUserContext(ctx context.Context, id string) (*models.UserEntity, error) {
 	args := m.Called(ctx, id)
 	if args.Get(0) == nil {

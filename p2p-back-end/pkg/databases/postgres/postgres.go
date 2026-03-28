@@ -48,14 +48,21 @@ func NewPostgresConnection(cfg *configs.Config, connType string) (*gorm.DB, erro
 			return nil, err
 		}
 
-		// 3. Seed GL Mappings (Whitelist)
-		if err := seeders.SeedGLMappings(db); err != nil {
-			logs.Error("Failed to seed GL mappings: ", zap.Error(err))
+		// --- Explicit Backfill: Set deleted = false for existing users ---
+		if err := db.Exec("UPDATE user_entities SET deleted = false WHERE deleted IS NULL").Error; err != nil {
+			logs.Warn("Failed to backfill deleted flag for users: ", zap.Error(err))
 		}
 
-		// 4. Seed Budget Structure
-		if err := seeders.SeedBudgetStructure(db); err != nil {
-			logs.Error("Failed to seed budget structure: ", zap.Error(err))
+		// --- DIAGNOSTIC: Dump admin user status ---
+		var admins []map[string]interface{}
+		db.Table("user_entities").Where("username = ?", "admin").Find(&admins)
+		for _, a := range admins {
+			logs.Infof("[DIAGNOSTIC] Found admin in DB: ID=%v, Username=%v, Deleted=%v", a["id"], a["username"], a["deleted"])
+		}
+
+		// 3. Seed GL Mappings (Unified)
+		if err := seeders.SeedGLGrouping(db); err != nil {
+			logs.Error("Failed to seed GL grouping: ", zap.Error(err))
 		}
 	}
 
@@ -95,11 +102,8 @@ func getModelsToMigrate() []interface{} {
 		&models.ActualFactEntity{},
 		&models.ActualAmountEntity{},
 
-		// GL Mapping (Whitelisting & Consolidation)
-		&models.GlMappingEntity{},
-
-		// Budget Structure Hierarchy
-		&models.BudgetStructureEntity{},
+		// Budget Structure Hierarchy (Unified)
+		&models.GlGroupingEntity{},
 
 		// User Configuration (Personalized)
 		&models.UserConfigEntity{},
@@ -109,5 +113,9 @@ func getModelsToMigrate() []interface{} {
 		&models.AchHmwGleEntity{},
 		&models.ClikGleEntity{},
 		&models.DataInventoryEntity{},
+
+		// Audit Logs (Owner Approval & Reporting)
+		&models.AuditLogEntity{},
+		&models.AuditLogRejectedItemEntity{},
 	}
 }

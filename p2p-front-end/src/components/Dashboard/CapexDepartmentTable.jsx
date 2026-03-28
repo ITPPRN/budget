@@ -4,10 +4,13 @@ import DownloadIcon from '@mui/icons-material/Download';
 import FlagIcon from '@mui/icons-material/Flag';
 
 const CapexDepartmentTable = ({ data, count, page, rowsPerPage, onPageChange, onRowsPerPageChange, orderBy, order, onRequestSort, selectedDept, onRowClick, onDownload, onSettings, thresholds }) => {
-    // Helper to format numbers (Always in MB)
+    // Helper to format numbers (Truncate MB to 2 decimals)
     const formatMoney = (amount) => {
+        if (!amount) return "0.00 MB";
         const mb = amount / 1000000;
-        return `${mb.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MB`;
+        // Truncate to 2 decimal places (no rounding)
+        const truncated = Math.floor(mb * 100) / 100;
+        return `${truncated.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MB`;
     };
 
     // Helper to determine status color based on usage

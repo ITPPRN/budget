@@ -17,9 +17,11 @@ const COLORS = {
 };
 
 const formatMB = (val) => {
-    const safeVal = Math.abs(val || 0);
+    const safeVal = val || 0;
     const mb = safeVal / 1000000;
-    return `${mb.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MB`;
+    // Truncate to 2 decimal places (Strict No-Rounding)
+    const truncated = Math.trunc(mb * 100) / 100;
+    return `${truncated.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MB`;
 };
 
 // Common Style for Paper
@@ -38,9 +40,10 @@ const cardStyle = {
 };
 
 // 1. Total Organization Budget Card
-export const TotalBudgetCard = ({ totalBudget = 331.46, totalActual = 0 }) => {
-    // User Request: Budget as % of Actual
-    const percentage = totalActual > 0 ? (totalBudget / totalActual) * 100 : 0;
+export const TotalBudgetCard = ({ totalBudget = 0, totalActual = 0 }) => {
+    // Percentage uses absolute values to handle negative budgets correctly
+    const percentage = Math.abs(totalBudget) > 0 ? (totalActual / totalBudget) * 100 : 0;
+    const safePercentage = Math.max(0, Math.min(percentage, 100)); // Still cap at 0-100 for circle
 
     return (
         <Paper elevation={0} sx={cardStyle}>
@@ -71,7 +74,7 @@ export const TotalBudgetCard = ({ totalBudget = 331.46, totalActual = 0 }) => {
                 />
                 <CircularProgress
                     variant="determinate"
-                    value={Math.min(percentage, 100)}
+                    value={safePercentage}
                     size={70} // Reduced size
                     thickness={5}
                     sx={{

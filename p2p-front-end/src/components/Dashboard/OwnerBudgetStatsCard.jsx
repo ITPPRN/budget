@@ -26,7 +26,9 @@ const formatMB = (val) => {
     if (!val) return "";
     const safeVal = Math.abs(val);
     const mb = safeVal / 1000000;
-    return `${mb.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MB`;
+    // Truncate to 2 decimal places (no rounding)
+    const truncated = Math.floor(mb * 100) / 100;
+    return `${truncated.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MB`;
 };
 
 // Generic Blue Card Info

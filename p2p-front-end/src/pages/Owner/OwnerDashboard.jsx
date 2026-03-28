@@ -28,17 +28,21 @@ import FilterPane from '../../components/Budget/FilterPane';
 import { toast } from 'react-toastify';
 import { downloadExcelFile } from '../../utils/exportUtils';
 
-// Calculate formatter
-const formatCurrency = (value) => {
-    // If value is 0 or null/undefined, return "0"
-    if (!value) return "0";
-
+// Calculate formatter with truncation (as requested for parity)
+const formatCurrency = (val) => {
+    // Explicitly cast to Number to ensure toLocaleString works correctly on Strings
+    const value = Number(val || 0);
     const absValue = Math.abs(value);
     const sign = value < 0 ? "-" : "";
 
-    if (absValue >= 1000000) return `${sign}${(absValue / 1000000).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MB`;
-    if (absValue >= 1000) return `${sign}${(absValue / 1000).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} K`;
+    if (absValue >= 1000000) {
+        const mb = absValue / 1000000;
+        // Truncate to 2 decimal places (Strict No-Rounding)
+        const truncated = Math.trunc(mb * 100) / 100;
+        return `${sign}${truncated.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MB`;
+    }
 
+    // For smaller values, use standard formatting with commas and 2 decimals
     return value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
@@ -177,12 +181,18 @@ const OwnerDashboardContent = () => {
         nearLimitCount: 0
     });
 
+    const [syncConfig, setSyncConfig] = useState({
+        selectedBudget: "",
+        selectedCapexBg: "",
+        selectedCapexActual: "",
+        actualYear: "",
+        selectedMonths: []
+    });
+
     // Filter Options State (Cascading)
     const [orgStructure, setOrgStructure] = useState([]);
     const [filterYears, setFilterYears] = useState([]);
     const [accountFilters, setAccountFilters] = useState([]); // Storage from GetBudgetFilterOptions
-
-
 
     // Derived Branches based on Entity Selection
     const availableBranches = React.useMemo(() => {
@@ -206,43 +216,42 @@ const OwnerDashboardContent = () => {
         return Array.from(depts).sort();
     }, [orgStructure]);
 
-
     // 2. Fetch Dashboard Data
     const fetchDashboardData = async () => {
         if (!selectedYear && selectedYear !== '') return;
         setDataLoading(true);
         try {
             // 🛠️ FIX: Always fetch from Backend to guarantee true Global synchronization
-            let syncConfig = {};
+            let currentConfig = {};
             try {
                 const configRes = await api.get('/budgets/configs');
                 const configs = configRes.data || {};
-                
-                // Map backend config keys to front-end expected keys
-                syncConfig = {
+
+                currentConfig = {
                     selectedBudget: configs.selectedBudget || configs.selected_budget || "",
                     selectedCapexBg: configs.selectedCapexBg || configs.selected_capex_bg || "",
                     selectedCapexActual: configs.selectedCapexActual || configs.selected_capex_actual || "",
                     actualYear: configs.actualYear || configs.actual_year || "",
                     selectedMonths: JSON.parse(configs.selectedMonths || configs.selected_months || '[]')
                 };
-                
+                setSyncConfig(currentConfig); // Update state for Exports
+
             } catch (e) {
                 console.error("Failed to fetch global configs", e);
-                // Fallback to local storage ONLY if API fails
-                syncConfig = JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}');
+                currentConfig = JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}');
+                setSyncConfig(currentConfig);
             }
 
             const payload = {
-                year: syncConfig.actualYear ? String(syncConfig.actualYear) : "",
-                months: Array.isArray(syncConfig.selectedMonths) ? syncConfig.selectedMonths : [],
+                year: currentConfig.actualYear ? String(currentConfig.actualYear) : "",
+                months: Array.isArray(currentConfig.selectedMonths) ? currentConfig.selectedMonths : [],
                 entities: selectedCompany && selectedCompany !== 'All' ? [selectedCompany] : [],
                 branches: selectedBranch && selectedBranch !== 'All' ? [selectedBranch] : [],
                 departments: selectedDept && selectedDept !== 'All' ? [selectedDept] : [],
                 conso_gls: Array.from(selectedLeaves).map(id => id.split('|')[0]).filter(code => code !== ""),
-                budget_file_id: syncConfig.selectedBudget,
-                capex_file_id: syncConfig.selectedCapexBg,
-                capex_actual_file_id: syncConfig.selectedCapexActual
+                budget_file_id: currentConfig.selectedBudget,
+                capex_file_id: currentConfig.selectedCapexBg,
+                capex_actual_file_id: currentConfig.selectedCapexActual
             };
 
             const res = await api.post('/owner/dashboard-summary', payload);
@@ -255,21 +264,21 @@ const OwnerDashboardContent = () => {
             if (result) {
                 setSummary(prev => ({
                     ...prev,
-                    totalBudget: result.total_budget || 0,
-                    totalActual: result.total_actual || 0,
-                    capexBudget: result.capex_budget || 0,
-                    capexActual: result.capex_actual || 0,
+                    totalBudget: Number(result.total_budget || 0),
+                    totalActual: Number(result.total_actual || 0),
+                    capexBudget: Number(result.capex_budget || 0),
+                    capexActual: Number(result.capex_actual || 0),
                     topExpenses: (result.top_expenses || []).map(item => ({
                         name: item.name,
                         value: Number(item.amount) || 0
                     })),
                     chartData: (result.chart_data || []).map(item => ({
                         name: item.month,
-                        budget: item.budget,
-                        actual: item.actual
+                        budget: Number(item.budget || 0),
+                        actual: Number(item.actual || 0)
                     })),
-                    overBudgetCount: result.over_budget_count || 0,
-                    nearLimitCount: result.near_limit_count || 0
+                    overBudgetCount: Number(result.over_budget_count || 0),
+                    nearLimitCount: Number(result.near_limit_count || 0)
                 }));
             }
         } catch (err) {
@@ -360,68 +369,85 @@ const OwnerDashboardContent = () => {
                 usagePercent > 80 ? 'Near Limit' : 'In Budget';
 
     // Calculate chart data based on selected mode (Accumulated vs Monthly)
+    // Ensures a full 12-month array even if API returns partial months
     const displayChartData = React.useMemo(() => {
-        if (!summary.chartData || summary.chartData.length === 0) return [];
+        const monthNames = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+        const rawData = summary.chartData || [];
+        
+        let accBudget = 0;
+        let accActual = 0;
+        let lastActualPoint = null;
 
-        if (chartMode === 'accumulated') {
-            let accBudget = 0;
-            let accActual = 0;
-            return summary.chartData.map(item => {
-                accBudget += (item.budget || 0);
-                accActual += (item.actual || 0);
+        return monthNames.map(month => {
+            const monthData = rawData.find(d => d.name === month);
+            const currentBudget = monthData ? (monthData.budget || 0) : 0;
+            const currentActual = monthData ? (monthData.actual || 0) : null;
+
+            if (chartMode === 'accumulated') {
+                accBudget += currentBudget;
+                // Only accumulate actuals if we have a point for that month
+                if (currentActual !== null) {
+                    accActual += currentActual;
+                    lastActualPoint = accActual;
+                } else {
+                    // In accumulated mode, we continue the line from the last known actual
+                    // BUT only if we are past the first month that had data
+                }
+
                 return {
-                    name: item.name,
+                    name: month,
                     budget: accBudget,
-                    actual: accActual
+                    actual: (monthData || lastActualPoint !== null) ? (lastActualPoint || 0) : null
                 };
-            });
-        }
-        return summary.chartData;
+            }
+
+            return {
+                name: month,
+                budget: currentBudget,
+                actual: currentActual
+            };
+        });
     }, [summary.chartData, chartMode]);
 
     // --- Export Handlers ---
     const handleOwnerBudgetVsActualExport = async () => {
-        let syncConfig = JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}');
         const payload = {
             entities: selectedCompany && selectedCompany !== 'All' ? [selectedCompany] : [],
             branches: selectedBranch && selectedBranch !== 'All' ? [selectedBranch] : [],
-            departments: selectedDept && selectedDept !== 'All' ? [selectedDept] : allDepartments,
+            departments: selectedDept && selectedDept !== 'All' ? [selectedDept] : [],
             conso_gls: Array.from(selectedLeaves).map(id => id.split('|')[0]).filter(code => code !== ""),
-            year: String(syncConfig.actualYear || new Date().getFullYear()),
+            year: syncConfig.actualYear ? String(syncConfig.actualYear) : "",
             months: Array.isArray(syncConfig.selectedMonths) ? syncConfig.selectedMonths : [],
             budget_file_id: syncConfig.selectedBudget,
             capex_file_id: syncConfig.selectedCapexBg,
             capex_actual_file_id: syncConfig.selectedCapexActual,
         };
-        await downloadExcelFile('/export-budget-vs-actual-owner', payload, `Owner_Budget_Vs_Actual_${payload.year}.xlsx`);
+        await downloadExcelFile('/owner/export-budget-vs-actual-owner', payload, `Owner_Budget_Vs_Actual_${payload.year}.xlsx`);
     };
-
     const handleOwnerTopExpenseExport = async () => {
-        let syncConfig = JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}');
         const payload = {
             entities: selectedCompany && selectedCompany !== 'All' ? [selectedCompany] : [],
             branches: selectedBranch && selectedBranch !== 'All' ? [selectedBranch] : [],
-            departments: selectedDept && selectedDept !== 'All' ? [selectedDept] : allDepartments,
-            year: String(syncConfig.actualYear || new Date().getFullYear()),
+            departments: selectedDept && selectedDept !== 'All' ? [selectedDept] : [],
+            year: syncConfig.actualYear ? String(syncConfig.actualYear) : "",
             months: Array.isArray(syncConfig.selectedMonths) ? syncConfig.selectedMonths : [],
             budget_file_id: syncConfig.selectedBudget,
-            capex_file_id: syncConfig.selectedCapexBg,
-            capex_actual_file_id: syncConfig.selectedCapexActual,
         };
         await downloadExcelFile('/export-top-expense-owner', payload, `Owner_Top_Expense_${payload.year}.xlsx`);
     };
 
     const handleOwnerCapexBudgetExport = async () => {
-        let syncConfig = JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}');
         const payload = {
             entities: selectedCompany && selectedCompany !== 'All' ? [selectedCompany] : [],
-            departments: selectedDept && selectedDept !== 'All' ? [selectedDept] : allDepartments,
-            year: String(syncConfig.actualYear || new Date().getFullYear()),
+            branches: selectedBranch && selectedBranch !== 'All' ? [selectedBranch] : [],
+            departments: selectedDept && selectedDept !== 'All' ? [selectedDept] : [],
+            year: syncConfig.actualYear ? String(syncConfig.actualYear) : "",
+            months: Array.isArray(syncConfig.selectedMonths) ? syncConfig.selectedMonths : [],
             budget_file_id: syncConfig.selectedBudget,
             capex_file_id: syncConfig.selectedCapexBg,
             capex_actual_file_id: syncConfig.selectedCapexActual,
         };
-        await downloadExcelFile('/export-capex-budget-owner', payload, `Owner_Capex_Budget_${payload.year}.xlsx`);
+        await downloadExcelFile('/owner/export-capex-budget-owner', payload, `Owner_Capex_Budget_${payload.year}.xlsx`);
     };
 
     // Optimized Loading State: Only block IF we have absolutely NO data and NO year yet.
@@ -647,17 +673,17 @@ const OwnerDashboardContent = () => {
                                         </Paper>
 
                                         <Box sx={{ display: 'flex', gap: 1 }}>
-                                            <IconButton 
-                                                size="small" 
+                                            <IconButton
+                                                size="small"
                                                 onClick={handleOpenFilter}
                                                 sx={{ bgcolor: '#4d6eff', color: 'white', '&:hover': { bgcolor: '#3d59cc' } }}
                                             >
-                                                <Badge 
-                                                   badgeContent={selectedLeaves?.size || 0} 
-                                                   color="error"
-                                                   sx={{ '& .MuiBadge-badge': { fontSize: '0.65rem', height: 16, minWidth: 16 } }}
+                                                <Badge
+                                                    badgeContent={selectedLeaves?.size || 0}
+                                                    color="error"
+                                                    sx={{ '& .MuiBadge-badge': { fontSize: '0.65rem', height: 16, minWidth: 16 } }}
                                                 >
-                                                   <FilterAltIcon sx={{ fontSize: 18 }} />
+                                                    <FilterAltIcon sx={{ fontSize: 18 }} />
                                                 </Badge>
                                             </IconButton>
                                             <IconButton size="small" onClick={handleOwnerBudgetVsActualExport} sx={{ bgcolor: '#4d6eff', color: 'white', '&:hover': { bgcolor: '#3d59cc' } }}>
@@ -780,11 +806,11 @@ const OwnerDashboardContent = () => {
 
                                     <Box sx={{ position: 'relative', zIndex: 1 }}>
                                         <Typography variant="h4" sx={{ fontWeight: 800, letterSpacing: '-0.01em', color: 'white' }}>
-                                            {(summary.capexActual / 1000000).toFixed(2)} MB
+                                            {formatCurrency(summary.capexActual)}
                                         </Typography>
                                         <Box sx={{ textAlign: 'right', mt: 1 }}>
                                             <Typography variant="body2" sx={{ fontWeight: 700, opacity: 0.9, color: 'white' }}>
-                                                of {(summary.capexBudget / 1000000).toFixed(2)} MB
+                                                of {formatCurrency(summary.capexBudget)}
                                             </Typography>
                                         </Box>
                                     </Box>

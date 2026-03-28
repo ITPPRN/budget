@@ -7,6 +7,9 @@ import (
 	"sort"
 	"strings"
 
+	_service "p2p-back-end/modules/budgets/service" // Added
+
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
 
@@ -23,6 +26,19 @@ func NewRepository(db *gorm.DB) BudgetVsActualRepository {
 }
 
 func (r *repository) GetBudgetVsActualData(ctx context.Context, filter map[string]interface{}) ([]models.BudgetVsActualExportDTO, error) {
+	// 🛠️ Inject Global Settings if missing
+	globalConfigs := _service.FetchGlobalSettings(r.db)
+	if filter["year"] == nil || filter["year"] == "" {
+		if val, ok := globalConfigs["actualYear"]; ok && val != "" {
+			filter["year"] = val
+		}
+	}
+	if filter["budget_file_id"] == nil || filter["budget_file_id"] == "" {
+		if val, ok := globalConfigs["selectedBudget"]; ok && val != "" {
+			filter["budget_file_id"] = val
+		}
+	}
+
 	// 1. Fetch Budget Data
 	var budgetResults []models.BudgetExportDTO
 	btx := r.db.Model(&models.BudgetFactEntity{}).
@@ -38,7 +54,7 @@ func (r *repository) GetBudgetVsActualData(ctx context.Context, filter map[strin
 			ba.month,
 			ba.amount
 		`).
-		Joins("LEFT JOIN budget_structure_entities bs ON budget_fact_entities.conso_gl = bs.conso_gl").
+		Joins("LEFT JOIN (SELECT conso_gl, group1, group2, group3 FROM gl_grouping_entities GROUP BY conso_gl, group1, group2, group3) bs ON budget_fact_entities.conso_gl = bs.conso_gl").
 		Joins("JOIN budget_amount_entities ba ON ba.budget_fact_id = budget_fact_entities.id AND ba.deleted_at IS NULL")
 
 	btx = r.applyCommonFilters(btx, "budget_fact_entities", filter)
@@ -61,7 +77,7 @@ func (r *repository) GetBudgetVsActualData(ctx context.Context, filter map[strin
 			aa.month,
 			aa.amount
 		`).
-		Joins("LEFT JOIN budget_structure_entities bs ON actual_fact_entities.conso_gl = bs.conso_gl").
+		Joins("LEFT JOIN (SELECT conso_gl, group1, group2, group3 FROM gl_grouping_entities GROUP BY conso_gl, group1, group2, group3) bs ON actual_fact_entities.conso_gl = bs.conso_gl").
 		Joins("JOIN actual_amount_entities aa ON aa.actual_fact_id = actual_fact_entities.id AND aa.deleted_at IS NULL")
 
 	atx = r.applyCommonFilters(atx, "actual_fact_entities", filter)
@@ -75,6 +91,7 @@ func (r *repository) GetBudgetVsActualData(ctx context.Context, filter map[strin
 		Branch     string
 		Department string
 		ConsoGL    string
+		GLName     string
 	}
 
 	budgetMap := make(map[rowKey]models.BudgetVsActualExportDTO)
@@ -82,9 +99,14 @@ func (r *repository) GetBudgetVsActualData(ctx context.Context, filter map[strin
 
 	process := func(data []models.BudgetExportDTO, targetMap map[rowKey]models.BudgetVsActualExportDTO, rowType string) {
 		for _, res := range data {
-			key := rowKey{res.Entity, res.Branch, res.Department, res.ConsoGL}
+			key := rowKey{res.Entity, res.Branch, res.Department, res.ConsoGL, res.GLName}
 			if row, ok := targetMap[key]; ok {
-				row.MonthsAmounts[res.Month] = res.Amount
+				// Sum monthly amounts (fix overwrite bug)
+				if existingAmt, ok := row.MonthsAmounts[res.Month].(decimal.Decimal); ok {
+					row.MonthsAmounts[res.Month] = existingAmt.Add(res.Amount)
+				} else {
+					row.MonthsAmounts[res.Month] = res.Amount
+				}
 				row.YearTotal = row.YearTotal.Add(res.Amount)
 				targetMap[key] = row
 			} else {
@@ -182,14 +204,32 @@ func (r *repository) applyCommonFilters(tx *gorm.DB, tableName string, filter ma
 			}
 		}
 	}
-	if tableName != "budget_fact_entities" {
-		if val := utils.GetSafeString(filter, "year"); val != "" {
-			tx = tx.Where(tableName+".year = ?", val)
+	// Added: Year Filter
+	targetYear := ""
+	if val, ok := filter["year"]; ok {
+		if s, ok := val.(string); ok && s != "" {
+			targetYear = strings.ReplaceAll(s, "FY", "")
+			// Apply to actual table always. Apply to budget only if no explicit file ID.
+			if tableName != "budget_fact_entities" {
+				tx = tx.Where(tableName+".year = ?", targetYear)
+			}
 		}
 	}
+
 	if tableName == "budget_fact_entities" {
 		if val := utils.GetSafeString(filter, "budget_file_id"); val != "" {
 			tx = tx.Where(tableName+".file_budget_id = ?", val)
+		} else {
+			// 🛠️ Fallback: Latest budget file ID for target year
+			var latestFid string
+			subQuery := r.db.Model(&models.BudgetFactEntity{})
+			if targetYear != "" {
+				subQuery = subQuery.Where("year = ?", targetYear)
+				tx = tx.Where(tableName+".year = ?", targetYear)
+			}
+			if err := subQuery.Order("created_at desc").Limit(1).Pluck("file_budget_id", &latestFid).Error; err == nil && latestFid != "" {
+				tx = tx.Where(tableName+".file_budget_id = ?", latestFid)
+			}
 		}
 	}
 	return tx

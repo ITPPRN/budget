@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
 )
 
 func getColSafe(row []string, idx int) string {
@@ -22,6 +23,11 @@ func parseDecimal(s string) decimal.Decimal {
 	cleanS := strings.ReplaceAll(s, ",", "")
 	cleanS = strings.TrimSpace(cleanS)
 
+	// Handle parentheses for negative numbers: (1,000.00) -> -1000.00
+	if strings.HasPrefix(cleanS, "(") && strings.HasSuffix(cleanS, ")") {
+		cleanS = "-" + strings.Trim(cleanS, "()")
+	}
+
 	d, err := decimal.NewFromString(cleanS)
 	if err != nil {
 		// Log warning only for non-empty distinct strings to avoid spam
@@ -33,6 +39,23 @@ func parseDecimal(s string) decimal.Decimal {
 	return d
 }
 
+// NormalizeEntityCode unifies various entity names/codes into a single standard set.
+// Standard codes: "ACG", "HMW", "CLIK"
+func NormalizeEntityCode(rawVal string) string {
+	m := map[string]string{
+		"HONDA MALIWAN":    "HMW",
+		"AUTOCORP HOLDING": "ACG",
+		"CLIK":             "CLIK",
+		"AC":               "ACG",
+		"MCG":              "ACG", // Just in case
+	}
+	norm := strings.TrimSpace(strings.ToUpper(rawVal))
+	if code, ok := m[norm]; ok {
+		return code
+	}
+	return norm
+}
+
 func extractCode(s string) string {
 	if strings.Contains(s, " - ") {
 		parts := strings.SplitN(s, " - ", 2)
@@ -41,8 +64,11 @@ func extractCode(s string) string {
 	return s
 }
 
-func sanitizeFilter(filter map[string]interface{}) {
 
+
+
+
+func sanitizeFilter(filter map[string]interface{}) {
 	// Normalize keys: Ensure entities/branches exist provided entity/branch exist
 	if v, ok := filter["entity"]; ok {
 		if _, exists := filter["entities"]; !exists {
@@ -89,6 +115,12 @@ func sanitizeFilter(filter map[string]interface{}) {
 
 		// Update Filter with correct type []string
 		if len(finalSlice) > 0 {
+			// Special Case: Normalize Entity Codes if this is the "entities" filter
+			if key == "entities" {
+				for i, v := range finalSlice {
+					finalSlice[i] = NormalizeEntityCode(v)
+				}
+			}
 			filter[key] = finalSlice
 		} else {
 			// If empty, remove to avoid confusion or empty IN clause issues
@@ -96,9 +128,6 @@ func sanitizeFilter(filter map[string]interface{}) {
 		}
 	}
 }
-
-
-
 
 func extractYear(s string) string {
 	// Simple scan for 4 digits starting with 20
@@ -122,4 +151,23 @@ func isNumeric(s string) bool {
 		}
 	}
 	return true
+}
+
+func FetchGlobalSettings(db *gorm.DB) map[string]string {
+	var configs []struct {
+		ConfigKey string
+		Value     string
+	}
+	err := db.Table("user_config_entities").
+		Where("user_id = ?", "GLOBAL_ADMIN_SETTINGS").
+		Select("config_key, value").
+		Scan(&configs).Error
+
+	res := make(map[string]string)
+	if err == nil {
+		for _, c := range configs {
+			res[c.ConfigKey] = c.Value
+		}
+	}
+	return res
 }

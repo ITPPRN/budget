@@ -16,12 +16,19 @@ import {
     DialogContent,
     Popover,
     TextField,
-    Button
+    Button,
+    Tooltip
 } from '@mui/material';
 import FullscreenIcon from '@mui/icons-material/Fullscreen';
 import CloseIcon from '@mui/icons-material/Close';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import DownloadIcon from '@mui/icons-material/Download';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import AnnouncementIcon from '@mui/icons-material/Announcement';
+import { useAuth } from '../../hooks/useAuth';
+import api from '../../utils/api/axiosInstance';
+import { toast } from 'react-toastify';
+import AuditReportModal from './AuditReportModal';
 
 
 const ActualTable = React.memo(({
@@ -34,9 +41,15 @@ const ActualTable = React.memo(({
     totalCount,
     onPageChange,
     onRowsPerPageChange,
-    onDownload
+    onDownload,
+    filters = {} // Added filters for Audit API
 }) => {
+    const { user } = useAuth();
+    const isOwner = user?.roles?.some(r => r.toUpperCase() === 'OWNER');
+
     const [openFullScreen, setOpenFullScreen] = useState(false);
+    const [auditLoading, setAuditLoading] = useState(false);
+    const [reportModalOpen, setReportModalOpen] = useState(false);
 
     // Filter Popover State
     const [anchorEl, setAnchorEl] = useState(null);
@@ -70,6 +83,46 @@ const ActualTable = React.memo(({
         onRowsPerPageChange(parseInt(event.target.value, 10));
     };
 
+    const handleApprove = async () => {
+        if (!window.confirm("คุณแน่ใจหรือไม่ว่าต้องการยืนยันความถูกต้องของข้อมูล (Approve) สำหรับแผนกและเดือนที่เลือก?")) return;
+        
+        setAuditLoading(true);
+        try {
+            await api.post('/budgets/audit/approve', {
+                entity: filters.entity,
+                branch: filters.branch,
+                department: filters.department,
+                year: filters.year,
+                month: filters.month || (filters.months && filters.months[0])
+            });
+            toast.success("ยืนยันข้อมูลเรียบร้อยแล้ว");
+        } catch (err) {
+            toast.error("เกิดข้อผิดพลาดในการยืนยันข้อมูล: " + (err.response?.data?.error || err.message));
+        } finally {
+            setAuditLoading(false);
+        }
+    };
+
+    const handleReportSubmit = async (selectedIds) => {
+        setAuditLoading(true);
+        try {
+            await api.post('/budgets/audit/report', {
+                entity: filters.entity,
+                branch: filters.branch,
+                department: filters.department,
+                year: filters.year,
+                month: filters.month || (filters.months && filters.months[0]),
+                rejected_item_ids: selectedIds
+            });
+            toast.success(`แจ้งแก้ไข ${selectedIds.length} รายการเรียบร้อยแล้ว`);
+            setReportModalOpen(false);
+        } catch (err) {
+            toast.error("เกิดข้อผิดพลาดในการแจ้งแก้ไข: " + (err.response?.data?.error || err.message));
+        } finally {
+            setAuditLoading(false);
+        }
+    };
+
     // Data is now paginated from server
     const paginatedData = data;
 
@@ -85,13 +138,15 @@ const ActualTable = React.memo(({
                             <TableCell align="right" sx={{ bgcolor: '#043478', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)' }}>Amount</TableCell>
                             <TableCell sx={{ bgcolor: '#043478', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)' }}>Vendor</TableCell>
                             <TableCell sx={{ bgcolor: '#043478', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)' }}>Description</TableCell>
-                            <TableCell sx={{ bgcolor: '#043478', color: 'white', fontWeight: 'bold' }}>Date</TableCell>
+                            <TableCell sx={{ bgcolor: '#043478', color: 'white', fontWeight: 'bold', borderRight: '1px solid rgba(255,255,255,0.3)' }}>Date</TableCell>
+                            <TableCell sx={{ bgcolor: '#043478', color: 'white', fontWeight: 'bold' }}>Status</TableCell>
                         </TableRow>
                     </TableHead>
                     <TableBody>
                         {loading ? (
                             Array.from(new Array(10)).map((_, index) => (
                                 <TableRow key={index}>
+                                    <TableCell><Skeleton variant="text" /></TableCell>
                                     <TableCell><Skeleton variant="text" /></TableCell>
                                     <TableCell><Skeleton variant="text" /></TableCell>
                                     <TableCell><Skeleton variant="text" /></TableCell>
@@ -112,13 +167,19 @@ const ActualTable = React.memo(({
                                     </TableCell>
                                     <TableCell sx={{ borderRight: '1px solid #e0e0e0' }}>{row.vendor || "-"}</TableCell>
                                     <TableCell sx={{ borderRight: '1px solid #e0e0e0' }}>{row.description}</TableCell>
-                                    <TableCell>{row.posting_date}</TableCell>
+                                    <TableCell sx={{ borderRight: '1px solid #e0e0e0', fontSize: '0.85rem' }}>{row.posting_date}</TableCell>
+                                    <TableCell sx={{ fontWeight: 'bold', fontSize: '0.75rem', color: 
+                                        row.audit_status === 'Approved' ? '#1cc88a' : 
+                                        row.audit_status === 'Rejected' || row.audit_status === 'Request Change' ? '#f6c23e' : 
+                                        'inherit' 
+                                    }}>
+                                        {row.audit_status || "-"}
+                                    </TableCell>
                                 </TableRow>
                             ))
                         ) : (
                             <TableRow>
-                                <TableCell colSpan={6} align="center" sx={{ py: 5, color: 'text.secondary' }}>
-
+                                <TableCell colSpan={8} align="center" sx={{ py: 5, color: 'text.secondary' }}>
                                     No actual data found for selected filters
                                 </TableCell>
                             </TableRow>
@@ -126,9 +187,40 @@ const ActualTable = React.memo(({
                     </TableBody>
                 </Table>
             </TableContainer>
-            {/* Pagination Control */}
-            {!loading && data.length > 0 && (
-                <Box sx={{ flexShrink: 0, borderTop: '1px solid #e0e0e0' }}>
+            
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid #e0e0e0' }}>
+                {/* Audit Action Buttons (Bottom Left) */}
+                <Box sx={{ pl: 1, display: 'flex', gap: 1 }}>
+                    {isOwner && data.length > 0 && (
+                        <>
+                            <Button 
+                                variant="contained" 
+                                color="success" 
+                                size="small"
+                                startIcon={<CheckCircleIcon />}
+                                onClick={handleApprove}
+                                disabled={auditLoading}
+                                sx={{ textTransform: 'none', borderRadius: '4px', fontSize: '0.75rem' }}
+                            >
+                                Approve
+                            </Button>
+                            <Button 
+                                variant="contained" 
+                                color="error" 
+                                size="small"
+                                startIcon={<AnnouncementIcon />}
+                                onClick={() => setReportModalOpen(true)}
+                                disabled={auditLoading}
+                                sx={{ textTransform: 'none', borderRadius: '4px', fontSize: '0.75rem' }}
+                            >
+                                Report
+                            </Button>
+                        </>
+                    )}
+                </Box>
+
+                {/* Pagination Control (Right) */}
+                {!loading && data.length > 0 && (
                     <TablePagination
                         rowsPerPageOptions={[10, 25, 50, 100]}
                         component="div"
@@ -142,8 +234,8 @@ const ActualTable = React.memo(({
                             '.MuiTablePagination-selectLabel, .MuiTablePagination-input, .MuiTablePagination-displayedRows': { fontSize: '0.75rem' }
                         }}
                     />
-                </Box>
-            )}
+                )}
+            </Box>
         </React.Fragment>
     );
 
@@ -254,6 +346,14 @@ const ActualTable = React.memo(({
                     {renderTable(true)}
                 </DialogContent>
             </Dialog>
+
+            <AuditReportModal 
+                open={reportModalOpen}
+                onClose={() => setReportModalOpen(false)}
+                filters={filters}
+                onSubmit={handleReportSubmit}
+                loading={auditLoading}
+            />
         </Paper>
     );
 });

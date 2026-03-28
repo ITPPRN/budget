@@ -70,6 +70,15 @@ const DetailContent = () => {
     }
   }, [selectedBranch, availableBranches, orgStructure]);
 
+  // Selection States
+  const [syncConfig, setSyncConfig] = useState({
+      actualYear: new Date().getFullYear(),
+      selectedMonths: [],
+      selectedBudget: "",
+      selectedCapexBg: "",
+      selectedCapexActual: ""
+  });
+
   // Auto Fetch Details when Selection Changes or Date Filter Changes
   useEffect(() => {
     let isMounted = true;
@@ -78,7 +87,7 @@ const DetailContent = () => {
       // Logic: If selection is empty -> Fetch ALL (send empty list to backend to optimize)
       const idsToFetch = selectedLeaves.size > 0
         ? Array.from(selectedLeaves).map(id => id.split('|')[0]).filter(code => code !== "")
-        : []; // Optimizing: Don't send 200+ IDs if not specifically filtered
+        : []; 
 
       if (isMounted) {
         setLoadingDetails(true);
@@ -86,27 +95,35 @@ const DetailContent = () => {
       }
 
       try {
-        // 🛠️ FIX: Always fetch from Backend to guarantee true Global synchronization
-        let syncConfig = {};
-
+        let currentSync = {};
         try {
           const configRes = await api.get('/budgets/configs');
           const configs = configRes.data || {};
           
-          syncConfig = {
-            actualYear: configs.actualYear || configs.actual_year || "",
-            selectedMonths: JSON.parse(configs.selectedMonths || configs.selected_months || '[]'),
-            selectedBudget: configs.selectedBudget || configs.selected_budget || "",
-            selectedCapexBg: configs.selectedCapexBg || configs.selected_capex_bg || "",
-            selectedCapexActual: configs.selectedCapexActual || configs.selected_capex_actual || ""
+          const parseMonths = (val) => {
+            if (Array.isArray(val)) return val;
+            if (typeof val === 'string') {
+              try { return JSON.parse(val); } catch (e) { return []; }
+            }
+            return [];
           };
+
+          currentSync = {
+            actualYear: configs.actualYear || configs.actual_year || syncConfig.actualYear || new Date().getFullYear(),
+            selectedMonths: parseMonths(configs.selectedMonths || configs.selected_months) || syncConfig.selectedMonths || [],
+            selectedBudget: configs.selectedBudget || configs.selected_budget || syncConfig.selectedBudget || "",
+            selectedCapexBg: configs.selectedCapexBg || configs.selected_capex_bg || syncConfig.selectedCapexBg || "",
+            selectedCapexActual: configs.selectedCapexActual || configs.selected_capex_actual || syncConfig.selectedCapexActual || ""
+          };
+          if (isMounted) setSyncConfig(currentSync);
         } catch (e) {
           console.error("Failed to fetch fallback configs in Detail", e);
-          syncConfig = JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}');
+          const cached = JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}');
+          if (cached.actualYear) {
+            currentSync = { ...currentSync, ...cached };
+            if (isMounted) setSyncConfig(currentSync);
+          }
         }
-
-        const actualYear = syncConfig.actualYear || new Date().getFullYear();
-        const selectedMonths = syncConfig.selectedMonths || [];
 
         const payload = {
           conso_gls: idsToFetch,
@@ -115,11 +132,11 @@ const DetailContent = () => {
           entities: selectedEntity ? [selectedEntity] : [],
           branches: selectedBranch ? [selectedBranch] : [],
           departments: selectedDepartment ? [selectedDepartment] : [],
-          year: String(actualYear),
-          months: selectedMonths,
-          budget_file_id: syncConfig.selectedBudget,
-          capex_file_id: syncConfig.selectedCapexBg,
-          capex_actual_file_id: syncConfig.selectedCapexActual,
+          year: String(currentSync.actualYear),
+          months: currentSync.selectedMonths,
+          budget_file_id: currentSync.selectedBudget,
+          capex_file_id: currentSync.selectedCapexBg,
+          capex_actual_file_id: currentSync.selectedCapexActual,
           page: actualPage,
           limit: actualRowsPerPage
         };

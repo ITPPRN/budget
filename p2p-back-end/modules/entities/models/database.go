@@ -35,7 +35,7 @@ type UserEntity struct {
 	UpdateBy  *string        `gorm:"type:varchar(36)" json:"update_by"`
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
-	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
+	Deleted   bool           `gorm:"default:false;not null" json:"deleted"`
 }
 
 func (UserEntity) TableName() string { return "user_entities" }
@@ -136,52 +136,23 @@ type DepartmentMappingEntity struct {
 
 func (DepartmentMappingEntity) TableName() string { return "department_mapping_entities" }
 
-// GlMappingEntity maps Entity GL to Conso GL (Derived from map_gl.txt)
-type GlMappingEntity struct {
+// GlGroupingEntity represents the UNIFIED GL Mapping and Hierarchy structure
+type GlGroupingEntity struct {
 	ID          uuid.UUID `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
-	Entity      string    `gorm:"index:idx_gl_mapping_entity_gl;not null" json:"entity"`
-	EntityGL    string    `gorm:"index:idx_gl_mapping_entity_gl;not null" json:"entity_gl"`
-	ConsoGL     string    `gorm:"not null" json:"conso_gl"`
+	Entity      string    `gorm:"index:idx_gl_grouping_entity_gl;not null" json:"entity"`
+	EntityGL    string    `gorm:"index:idx_gl_grouping_entity_gl;not null" json:"entity_gl"`
+	ConsoGL     string    `gorm:"index;not null" json:"conso_gl"`
 	AccountName string    `json:"account_name"`
+	Group1      string    `gorm:"type:varchar(255)" json:"group1"`
+	Group2      string    `gorm:"type:varchar(255)" json:"group2"`
+	Group3      string    `gorm:"type:varchar(255)" json:"group3"`
 	IsActive    bool      `gorm:"default:true" json:"is_active"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
-func (GlMappingEntity) TableName() string {
-	return "gl_mapping_entities"
-}
-
-// BudgetStructureEntity represents the flat budget category structure (Filter Pane)
-type BudgetStructureEntity struct {
-	ID          uint   `gorm:"primaryKey;autoIncrement;column:id" json:"id"`
-	Group1      string `gorm:"column:group1;type:varchar(255)" json:"group1"`
-	Group2      string `gorm:"column:group2;type:varchar(255)" json:"group2"`
-	Group3      string `gorm:"column:group3;type:varchar(255)" json:"group3"`
-	ConsoGL     string `gorm:"column:conso_gl;type:varchar(100)" json:"conso_gl"`
-	AccountName string `gorm:"column:account_name;type:varchar(255)" json:"account_name"`
-}
-
-func (BudgetStructureEntity) TableName() string {
-	return "budget_structure_entities"
-}
-
-// GeneralLedgerEntriesClik represents the central sync table storing actual transactions
-type GeneralLedgerEntriesClik struct {
-	TransactionNo        string  `gorm:"primaryKey;column:transaction_no;type:varchar(255)"`
-	GLAccountNo          string  `gorm:"index;column:g_l_account_no;type:varchar(100)"`
-	GLAccountName        string  `gorm:"column:g_l_account_name;type:varchar(255)"`
-	PostingDate          string  `gorm:"index;column:posting_date;type:varchar(50)"`
-	DocumentNo           string  `gorm:"column:document_no;type:varchar(100)"`
-	Description          string  `gorm:"column:description;type:text"`
-	Amount               float64 `gorm:"column:amount;type:decimal(20,2)"`
-	Dim1                 string  `gorm:"column:dim_1_;type:varchar(100)"`
-	GlobalDimension1Code string  `gorm:"index;column:global_dimension_1_code;type:varchar(100)"`
-	GlobalDimension2Code string  `gorm:"index;column:global_dimension_2_code;type:varchar(100)"`
-}
-
-func (GeneralLedgerEntriesClik) TableName() string {
-	return "general_ledger_entries_clik"
+func (GlGroupingEntity) TableName() string {
+	return "gl_grouping_entities"
 }
 
 // --- FILE ENTITIES (3 Distinct Tables) ---
@@ -233,15 +204,15 @@ type BudgetFactEntity struct { // HEADER
 	FileBudget   *FileBudgetEntity `gorm:"foreignKey:FileBudgetID"`
 
 	// Dimensions
-	Entity     string `gorm:"index:idx_budget_year_entity_branch_dept;index:idx_budget_year_entity" json:"entity"` // Added idx_budget_year_entity
+	Entity     string `gorm:"index:idx_budget_year_entity_branch_dept;index:idx_budget_year_entity" json:"entity"`
 	Branch     string `gorm:"index:idx_budget_year_entity_branch_dept" json:"branch"`
 	Group      string `json:"group"`
 	EntityGL   string `json:"entity_gl"`
 	ConsoGL    string `json:"conso_gl"`
 	GLName     string `json:"gl_name"`
 	Department string `gorm:"index:idx_budget_year_entity_branch_dept" json:"department"`
-	NavCode    string `gorm:"index" json:"nav_code"`                                                             // Store Original Code (e.g. ACC-AP) for hierarchy
-	Year       string `gorm:"index:idx_budget_year_entity_branch_dept;index:idx_budget_year_entity" json:"year"` // Added idx_budget_year_entity
+	NavCode    string `gorm:"index" json:"nav_code"`
+	Year       string `gorm:"index:idx_budget_year_entity_branch_dept;index:idx_budget_year_entity" json:"year"`
 
 	// Summary
 	YearTotal decimal.Decimal `gorm:"type:decimal(18,2)" json:"year_total"`
@@ -338,13 +309,13 @@ type ActualFactEntity struct { // HEADER
 	// Dimensions
 	Entity     string `gorm:"index:idx_actual_composite" json:"entity"`
 	Branch     string `gorm:"index:idx_actual_composite" json:"branch"`
-	Department string `gorm:"index:idx_actual_composite" json:"department"` // Mapped from Global_Dimension_1 or mapping table
-	NavCode    string `gorm:"index" json:"nav_code"`                        // Original Code
-	Group      string `json:"group"`                                        // Optional: Mapped via GL mapping
+	Department string `gorm:"index:idx_actual_composite" json:"department"`
+	NavCode    string `gorm:"index" json:"nav_code"`
+	Group      string `json:"group"`
 	EntityGL   string `json:"entity_gl"`
 	ConsoGL    string `json:"conso_gl"`
 	GLName     string `json:"gl_name"`
-	VendorName string `json:"vendor_name"` // Mapped from Vendor_Name
+	VendorName string `json:"vendor_name"`
 	Year       string `gorm:"index:idx_actual_composite" json:"year"`
 
 	// Summary
@@ -372,8 +343,10 @@ func (ActualAmountEntity) TableName() string { return "actual_amount_entities" }
 
 // ActualTransactionEntity stores detailed transaction records for reporting
 type ActualTransactionEntity struct {
-	gorm.Model
-	ID uuid.UUID `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
+	ID        uuid.UUID      `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
+	CreatedAt time.Time      `json:"created_at"`
+	UpdatedAt time.Time      `json:"updated_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 
 	// Source Details
 	Source      string          `gorm:"index" json:"source"`       // HMW, CLIK
@@ -459,6 +432,7 @@ type CentralUser struct {
 	DepartmentID uint   `gorm:"column:department_id"`
 	SectionID    uint   `gorm:"column:section_id"`
 	PositionID   uint   `gorm:"column:position_id"`
+	Deleted      bool   `gorm:"column:deleted;default:false;not null"`
 }
 
 func (CentralUser) TableName() string { return "users" }
@@ -473,4 +447,5 @@ type UserResponse struct {
 	SectionID    uint     `json:"section_id"`
 	PositionID   uint     `json:"position_id"`
 	Roles        []string `json:"roles"`
+	Deleted      bool     `json:"deleted"`
 }

@@ -69,21 +69,23 @@ func NewBudgetController(
 	router.Get("/available-months", controller.getAvailableMonths)    // New: Available months for year
 	router.Get("/debug-date", controller.getDebugDate)                // Debug
 
-	// GL Mapping APIs
-	router.Get("/gl-mappings", controller.listGLMappings)
-	router.Get("/gl-mappings/:id", controller.getGLMapping)
-	router.Post("/gl-mappings", controller.createGLMapping)
-	router.Put("/gl-mappings/:id", controller.updateGLMapping)
-	router.Delete("/gl-mappings/:id", controller.deleteGLMapping)
-	router.Post("/gl-mappings/import", controller.importGLMapping)
+	// Dashboard APIs
+	router.Get("/filter-options", controller.getFilterOptions)
+	router.Get("/organization-structure", controller.getOrganizationStructure)
+	router.Post("/details", controller.getBudgetDetails)
+	router.Post("/dashboard-summary", controller.getDashboardSummary) // New
+	router.Get("/actual-years", controller.getActualYears)            // New: Distinct Years
+	router.Get("/available-months", controller.getAvailableMonths)    // New: Available months for year
+	router.Get("/debug-date", controller.getDebugDate)                // Debug
 
-	// Budget Structure API
-	router.Get("/budget-structure", controller.getBudgetStructureTree)
-	router.Get("/budget-structure-list", controller.listBudgetStructure)
-	router.Get("/budget-structure-list/:id", controller.getBudgetStructure)
-	router.Post("/budget-structure", controller.createBudgetStructure)
-	router.Put("/budget-structure/:id", controller.updateBudgetStructure)
-	router.Delete("/budget-structure/:id", controller.deleteBudgetStructure)
+	// Unified GL Grouping APIs
+	router.Get("/gl-groupings", controller.getBudgetStructureTree) // Unified Filter Tree
+	router.Get("/gl-grouping-list", controller.listGLGroupings)
+	router.Get("/gl-groupings/:id", controller.getGLGrouping)
+	router.Post("/gl-groupings", controller.createGLGrouping)
+	router.Put("/gl-groupings/:id", controller.updateGLGrouping)
+	router.Delete("/gl-groupings/:id", controller.deleteGLGrouping)
+	router.Post("/gl-groupings/import", controller.importGLGrouping)
 
 	// User Config APIs
 	router.Get("/configs", controller.getUserConfigs)
@@ -223,11 +225,11 @@ func (c *budgetController) syncBudget(ctx *fiber.Ctx) error {
 func (c *budgetController) syncActuals(ctx *fiber.Ctx) error {
 	type SyncReq struct {
 		Year   string   `json:"year"`
-		Months []string `json:"months"` // New: Optional month list
+		Months []string `json:"months"`
 	}
 	var req SyncReq
 	if err := ctx.BodyParser(&req); err != nil {
-		// Allow empty body -> Default to current year
+		// Default
 	}
 	if req.Year == "" {
 		req.Year = fmt.Sprintf("%d", time.Now().Year())
@@ -291,10 +293,6 @@ func (c *budgetController) syncCapexActual(ctx *fiber.Ctx) error {
 	return ctx.JSON(fiber.Map{"status": "synced", "message": "Data synced successfully"})
 }
 
-// ---------------------------------------------------------------------
-// Clear Handlers
-// ---------------------------------------------------------------------
-
 func (c *budgetController) clearBudget(ctx *fiber.Ctx) error {
 	if err := c.plSrv.ClearBudget(ctx.UserContext()); err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
@@ -315,10 +313,6 @@ func (c *budgetController) clearCapexActual(ctx *fiber.Ctx) error {
 	}
 	return ctx.JSON(fiber.Map{"status": "cleared", "message": "Capex Actual data cleared successfully"})
 }
-
-// ---------------------------------------------------------------------
-// Delete Handlers
-// ---------------------------------------------------------------------
 
 func (c *budgetController) deleteBudgetFile(ctx *fiber.Ctx) error {
 	id := ctx.Params("id")
@@ -341,10 +335,6 @@ func (c *budgetController) deleteCapexActualFile(ctx *fiber.Ctx) error {
 	}
 	return ctx.JSON(fiber.Map{"status": "success"})
 }
-
-// ---------------------------------------------------------------------
-// Rename Handlers
-// ---------------------------------------------------------------------
 
 func (c *budgetController) renameBudgetFile(ctx *fiber.Ctx) error {
 	id := ctx.Params("id")
@@ -389,10 +379,6 @@ func (c *budgetController) renameCapexActualFile(ctx *fiber.Ctx) error {
 	return ctx.JSON(fiber.Map{"status": "success"})
 }
 
-// ---------------------------------------------------------------------
-// List Handlers
-// ---------------------------------------------------------------------
-
 func (c *budgetController) listBudgetFiles(ctx *fiber.Ctx) error {
 	files, err := c.plSrv.ListBudgetFiles(ctx.UserContext())
 	if err != nil {
@@ -430,70 +416,8 @@ func (c *budgetController) deleteActuals(ctx *fiber.Ctx) error {
 }
 
 // ---------------------------------------------------------------------
-// GL Mapping Handlers
+// Unified GL Grouping Handlers
 // ---------------------------------------------------------------------
-
-func (c *budgetController) listGLMappings(ctx *fiber.Ctx) error {
-	mappings, err := c.masterSrv.ListGLMappings(ctx.UserContext())
-	if err != nil {
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	}
-	return ctx.JSON(mappings)
-}
-
-func (c *budgetController) getGLMapping(ctx *fiber.Ctx) error {
-	id := ctx.Params("id")
-	mapping, err := c.masterSrv.GetGLMappingByID(ctx.UserContext(), id)
-	if err != nil {
-		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Mapping not found"})
-	}
-	return ctx.JSON(mapping)
-}
-
-func (c *budgetController) createGLMapping(ctx *fiber.Ctx) error {
-	var body models.GlMappingEntity
-	if err := ctx.BodyParser(&body); err != nil {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
-	}
-	if err := c.masterSrv.CreateGLMapping(ctx.UserContext(), &body); err != nil {
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	}
-	return ctx.JSON(body)
-}
-
-func (c *budgetController) updateGLMapping(ctx *fiber.Ctx) error {
-	var body models.GlMappingEntity
-	if err := ctx.BodyParser(&body); err != nil {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
-	}
-	// ensure ID is correct from param if needed, but assuming body has it.
-	if err := c.masterSrv.UpdateGLMapping(ctx.UserContext(), &body); err != nil {
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	}
-	return ctx.JSON(body)
-}
-
-func (c *budgetController) deleteGLMapping(ctx *fiber.Ctx) error {
-	id := ctx.Params("id")
-	if err := c.masterSrv.DeleteGLMapping(ctx.UserContext(), id); err != nil {
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	}
-	return ctx.JSON(fiber.Map{"status": "success"})
-}
-
-func (c *budgetController) importGLMapping(ctx *fiber.Ctx) error {
-	file, err := ctx.FormFile("file")
-	if err != nil {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to get file"})
-	}
-
-	err = c.masterSrv.ImportGLMapping(ctx.UserContext(), file)
-	if err != nil {
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	}
-
-	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"message": "GL Mapping imported successfully"})
-}
 
 func (c *budgetController) getBudgetStructureTree(ctx *fiber.Ctx) error {
 	tree, err := c.masterSrv.GetBudgetStructureTree(ctx.UserContext())
@@ -503,63 +427,65 @@ func (c *budgetController) getBudgetStructureTree(ctx *fiber.Ctx) error {
 	return ctx.JSON(tree)
 }
 
-func (c *budgetController) listBudgetStructure(ctx *fiber.Ctx) error {
-	list, err := c.masterSrv.ListBudgetStructure(ctx.UserContext())
+func (c *budgetController) listGLGroupings(ctx *fiber.Ctx) error {
+	groupings, err := c.masterSrv.ListGLGroupings(ctx.UserContext())
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
-	return ctx.JSON(list)
+	return ctx.JSON(groupings)
 }
 
-func (c *budgetController) getBudgetStructure(ctx *fiber.Ctx) error {
-	id, err := ctx.ParamsInt("id")
+func (c *budgetController) getGLGrouping(ctx *fiber.Ctx) error {
+	id := ctx.Params("id")
+	grouping, err := c.masterSrv.GetGLGroupingByID(ctx.UserContext(), id)
 	if err != nil {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid ID format"})
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Grouping not found"})
 	}
-	entity, err := c.masterSrv.GetBudgetStructureByID(ctx.UserContext(), uint(id))
-	if err != nil {
-		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Structure node not found"})
-	}
-	return ctx.JSON(entity)
+	return ctx.JSON(grouping)
 }
 
-func (c *budgetController) createBudgetStructure(ctx *fiber.Ctx) error {
-	var body models.BudgetStructureEntity
+func (c *budgetController) createGLGrouping(ctx *fiber.Ctx) error {
+	var body models.GlGroupingEntity
 	if err := ctx.BodyParser(&body); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
-	if err := c.masterSrv.CreateBudgetStructure(ctx.UserContext(), &body); err != nil {
+	if err := c.masterSrv.CreateGLGrouping(ctx.UserContext(), &body); err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return ctx.JSON(body)
 }
 
-func (c *budgetController) updateBudgetStructure(ctx *fiber.Ctx) error {
-	var body models.BudgetStructureEntity
+func (c *budgetController) updateGLGrouping(ctx *fiber.Ctx) error {
+	var body models.GlGroupingEntity
 	if err := ctx.BodyParser(&body); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
-	id, err := ctx.ParamsInt("id")
-	if err != nil {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid ID format"})
-	}
-	body.ID = uint(id)
-
-	if err := c.masterSrv.UpdateBudgetStructure(ctx.UserContext(), &body); err != nil {
+	if err := c.masterSrv.UpdateGLGrouping(ctx.UserContext(), &body); err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return ctx.JSON(body)
 }
 
-func (c *budgetController) deleteBudgetStructure(ctx *fiber.Ctx) error {
-	id, err := ctx.ParamsInt("id")
-	if err != nil {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid ID format"})
-	}
-	if err := c.masterSrv.DeleteBudgetStructure(ctx.UserContext(), uint(id)); err != nil {
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to delete: " + err.Error()})
+func (c *budgetController) deleteGLGrouping(ctx *fiber.Ctx) error {
+	id := ctx.Params("id")
+	if err := c.masterSrv.DeleteGLGrouping(ctx.UserContext(), id); err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return ctx.JSON(fiber.Map{"status": "success"})
+}
+
+func (c *budgetController) importGLGrouping(ctx *fiber.Ctx) error {
+	file, err := ctx.FormFile("file")
+	if err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to get file"})
+	}
+
+	err = c.masterSrv.ImportGLGrouping(ctx.UserContext(), file)
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"message": "GL Grouping imported successfully"})
 }
 
 // User Config Handlers

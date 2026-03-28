@@ -8,6 +8,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/shopspring/decimal"
 	"p2p-back-end/logs"
 	"p2p-back-end/modules/entities/models"
 )
@@ -104,7 +105,7 @@ func (r *dashboardRepository) GetBudgetDetails(ctx context.Context, filter map[s
 		ConsoGL string
 		GLName  string
 		Month   string
-		Amount  float64
+		Amount  decimal.Decimal
 	}
 
 	if val, ok := filter["months"]; ok {
@@ -125,6 +126,7 @@ func (r *dashboardRepository) GetBudgetDetails(ctx context.Context, filter map[s
 	var flatData []flatResult
 	err := query.
 		Joins("JOIN budget_amount_entities ba ON ba.budget_fact_id = budget_fact_entities.id AND ba.deleted_at IS NULL").
+		Where("budget_fact_entities.conso_gl != '' AND budget_fact_entities.conso_gl IS NOT NULL").
 		Select("budget_fact_entities.conso_gl, MAX(budget_fact_entities.gl_name) as gl_name, ba.month, SUM(ba.amount) as amount").
 		Group("budget_fact_entities.conso_gl, ba.month").
 		Scan(&flatData).Error
@@ -141,7 +143,7 @@ func (r *dashboardRepository) GetBudgetDetails(ctx context.Context, filter map[s
 			dto = &models.BudgetDetailDTO{
 				ConsoGL:       row.ConsoGL,
 				GLName:        row.GLName,
-				YearTotal:     0,
+				YearTotal:     decimal.Zero,
 				BudgetAmounts: []models.BudgetAmountDTO{},
 			}
 			budgetMap[row.ConsoGL] = dto
@@ -150,7 +152,7 @@ func (r *dashboardRepository) GetBudgetDetails(ctx context.Context, filter map[s
 			Month:  row.Month,
 			Amount: row.Amount,
 		})
-		dto.YearTotal += row.Amount
+		dto.YearTotal = dto.YearTotal.Add(row.Amount)
 	}
 
 	// Convert map to slice
@@ -200,11 +202,15 @@ func (r *dashboardRepository) GetActualDetails(ctx context.Context, filter map[s
 			// Filter the fact records that have at least one of these months
 			query = query.Joins("JOIN actual_amount_entities ON actual_amount_entities.actual_fact_id = actual_fact_entities.id").
 				Where("actual_amount_entities.month IN ?", mstrs).
+				Where("actual_fact_entities.conso_gl != '' AND actual_fact_entities.conso_gl IS NOT NULL").
 				Group("actual_fact_entities.id")
 		} else {
 			// Strict Month Filter
 			query = query.Where("1 = 0")
 		}
+	} else {
+		// Even without month filter, hide unmapped GLs
+		query = query.Where("conso_gl != '' AND conso_gl IS NOT NULL")
 	}
 
 	// เรียงลำดับข้อมูล
@@ -217,29 +223,27 @@ func (r *dashboardRepository) GetActualDetails(ctx context.Context, filter map[s
 func (r *dashboardRepository) GetActualTransactions(ctx context.Context, filter map[string]interface{}) (*models.PaginatedActualTransactionDTO, error) {
 	query := r.db.WithContext(ctx).Model(&models.ActualTransactionEntity{}).
 		Select(`
+			actual_transaction_entities.id,
 			actual_transaction_entities.source,
 			actual_transaction_entities.posting_date,
 			actual_transaction_entities.doc_no as doc_no,
 			actual_transaction_entities.vendor_name as vendor,
 			actual_transaction_entities.description,
-			COALESCE(
-				NULLIF(mapping.conso_gl, ''),
-				NULLIF((SELECT conso_gl FROM gl_mapping_entities WHERE entity_gl = actual_transaction_entities.entity_gl AND conso_gl != '' LIMIT 1), ''),
-				actual_transaction_entities.entity_gl
-			) as gl_account_no,
 			actual_transaction_entities.conso_gl as conso_gl,
-			COALESCE(
-				NULLIF(mapping.account_name, ''),
-				NULLIF((SELECT account_name FROM gl_mapping_entities WHERE entity_gl = actual_transaction_entities.entity_gl AND account_name != '' LIMIT 1), ''),
-				NULLIF(actual_transaction_entities.gl_account_name, ''),
-				'Unmapped GL'
-			) as gl_account_name,
+			actual_transaction_entities.gl_account_name as gl_account_name,
 			actual_transaction_entities.amount,
 			actual_transaction_entities.department,
 			actual_transaction_entities.entity as company,
-			actual_transaction_entities.branch
+			actual_transaction_entities.branch,
+			CASE 
+				WHEN alrie.id IS NOT NULL THEN 'Request Change'
+				WHEN al.status = 'CONFIRMED' THEN 'Approved'
+				ELSE 'None'
+			END as audit_status
 		`).
-		Joins("LEFT JOIN gl_mapping_entities mapping ON actual_transaction_entities.entity_gl = mapping.entity_gl AND actual_transaction_entities.entity = mapping.entity")
+		Joins("LEFT JOIN audit_log_rejected_item_entities alrie ON alrie.transaction_id = actual_transaction_entities.id").
+		Joins("LEFT JOIN audit_log_entities al ON al.entity = actual_transaction_entities.entity AND al.branch = actual_transaction_entities.branch AND al.department = actual_transaction_entities.department AND al.year = actual_transaction_entities.year AND al.month = UPPER(TO_CHAR(actual_transaction_entities.posting_date::DATE, 'MON')) AND al.status = 'CONFIRMED'").
+		Joins("LEFT JOIN gl_grouping_entities mapping ON actual_transaction_entities.entity_gl = mapping.entity_gl AND actual_transaction_entities.entity = mapping.entity")
 
 	// 2. Filters (Only apply if not empty)
 	if val, ok := filter["entities"]; ok {
@@ -403,26 +407,52 @@ func (r *dashboardRepository) GetDashboardAggregates(ctx context.Context, filter
 			}
 		}
 
-		// Added: Year Filter (Only apply to Actual tables, Budget uses file_id)
-		if tableName == "actual_fact_entities" || tableName == "actual_amount_entities" || tableName == "actual_transaction_entities" {
-			if val, ok := filter["year"]; ok {
-				if s, ok := val.(string); ok && s != "" {
-					s = strings.ReplaceAll(s, "FY", "")
-					tx = tx.Where(tableName+".year = ?", s)
+		// Added: Year Filter
+		targetYear := ""
+		if val, ok := filter["year"]; ok {
+			if s, ok := val.(string); ok && s != "" {
+				targetYear = strings.ReplaceAll(s, "FY", "")
+				// Apply to actual table always. Apply to budget only if no explicit file ID.
+				if tableName != "budget_fact_entities" && tableName != "capex_budget_fact_entities" {
+					tx = tx.Where(tableName+".year = ?", targetYear)
 				}
 			}
 		}
 
-		// Added: ID-based version filters
+		// Added: ID-based version filters with Fallback
 		if tableName == "budget_fact_entities" {
 			if val, ok := filter["budget_file_id"]; ok && val != "" {
 				tx = tx.Where(tableName+".file_budget_id = ?", val)
+			} else {
+				// 🛠️ Fallback: If no ID provided, use the most recent budget file matching the year
+				var latestFid string
+				subQuery := r.db.Model(&models.BudgetFactEntity{})
+				if targetYear != "" {
+					subQuery = subQuery.Where("year = ?", targetYear)
+					tx = tx.Where(tableName+".year = ?", targetYear) // Also filter the main query by year for fallback
+				}
+				if err := subQuery.Order("created_at desc").Limit(1).Pluck("file_budget_id", &latestFid).Error; err == nil && latestFid != "" {
+					tx = tx.Where(tableName+".file_budget_id = ?", latestFid)
+				}
 			}
 		}
-		// Assuming similar file ID fields for capex if needed later, but focusing on Budget for now.
-		if tableName == "capex_fact_entities" {
+
+		if tableName == "capex_budget_fact_entities" {
 			if val, ok := filter["capex_file_id"]; ok && val != "" {
-				tx = tx.Where(tableName+".file_capex_id = ?", val)
+				tx = tx.Where(tableName+".file_capex_budget_id = ?", val)
+			} else {
+				// Fallback for Capex
+				var latestFid string
+				subQuery := r.db.Model(&models.CapexBudgetFactEntity{})
+				if val, ok := filter["year"]; ok {
+					if s, ok := val.(string); ok && s != "" {
+						s = strings.ReplaceAll(s, "FY", "")
+						subQuery = subQuery.Where("year = ?", s)
+					}
+				}
+				if err := subQuery.Order("created_at desc").Limit(1).Pluck("file_capex_budget_id", &latestFid).Error; err == nil && latestFid != "" {
+					tx = tx.Where(tableName+".file_capex_budget_id = ?", latestFid)
+				}
 			}
 		}
 
@@ -438,8 +468,8 @@ func (r *dashboardRepository) GetDashboardAggregates(ctx context.Context, filter
 	}
 
 	// Determine Grouping Strategy (Drill-down vs Summary)
-	groupBy := "department"
-	selectCol := "department"
+	groupBy := "COALESCE(NULLIF(department, ''), nav_code)"
+	selectCol := "COALESCE(NULLIF(department, ''), nav_code) as department"
 
 	if val, ok := filter["departments"]; ok {
 		if strs := toStringSlice(val); len(strs) > 0 {
@@ -460,37 +490,37 @@ func (r *dashboardRepository) GetDashboardAggregates(ctx context.Context, filter
 	}
 
 	// 1. รวมยอดตาม Department (Department Aggregation)
-	// Budget
+	// Budget - ALWAYS JOIN AMOUNT FOR PARITY
 	type DeptResult struct {
 		Department string
-		Total      float64
+		Total      decimal.Decimal
 	}
 	var budgetDept []DeptResult
-	tx1 := r.db.Model(&models.BudgetFactEntity{}).Select(selectCol + ", SUM(year_total) as total")
+	tx1 := r.db.Model(&models.BudgetFactEntity{}).
+		Select(selectCol+", SUM(ba.amount) as total").
+		Joins("JOIN budget_amount_entities ba ON ba.budget_fact_id = budget_fact_entities.id AND ba.deleted_at IS NULL")
+
 	tx1 = applyFilter(tx1, "budget_fact_entities")
+
 	if err := tx1.WithContext(ctx).Group(groupBy).Scan(&budgetDept).Error; err != nil {
 		return nil, fmt.Errorf("dashboardRepo.GetDashboardAggregates.Budget: %w", err)
 	}
-	fmt.Printf("[DEBUG] Aggregates Budget Count: %d, SQL: %s\n", len(budgetDept), tx1.ToSQL(func(tx *gorm.DB) *gorm.DB { return tx }))
 
-	// Actual
+	// Actual - ALWAYS JOIN AMOUNT FOR PARITY
 	var actualDept []DeptResult
-	tx2 := r.db.Model(&models.ActualFactEntity{}).Select(selectCol + ", SUM(actual_fact_entities.year_total) as total")
+	tx2 := r.db.Model(&models.ActualFactEntity{}).
+		Select(selectCol+", SUM(aa.amount) as total").
+		Joins("JOIN actual_amount_entities aa ON aa.actual_fact_id = actual_fact_entities.id AND aa.deleted_at IS NULL")
 
-	// If months filter is provided, we must sum from the amount table instead of using year_total
+	// If months filter is provided, it's already using join-summing, but we've unified it above.
+	// We just apply the month filter if present.
 	if val, ok := filter["months"]; ok {
 		mstrs := toStringSlice(val)
 		if len(mstrs) > 0 {
-			tx2 = tx2.Select(selectCol+", SUM(actual_amount_entities.amount) as total").
-				Joins("JOIN actual_amount_entities ON actual_amount_entities.actual_fact_id = actual_fact_entities.id").
-				Where("actual_amount_entities.month IN ?", mstrs)
+			tx2 = tx2.Where("aa.month IN ?", mstrs)
 		} else {
-			// No months selected: set total to 0 explicitly to avoid SQL errors
-			tx2 = tx2.Select(selectCol + ", 0 as total").Where("1 = 0")
+			tx2 = tx2.Where("1 = 0")
 		}
-	} else {
-		// No month filter: Use the pre-aggregated year_total (Default behavior)
-		// No changes needed, tx2 already has the default Select
 	}
 
 	tx2 = applyFilter(tx2, "actual_fact_entities")
@@ -498,24 +528,24 @@ func (r *dashboardRepository) GetDashboardAggregates(ctx context.Context, filter
 	if err := tx2.WithContext(ctx).Group(groupBy).Scan(&actualDept).Error; err != nil {
 		return nil, fmt.Errorf("dashboardRepo.GetDashboardAggregates.Actual: %w", err)
 	}
-	fmt.Printf("[DEBUG] Aggregates Actual Count: %d, SQL: %s\n", len(actualDept), tx2.ToSQL(func(tx *gorm.DB) *gorm.DB { return tx }))
 
 	// รวมข้อมูล (Merge Department Data)
 	deptMap := make(map[string]*models.DepartmentStatDTO)
+	summary.TotalBudget = decimal.Zero
+	summary.TotalActual = decimal.Zero
+
 	for _, b := range budgetDept {
-		fmt.Printf("[DEBUG] Row Budget: Dept=%q, Total=%f\n", b.Department, b.Total)
-		deptMap[b.Department] = &models.DepartmentStatDTO{Department: b.Department, Budget: b.Total}
-		summary.TotalBudget += b.Total
+		deptMap[b.Department] = &models.DepartmentStatDTO{Department: b.Department, Budget: b.Total, Actual: decimal.Zero}
+		summary.TotalBudget = summary.TotalBudget.Add(b.Total)
 	}
 	for _, a := range actualDept {
-		fmt.Printf("[DEBUG] Row Actual: Dept=%q, Total=%f\n", a.Department, a.Total)
 		if _, ok := deptMap[a.Department]; !ok {
-			deptMap[a.Department] = &models.DepartmentStatDTO{Department: a.Department}
+			deptMap[a.Department] = &models.DepartmentStatDTO{Department: a.Department, Budget: decimal.Zero, Actual: a.Total}
+		} else {
+			deptMap[a.Department].Actual = a.Total
 		}
-		deptMap[a.Department].Actual += a.Total
-		summary.TotalActual += a.Total
+		summary.TotalActual = summary.TotalActual.Add(a.Total)
 	}
-	fmt.Printf("[DEBUG] Aggregates Final - TotalBudget: %f, TotalActual: %f, DeptCount: %d\n", summary.TotalBudget, summary.TotalActual, len(deptMap))
 
 	// แปลง Map เป็น Slice (Flatten Map)
 	var allDepts []models.DepartmentStatDTO
@@ -557,14 +587,14 @@ func (r *dashboardRepository) GetDashboardAggregates(ctx context.Context, filter
 		budget := d.Budget
 		actual := d.Actual
 
-		if budget == 0 {
-			if actual > 0 {
+		if budget.IsZero() {
+			if actual.GreaterThan(decimal.Zero) {
 				overBudgetCount++
 			}
 			continue
 		}
 
-		spendPct := (actual / budget) * 100
+		spendPct, _ := actual.Div(budget).Mul(decimal.NewFromInt(100)).Float64()
 		if spendPct >= redLimit {
 			overBudgetCount++
 		} else if spendPct >= yellowLimit {
@@ -575,34 +605,34 @@ func (r *dashboardRepository) GetDashboardAggregates(ctx context.Context, filter
 	summary.NearLimitCount = nearLimitCount
 
 	sort.Slice(allDepts, func(i, j int) bool {
-		var valI, valJ float64
+		var valI, valJ decimal.Decimal
 		switch sortBy {
 		case "budget":
 			valI, valJ = allDepts[i].Budget, allDepts[j].Budget
 		case "actual": // Spend
 			valI, valJ = allDepts[i].Actual, allDepts[j].Actual
 		case "remaining":
-			valI = allDepts[i].Budget - allDepts[i].Actual
-			valJ = allDepts[j].Budget - allDepts[j].Actual
+			valI = allDepts[i].Budget.Sub(allDepts[i].Actual)
+			valJ = allDepts[j].Budget.Sub(allDepts[j].Actual)
 		case "remaining_pct":
-			if allDepts[i].Budget != 0 {
-				valI = (allDepts[i].Budget - allDepts[i].Actual) / allDepts[i].Budget
+			if !allDepts[i].Budget.IsZero() {
+				valI = allDepts[i].Budget.Sub(allDepts[i].Actual).Div(allDepts[i].Budget)
 			} else {
-				valI = -999999 // Treat no budget as lowest priority or handled specifically
+				valI = decimal.NewFromInt(-999999)
 			}
-			if allDepts[j].Budget != 0 {
-				valJ = (allDepts[j].Budget - allDepts[j].Actual) / allDepts[j].Budget
+			if !allDepts[j].Budget.IsZero() {
+				valJ = allDepts[j].Budget.Sub(allDepts[j].Actual).Div(allDepts[j].Budget)
 			} else {
-				valJ = -999999
+				valJ = decimal.NewFromInt(-999999)
 			}
 		default:
 			valI, valJ = allDepts[i].Actual, allDepts[j].Actual
 		}
 
 		if sortOrder == "asc" {
-			return valI < valJ
+			return valI.LessThan(valJ)
 		}
-		return valI > valJ
+		return valI.GreaterThan(valJ)
 	})
 
 	// Pagination Logic
@@ -640,14 +670,11 @@ func (r *dashboardRepository) GetDashboardAggregates(ctx context.Context, filter
 	}
 
 	// 2. Monthly Aggregation for Chart
-	// This is trickier because we need to join with Amount tables.
-	// Budget Amounts
 	type MonthResult struct {
 		Month string
-		Total float64
+		Total decimal.Decimal
 	}
 	var budgetMonth []MonthResult
-	// Join Header to filter -> Sum Amount
 	tx3 := r.db.Table("budget_amount_entities").
 		Select("budget_amount_entities.month, SUM(budget_amount_entities.amount) as total").
 		Joins("JOIN budget_fact_entities ON budget_amount_entities.budget_fact_id = budget_fact_entities.id")
@@ -666,13 +693,7 @@ func (r *dashboardRepository) GetDashboardAggregates(ctx context.Context, filter
 		mstrs := toStringSlice(val)
 		if len(mstrs) > 0 {
 			tx4 = tx4.Where("actual_amount_entities.month IN ?", mstrs)
-		} else {
-			// Strict Month Filter
-			tx4 = tx4.Where("1 = 0")
 		}
-	} else {
-		// Strict Month Filter
-		tx4 = tx4.Where("1 = 0")
 	}
 
 	tx4 = applyFilter(tx4, "actual_fact_entities")
@@ -682,28 +703,23 @@ func (r *dashboardRepository) GetDashboardAggregates(ctx context.Context, filter
 
 	// Merge Chart Data
 	monthMap := make(map[string]*models.MonthlyStatDTO)
-	// Initialize 12 months? or just map what we have
-	// Let's rely on what we have, frontend usually handles ordering or we fix it.
-	// We'll normalize keys to JAN,FEB...
 	for _, m := range budgetMonth {
-		// m.Month might be "January", "JAN", etc. Assumed stored as JAN,FEB from Import.
-		monthMap[m.Month] = &models.MonthlyStatDTO{Month: m.Month, Budget: m.Total}
+		monthMap[m.Month] = &models.MonthlyStatDTO{Month: m.Month, Budget: m.Total, Actual: decimal.Zero}
 	}
 	for _, m := range actualMonth {
 		if _, ok := monthMap[m.Month]; !ok {
-			monthMap[m.Month] = &models.MonthlyStatDTO{Month: m.Month}
+			monthMap[m.Month] = &models.MonthlyStatDTO{Month: m.Month, Budget: decimal.Zero, Actual: m.Total}
+		} else {
+			monthMap[m.Month].Actual = m.Total
 		}
-		monthMap[m.Month].Actual += m.Total
 	}
 
-	// Ensure logical order if possible, or just slice
-	// Order: JAN, FEB, MAR...
 	monthsOrder := []string{"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"}
 	for _, mon := range monthsOrder {
 		if val, ok := monthMap[mon]; ok {
 			summary.ChartData = append(summary.ChartData, *val)
 		} else {
-			summary.ChartData = append(summary.ChartData, models.MonthlyStatDTO{Month: mon, Budget: 0, Actual: 0})
+			summary.ChartData = append(summary.ChartData, models.MonthlyStatDTO{Month: mon, Budget: decimal.Zero, Actual: decimal.Zero})
 		}
 	}
 

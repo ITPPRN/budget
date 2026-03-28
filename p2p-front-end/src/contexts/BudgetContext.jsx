@@ -12,7 +12,7 @@ export const BudgetProvider = ({ children }) => {
     useEffect(() => {
         const fetchStructure = async () => {
             try {
-                const response = await api.get('/budgets/budget-structure');
+                const response = await api.get('/budgets/gl-groupings');
                 if (response.data) {
                     setFilterOptions(response.data);
                 }

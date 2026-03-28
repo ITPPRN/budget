@@ -10,7 +10,7 @@ import (
 
 func (s *server) StartCronJob() {
 	logs.Info("⏰ Initializing Cron Jobs...")
- 
+
 	// 1. Job: Tier 1 - Fast Sync (Every 5 mins)
 	// Sync only the current month of the current year for real-time reactivity.
 	if _, err := s.Cron.AddFunc("0/5 * * * *", func() {
@@ -27,7 +27,7 @@ func (s *server) StartCronJob() {
 
 		s.SyncMutex.Lock()
 		defer s.SyncMutex.Unlock()
- 
+
 		logs.Infof("⏰ Tier 1 Job: Fast-Sync Current Month (%s %s) Started", mName, yearStr)
 		if err := s.Shd.ActualService.SyncActuals(context.Background(), yearStr, []string{mName}); err != nil {
 			logs.Errorf("Tier 1 Job: Fast-Sync Failed: %v", err)
@@ -45,7 +45,7 @@ func (s *server) StartCronJob() {
 
 		logs.Info("⏰ Tier 2 Job: Full Maintenance Sync Started")
 
-		startYear := 2025
+		startYear := 2026
 		currentYear := time.Now().Year()
 
 		for year := startYear; year <= currentYear; year++ {

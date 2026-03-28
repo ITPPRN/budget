@@ -152,23 +152,9 @@ func (s *plBudgetService) processBudgetFact(ctx context.Context, rows [][]string
 		monthIdxs[m] = colMap[months[m]]
 	}
 
-	// --- Normalization Helpers (Copied from SyncActuals to ensure consistency) ---
-	entityNameMap := map[string]string{
-		"HONDA MALIWAN":    "HMW",
-		"AUTOCORP HOLDING": "ACG",
-		"CLIK":             "CLIK",
-		// Add commonly used variations in Budget Files if known, or rely on normalize
-	}
+	// --- Normalization Helpers (Consolidated in common_service) ---
 	normalize := func(s string) string {
 		return strings.TrimSpace(strings.ToUpper(s))
-	}
-	mapToCode := func(rawVal string, m map[string]string) string {
-		norm := normalize(rawVal)
-		if code, ok := m[norm]; ok {
-			return code
-		}
-		// Fallback: Check if rawVal itself is a valid code
-		return norm
 	}
 
 	for i, row := range rows {
@@ -185,7 +171,7 @@ func (s *plBudgetService) processBudgetFact(ctx context.Context, rows [][]string
 		rawDept := getColSafe(row, idxDept)
 
 		// Normalize Entity & Department for Lookup
-		entity := mapToCode(rawEntity, entityNameMap)
+		entity := NormalizeEntityCode(rawEntity)
 		deptLookup := normalize(rawDept)
 
 		// Apply Department Mapping

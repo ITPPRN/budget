@@ -7,6 +7,8 @@ import (
 
 	"p2p-back-end/logs"
 	"p2p-back-end/modules/entities/models"
+
+	"github.com/shopspring/decimal"
 )
 
 type ownerService struct {
@@ -22,7 +24,7 @@ func NewOwnerService(repo models.OwnerRepository, authSrv models.AuthService, ca
 func (s *ownerService) GetDashboardSummary(ctx context.Context, user *models.UserInfo, filter map[string]interface{}) (*models.OwnerDashboardSummaryDTO, error) {
 	logs.Infof("[DEBUG] OwnerService: GetDashboardSummary START for User=%s", user.Username)
 
-	filter = s.injectPermissions(ctx, user, filter)
+	filter = s.InjectPermissions(ctx, user, filter)
 
 	// 🛠️ Key Mapping: Frontend Owner uses 'conso_gls', Backend Repo uses 'budget_gls'
 	if gls, ok := filter["conso_gls"]; ok {
@@ -45,14 +47,14 @@ func (s *ownerService) GetDashboardSummary(ctx context.Context, user *models.Use
 	capexFilter["year"] = "All"
 
 	capexSummary, err := s.capexSrv.GetCapexDashboardSummary(ctx, capexFilter)
-	capexBudget := 0.0
-	capexActual := 0.0
+	capexBudget := decimal.Zero
+	capexActual := decimal.Zero
 	if err == nil && capexSummary != nil {
 		capexBudget = capexSummary.TotalBudget
 		capexActual = capexSummary.TotalActual
 	}
 
-	logs.Infof("[DEBUG] OwnerService: Result - Budget=%.2f, Actual=%.2f, DeptsCount=%d", summary.TotalBudget, summary.TotalActual, len(summary.DepartmentData))
+	logs.Infof("[DEBUG] OwnerService: Result - Budget=%v, Actual=%v, DeptsCount=%d", summary.TotalBudget, summary.TotalActual, len(summary.DepartmentData))
 
 	return &models.OwnerDashboardSummaryDTO{
 		DashboardSummaryDTO: *summary,
@@ -62,22 +64,22 @@ func (s *ownerService) GetDashboardSummary(ctx context.Context, user *models.Use
 }
 
 func (s *ownerService) GetActualTransactions(ctx context.Context, user *models.UserInfo, filter map[string]interface{}) (*models.PaginatedActualTransactionDTO, error) {
-	filter = s.injectPermissions(ctx, user, filter)
+	filter = s.InjectPermissions(ctx, user, filter)
 	return s.repo.GetActualTransactions(ctx, filter)
 }
 
 func (s *ownerService) GetActualDetails(ctx context.Context, user *models.UserInfo, filter map[string]interface{}) ([]models.ActualFactEntity, error) {
-	filter = s.injectPermissions(ctx, user, filter)
+	filter = s.InjectPermissions(ctx, user, filter)
 	return s.repo.GetActualDetails(ctx, filter)
 }
 
 func (s *ownerService) GetBudgetDetails(ctx context.Context, user *models.UserInfo, filter map[string]interface{}) ([]models.BudgetFactEntity, error) {
-	filter = s.injectPermissions(ctx, user, filter)
+	filter = s.InjectPermissions(ctx, user, filter)
 	return s.repo.GetBudgetDetails(ctx, filter)
 }
 
 func (s *ownerService) GetFilterOptions(ctx context.Context, user *models.UserInfo) (interface{}, error) {
-	filter := s.injectPermissions(ctx, user, nil)
+	filter := s.InjectPermissions(ctx, user, nil)
 	allowedDepts, _ := filter["departments"].([]string)
 
 	allFacts, err := s.repo.GetBudgetFilterOptions(ctx)
@@ -110,7 +112,7 @@ func (s *ownerService) GetFilterOptions(ctx context.Context, user *models.UserIn
 }
 
 func (s *ownerService) GetOrganizationStructure(ctx context.Context, user *models.UserInfo) ([]models.OrganizationDTO, error) {
-	filter := s.injectPermissions(ctx, user, nil)
+	filter := s.InjectPermissions(ctx, user, nil)
 	allowedDepts, _ := filter["departments"].([]string)
 
 	facts, err := s.repo.GetOrganizationStructure(ctx)
@@ -198,7 +200,7 @@ func (s *ownerService) GetActualYears(ctx context.Context, user *models.UserInfo
 	return s.repo.GetActualYears(ctx)
 }
 
-func (s *ownerService) injectPermissions(ctx context.Context, user *models.UserInfo, filter map[string]interface{}) map[string]interface{} {
+func (s *ownerService) InjectPermissions(ctx context.Context, user *models.UserInfo, filter map[string]interface{}) map[string]interface{} {
 	if filter == nil {
 		filter = make(map[string]interface{})
 	}
@@ -243,8 +245,6 @@ func (s *ownerService) injectPermissions(ctx context.Context, user *models.UserI
 				allowedDepts = append(allowedDepts, strings.TrimSpace(p.DepartmentCode))
 			}
 		}
-
-
 
 		logs.Infof("[DEBUG] injectPermissions: Non-Admin Owner detected. AllowedDepts: %v", allowedDepts)
 

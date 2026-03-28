@@ -3,29 +3,34 @@ package service
 import (
 	"context"
 	"fmt"
+	"p2p-back-end/modules/entities/models"
 	"p2p-back-end/modules/exports/capex_budget_export_owner/repository"
 	"p2p-back-end/pkg/utils"
 )
 
 type OwnerCapexService interface {
-	ExportOwnerCapexExcel(ctx context.Context, filter map[string]interface{}) ([]byte, string, error)
+	ExportOwnerCapexExcel(ctx context.Context, user *models.UserInfo, filter map[string]interface{}) ([]byte, string, error)
 }
 
 type service struct {
-	repo repository.OwnerCapexRepository
+	repo     repository.OwnerCapexRepository
+	ownerSrv models.OwnerService
 }
 
-func NewService(repo repository.OwnerCapexRepository) OwnerCapexService {
-	return &service{repo: repo}
+func NewService(repo repository.OwnerCapexRepository, ownerSrv models.OwnerService) OwnerCapexService {
+	return &service{repo: repo, ownerSrv: ownerSrv}
 }
 
-func (s *service) ExportOwnerCapexExcel(ctx context.Context, filter map[string]interface{}) ([]byte, string, error) {
+func (s *service) ExportOwnerCapexExcel(ctx context.Context, user *models.UserInfo, filter map[string]interface{}) ([]byte, string, error) {
 	// 1. Sanitize Filters
 	sanitizedFilter := make(map[string]interface{})
 	for k, v := range filter {
 		nk, nv := utils.SanitizeFilter(k, v)
 		sanitizedFilter[nk] = nv
 	}
+
+	// 🛠️ Enforce RBAC
+	sanitizedFilter = s.ownerSrv.InjectPermissions(ctx, user, sanitizedFilter)
 
 	// 2. Fetch Data
 	data, err := s.repo.GetOwnerCapexData(ctx, sanitizedFilter)

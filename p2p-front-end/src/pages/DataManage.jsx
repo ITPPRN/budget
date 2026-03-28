@@ -20,8 +20,7 @@ import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api/axiosInstance';
 import { toast } from 'react-toastify';
 import StorageIcon from '@mui/icons-material/Storage';
-import GLMappingModal from '../components/Budget/GLMappingModal';
-import BudgetStructureModal from '../components/Budget/BudgetStructureModal';
+import GLGroupingModal from '../components/Budget/GLGroupingModal';
 import { BudgetVersionModal, CapexPlanModal, CapexActualModal } from '../components/Budget/VersionModals';
 
 
@@ -602,84 +601,54 @@ const DataManagePage = () => {
           </Paper>
         </Box>
 
-        {/* Card 3: Filter Pane Config */}
-        <Box>
+        {/* Card 3: Unified GL Grouping Config */}
+        <Box sx={{ gridColumn: { sm: '1 / span 2' } }}>
           <Paper elevation={0}
             sx={{
               p: 4,
               borderRadius: '20px',
               border: '1px solid #e3e6f0',
-              height: '100%',
               bgcolor: 'white',
-              boxShadow: '0 10px 30px rgba(0,0,0,0.03)'
+              boxShadow: '0 10px 30px rgba(0,0,0,0.03)',
+              display: 'flex',
+              flexDirection: { xs: 'column', md: 'row' },
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 3
             }}>
-            <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 3, display: 'flex', alignItems: 'center', gap: 1.5, color: '#043478' }}>
-              <Avatar sx={{ bgcolor: '#e8eaf6', width: 32, height: 32 }}>
-                <InsertDriveFileIcon sx={{ color: '#043478', fontSize: 20 }} />
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2.5 }}>
+              <Avatar sx={{ bgcolor: '#e8eaf6', width: 48, height: 48 }}>
+                <InsertDriveFileIcon sx={{ color: '#043478', fontSize: 28 }} />
               </Avatar>
-              Filter Pane Config
-            </Typography>
+              <Box>
+                <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#043478' }}>
+                  GL Grouping Config
+                </Typography>
+                <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                  จัดการการ Map GL และโครงสร้าง Filter
+                </Typography>
+              </Box>
+            </Box>
 
             <Button
-              variant="outlined"
-              fullWidth
-              onClick={() => handleOpenModal('BUDGET_STRUCTURE', 'MANAGE BUDGET STRUCTURE')}
+              variant="contained"
+              onClick={() => handleOpenModal('GL_GROUPING', 'MANAGE GL GROUPING')}
               sx={{
-                height: '45px',
+                height: '50px',
+                px: 4,
                 borderRadius: '12px',
                 textTransform: 'none',
                 fontWeight: 'bold',
-                borderColor: '#043478',
-                color: '#043478',
+                bgcolor: '#043478',
+                boxShadow: '0 4px 14px rgba(4, 52, 120, 0.3)',
                 '&:hover': {
-                  bgcolor: 'rgba(4, 52, 120, 0.04)',
-                  borderColor: '#043478'
+                  bgcolor: '#03285a',
+                  boxShadow: '0 6px 20px rgba(4, 52, 120, 0.4)'
                 }
               }}
               startIcon={<EditIcon />}
             >
-              จัดการ Filter Pane
-            </Button>
-          </Paper>
-        </Box>
-
-        {/* Card 4: GL Mapping Config */}
-        <Box>
-          <Paper elevation={0}
-            sx={{
-              p: 4,
-              borderRadius: '20px',
-              border: '1px solid #e3e6f0',
-              height: '100%',
-              bgcolor: 'white',
-              boxShadow: '0 10px 30px rgba(0,0,0,0.03)'
-            }}>
-            <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 3, display: 'flex', alignItems: 'center', gap: 1.5, color: '#043478' }}>
-              <Avatar sx={{ bgcolor: '#e8eaf6', width: 32, height: 32 }}>
-                <InsertDriveFileIcon sx={{ color: '#043478', fontSize: 20 }} />
-              </Avatar>
-              GL Mapping Config
-            </Typography>
-
-            <Button
-              variant="outlined"
-              fullWidth
-              onClick={() => handleOpenModal('MAP_GL', 'MANAGE GL MAPPING')}
-              sx={{
-                height: '45px',
-                borderRadius: '12px',
-                textTransform: 'none',
-                fontWeight: 'bold',
-                borderColor: '#043478',
-                color: '#043478',
-                '&:hover': {
-                  bgcolor: 'rgba(4, 52, 120, 0.04)',
-                  borderColor: '#043478'
-                }
-              }}
-              startIcon={<EditIcon />}
-            >
-              จัดการ GL Mapping
+              จัดการ GL Grouping
             </Button>
           </Paper>
         </Box>
@@ -710,11 +679,8 @@ const DataManagePage = () => {
 
       {/* Legacy/Common Dialog removed and replaced by specialized modals above */}
 
-      {/* --- GL Mapping Modal --- */}
-      <GLMappingModal open={modalType === 'MAP_GL' && open} onClose={handleClose} />
-
-      {/* --- Budget Structure Modal --- */}
-      <BudgetStructureModal open={modalType === 'BUDGET_STRUCTURE' && open} onClose={handleClose} />
+      {/* --- GL Grouping Modal (Unified) --- */}
+      <GLGroupingModal open={modalType === 'GL_GROUPING' && open} onClose={handleClose} />
 
     </Box>
   );

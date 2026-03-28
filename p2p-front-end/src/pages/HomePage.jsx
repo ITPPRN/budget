@@ -208,35 +208,35 @@ const HomePageContent = () => {
 
       if (isChartFocus) {
         // Update Chart & Totals (but NOT Table or TotalCount)
-        setTotalBudget(data.total_budget || 0);
-        setTotalActual(data.total_actual || 0);
+        setTotalBudget(Number(data.total_budget || 0));
+        setTotalActual(Number(data.total_actual || 0));
         setAlertCounts({
-          over: data.over_budget_count || 0,
-          near: data.near_limit_count || 0
+          over: Number(data.over_budget_count || 0),
+          near: Number(data.near_limit_count || 0)
         });
 
         const mappedChart = (data.chart_data || []).map(item => ({
           name: item.month,
-          budget: item.budget,
-          actual: item.actual
+          budget: Number(item.budget || 0),
+          actual: Number(item.actual || 0)
         }));
         setChartData(mappedChart);
       } else {
         // Update Context (Table, Totals, Default Chart)
-        setTotalBudget(data.total_budget || 0);
-        setTotalActual(data.total_actual || 0);
-        setTotalCount(data.total_count || 0);
+        setTotalBudget(Number(data.total_budget || 0));
+        setTotalActual(Number(data.total_actual || 0));
+        setTotalCount(Number(data.total_count || 0));
         setAlertCounts({
-          over: data.over_budget_count || 0,
-          near: data.near_limit_count || 0
+          over: Number(data.over_budget_count || 0),
+          near: Number(data.near_limit_count || 0)
         });
 
         // Chart (Default)
         if (!selectedSubDept) {
           const mappedChart = (data.chart_data || []).map(item => ({
             name: item.month,
-            budget: item.budget,
-            actual: item.actual
+            budget: Number(item.budget || 0),
+            actual: Number(item.actual || 0)
           }));
           setChartData(mappedChart);
         }
@@ -359,8 +359,11 @@ const HomePageContent = () => {
 
   // Format Helpers
   const formatMB = (val) => {
+    if (!val) return "0.00 MB";
     const m = val / 1000000;
-    return `${m.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MB`;
+    // Truncate to 2 decimal places (Strict No-Rounding)
+    const truncated = Math.trunc(m * 100) / 100;
+    return `${truncated.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MB`;
   };
 
   // Handle Opening Settings with Type

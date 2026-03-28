@@ -40,6 +40,15 @@ const OwnerDetailContent = () => {
     const [orgStructure, setOrgStructure] = useState([]);
     const [actualYears, setActualYears] = useState([]);
 
+    // Sync Config State
+    const [syncConfig, setSyncConfig] = useState({
+        actualYear: new Date().getFullYear(),
+        selectedMonths: [],
+        selectedBudget: "",
+        selectedCapexBg: "",
+        selectedCapexActual: ""
+    });
+
 
 
     // Fetch Filter Options
@@ -101,27 +110,39 @@ const OwnerDetailContent = () => {
             }
 
             try {
-                // 🛠️ FIX: Always fetch from Backend to guarantee true Global synchronization
-                let syncConfig = {};
+                // Robust Fetch: Always fetch from Backend to guarantee true Global synchronization
+                let activeSync = { ...syncConfig };
 
                 try {
                     const configRes = await api.get('/budgets/configs');
                     const configs = configRes.data || {};
                     
-                    // Map backend config keys to front-end expected keys
-                    syncConfig = {
-                        selectedBudget: configs.selectedBudget || configs.selected_budget || "",
-                        selectedCapexBg: configs.selectedCapexBg || configs.selected_capex_bg || "",
-                        selectedCapexActual: configs.selectedCapexActual || configs.selected_capex_actual || "",
-                        actualYear: configs.actualYear || configs.actual_year || "",
-                        selectedMonths: JSON.parse(configs.selectedMonths || configs.selected_months || '[]')
+                    const parseMonths = (val) => {
+                        if (Array.isArray(val)) return val;
+                        if (typeof val === 'string') {
+                            try { return JSON.parse(val); } catch (e) { return []; }
+                        }
+                        return [];
                     };
+
+                    activeSync = {
+                        actualYear: configs.actualYear || configs.actual_year || syncConfig.actualYear || new Date().getFullYear(),
+                        selectedMonths: parseMonths(configs.selectedMonths || configs.selected_months) || syncConfig.selectedMonths || [],
+                        selectedBudget: configs.selectedBudget || configs.selected_budget || syncConfig.selectedBudget || "",
+                        selectedCapexBg: configs.selectedCapexBg || configs.selected_capex_bg || syncConfig.selectedCapexBg || "",
+                        selectedCapexActual: configs.selectedCapexActual || configs.selected_capex_actual || syncConfig.selectedCapexActual || ""
+                    };
+                    if (isMounted) setSyncConfig(activeSync);
                 } catch (e) {
-                    console.error("Failed to fetch fallback configs in Detail", e);
-                    syncConfig = JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}');
+                    console.error("Failed to fetch fallback configs in OwnerDetail", e);
+                    const cached = JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}');
+                    if (cached.actualYear) {
+                        activeSync = { ...activeSync, ...cached };
+                        if (isMounted) setSyncConfig(activeSync);
+                    }
                 }
 
-                const actualYear = syncConfig.actualYear || new Date().getFullYear();
+                const actualYear = activeSync.actualYear || new Date().getFullYear();
 
                 const payload = {
                     conso_gls: idsToFetch,
@@ -131,7 +152,7 @@ const OwnerDetailContent = () => {
                     branches: selectedBranch ? [selectedBranch] : [],
                     departments: selectedDepartment ? [selectedDepartment] : availableDepartments,
                     year: String(actualYear),
-                    months: Array.isArray(syncConfig.selectedMonths) ? syncConfig.selectedMonths : [],
+                    months: Array.isArray(activeSync.selectedMonths) ? activeSync.selectedMonths : [],
                     page: actualPage + 1,
                     limit: actualRowsPerPage
                 };
@@ -349,15 +370,25 @@ const OwnerDetailContent = () => {
                         data={actualDetails}
                         dateFilter={actualDateFilter}
                         onDateFilterChange={setActualDateFilter}
-                        yearFilter={''}
-                        onYearFilterChange={() => {}}
-                        years={[]}
                         page={actualPage}
                         rowsPerPage={actualRowsPerPage}
                         totalCount={actualTotalCount}
                         onPageChange={setActualPage}
                         onRowsPerPageChange={setActualRowsPerPage}
                         onDownload={handleActualExport}
+                        filters={{
+                            entity: selectedEntity,
+                            branch: selectedBranch,
+                            department: selectedDepartment,
+                            year: String(syncConfig.actualYear || ""),
+                            month: (syncConfig.selectedMonths && syncConfig.selectedMonths[0]) || "",
+                            months: syncConfig.selectedMonths,
+                            conso_gls: selectedLeaves.size > 0
+                                ? Array.from(selectedLeaves).map(id => id.split('|')[0]).filter(code => code !== "")
+                                : [],
+                            start_date: actualDateFilter.startDate,
+                            end_date: actualDateFilter.endDate
+                        }}
                     />
                 </Box>
             </Box>

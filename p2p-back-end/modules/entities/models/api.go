@@ -42,6 +42,7 @@ type UserInfo struct {
 	Branch         string               `json:"branch,omitempty"`
 	Department     string               `json:"department,omitempty"`
 	DepartmentCode string               `json:"department_code,omitempty"`
+	MappedDepartment string             `json:"mapped_department,omitempty"`
 	Permissions    []UserPermissionInfo `json:"permissions,omitempty"` // Explicit Dept Permissions
 }
 

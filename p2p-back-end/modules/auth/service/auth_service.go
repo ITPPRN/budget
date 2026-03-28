@@ -147,6 +147,7 @@ func (s *authService) Login(ctx context.Context, req *models.LoginReq) (*gocloak
 				LastName:  lastName,
 				Roles:     datatypes.JSON(rolesJSON),
 				IsActive:  true,
+				Deleted:   false, // Reactivate if previously deleted
 				UpdatedAt: time.Now(),
 			}
 
@@ -169,6 +170,7 @@ func (s *authService) Login(ctx context.Context, req *models.LoginReq) (*gocloak
 				userData.SectionID = existingUserPtr.SectionID
 				userData.PositionID = existingUserPtr.PositionID
 				s.authRepo.UpdateUser(ctx, userData)
+				s.authRepo.ReactivateUser(ctx, userID) // Force reactivation
 			} else {
 				userData.CreatedAt = time.Now()
 				s.authRepo.CreateUser(ctx, userData)
@@ -212,13 +214,35 @@ func (s *authService) AdminResetUserPassword(ctx context.Context, targetUserID s
 }
 
 func (s *authService) ProvisionUser(ctx context.Context, userInfo *models.UserInfo) (*models.UserInfo, error) {
-	// 1. Double check if user exists (to avoid race conditions)
+	// 1. Double check if user exists by ID (to avoid race conditions)
 	existing, err := s.authRepo.GetUserContext(ctx, userInfo.ID)
 	if err == nil && existing != nil {
 		return s.GetUserProfile(ctx, userInfo.ID)
 	}
 
-	// 2. Map to Entity
+	// 2. Fallback: Check if user exists by username (ID mismatch case)
+	existingByUsername, _ := s.authRepo.FindByUsername(ctx, userInfo.Username)
+	if existingByUsername != nil {
+		logs.Infof("[Provision] Unifying user: %s, Current ID: %s -> New ID: %s", userInfo.Username, existingByUsername.ID, userInfo.ID)
+		if err := s.authRepo.UpdateUserID(ctx, existingByUsername.ID, userInfo.ID); err != nil {
+			logs.Errorf("[Provision] Failed to unify user ID: %v", err)
+			return nil, fmt.Errorf("failed to provision user (id unification failed): %v", err)
+		}
+		// Refresh profile and reactivate
+		userData := &models.UserEntity{
+			ID:        userInfo.ID,
+			Username:  userInfo.Username,
+			Email:     userInfo.Email,
+			IsActive:  true,
+			Deleted:   false, // Reactivate upon auto-provisioning
+			UpdatedAt: time.Now(),
+		}
+		s.authRepo.UpdateUser(ctx, userData)
+		s.authRepo.ReactivateUser(ctx, userInfo.ID) // FORCE REACTIVATE (bypass zero-value update issue)
+		return s.GetUserProfile(ctx, userInfo.ID)
+	}
+
+	// 3. Map to Entity (Pure New User)
 	rolesJson, _ := json.Marshal([]string{"USER"})
 	userEntity := &models.UserEntity{
 		ID:        userInfo.ID,
@@ -230,7 +254,7 @@ func (s *authService) ProvisionUser(ctx context.Context, userInfo *models.UserIn
 		UpdatedAt: time.Now(),
 	}
 
-	// 3. Create in DB
+	// 4. Create in DB
 	err = s.authRepo.CreateUser(ctx, userEntity)
 	if err != nil {
 		return nil, fmt.Errorf("failed to provision user: %v", err)
@@ -238,7 +262,7 @@ func (s *authService) ProvisionUser(ctx context.Context, userInfo *models.UserIn
 
 	logs.Infof("✅ Auto-provisioned new user: %s (%s)", userInfo.Username, userInfo.ID)
 
-	// 4. Return the new profile
+	// 5. Return the new profile
 	return s.GetUserProfile(ctx, userInfo.ID)
 }
 
@@ -276,6 +300,9 @@ func (s *authService) GetUserProfile(ctx context.Context, userID string) (*model
 	if user.Department != nil {
 		userInfo.Department = user.Department.Name
 		userInfo.DepartmentCode = user.Department.Code
+		if user.Department.CodeMap != nil && *user.Department.CodeMap != "None" {
+			userInfo.MappedDepartment = *user.Department.CodeMap
+		}
 	}
 
 	userInfo.Permissions = make([]models.UserPermissionInfo, len(perms))
@@ -334,6 +361,9 @@ func (s *authService) listUsersBase(ctx context.Context, optional map[string]int
 		if u.Department != nil {
 			infos[i].Department = u.Department.Name
 			infos[i].DepartmentCode = u.Department.Code
+			if u.Department.CodeMap != nil && *u.Department.CodeMap != "None" {
+				infos[i].MappedDepartment = *u.Department.CodeMap
+			}
 		}
 
 		if len(u.UserPermissions) > 0 {

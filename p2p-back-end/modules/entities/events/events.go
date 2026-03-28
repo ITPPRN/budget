@@ -17,6 +17,7 @@ type UserEvent struct {
 	DepartmentID uint   `json:"department_id"`
 	SectionID    uint   `json:"section_id"`
 	PositionID   uint   `json:"position_id"`
+	Deleted      bool   `json:"deleted"`
 }
 
 type MessageCompaniesEvent struct {

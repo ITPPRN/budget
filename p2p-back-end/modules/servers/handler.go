@@ -82,6 +82,7 @@ func (s *server) Handlers() error {
 	budgetGroup := v1.Group("/budgets")
 	budgetGroup.Use(middlewares.JwtAuthentication(s.Shd.AuthService, nil))
 	_budgetCon.NewBudgetController(budgetGroup, s.Shd.PLBudgetService, s.Shd.CapexService, s.Shd.ActualService, s.Shd.MasterDataService, s.Shd.DashboardService)
+	_budgetCon.NewAuditController(budgetGroup, s.Shd.AuditService)
 
 	_capexCon.NewCapexController(v1, s.Shd.CapexService)
 
@@ -97,9 +98,9 @@ func (s *server) Handlers() error {
 	_cdsEC.NewExportController(v1, _cdsES.NewService(_cdsER.NewRepository(s.Db)))
 	_cvaEC.NewExportController(v1, _cvaES.NewService(_cvaER.NewRepository(s.Db)))
 
-	_bvaoEC.NewExportController(v1, _bvaoES.NewService(_bvaoER.NewRepository(s.Db)))
+	_bvaoEC.NewExportController(ownerGroup, _bvaoES.NewService(_bvaoER.NewRepository(s.Db), s.Shd.OwnerService))
 
-	_cbeEC.NewExportController(v1, _cbeES.NewService(_cbeER.NewRepository(s.Db)))
+	_cbeEC.NewExportController(ownerGroup, _cbeES.NewService(_cbeER.NewRepository(s.Db), s.Shd.OwnerService))
 
 	s.App.Use(func(c *fiber.Ctx) error {
 		return c.Status(fiber.ErrInternalServerError.Code).JSON(fiber.Map{

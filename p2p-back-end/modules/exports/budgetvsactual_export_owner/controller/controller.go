@@ -1,7 +1,9 @@
 package controller
 
 import (
+	"p2p-back-end/modules/entities/models"
 	"p2p-back-end/modules/exports/budgetvsactual_export_owner/service"
+
 	"github.com/gofiber/fiber/v2"
 )
 
@@ -15,12 +17,14 @@ func NewExportController(router fiber.Router, srv service.OwnerBudgetVsActualSer
 }
 
 func (c *ownerBudgetVsActualController) exportOwnerBudgetVsActual(ctx *fiber.Ctx) error {
+	user := ctx.Locals("user").(*models.UserInfo)
+
 	var req map[string]interface{}
 	if err := ctx.BodyParser(&req); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
 
-	data, filename, err := c.srv.ExportOwnerBudgetVsActualExcel(ctx.UserContext(), req)
+	data, filename, err := c.srv.ExportOwnerBudgetVsActualExcel(ctx.UserContext(), user, req)
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}

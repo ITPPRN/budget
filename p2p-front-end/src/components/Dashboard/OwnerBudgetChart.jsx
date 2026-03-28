@@ -36,13 +36,21 @@ const BudgetChart = ({ data }) => {
                         tick={{ fill: '#64748b', fontSize: 11, fontWeight: 600 }}
                         tickFormatter={(value) => {
                             if (value === 0) return '0';
-                            return `${(value / 1000000).toFixed(1)}M`;
+                            // Show 1 decimal place to distinguish smaller values (e.g., 0.3M)
+                            const mb = value / 1000000;
+                            return `${mb % 1 === 0 ? mb : mb.toFixed(1)}M`;
                         }}
                     />
                     <Tooltip
                         contentStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 8px 24px rgba(0,0,0,0.1)', padding: '12px' }}
                         itemStyle={{ fontWeight: 700 }}
-                        formatter={(value) => value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        formatter={(value) => {
+                            const numericVal = Number(value || 0);
+                            const mb = numericVal / 1000000;
+                            // Truncate to 2 decimal places (Strict No-Rounding)
+                            const truncated = Math.trunc(mb * 100) / 100;
+                            return `${truncated.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MB`;
+                        }}
                     />
                     <Line
                         type="monotone"

@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"p2p-back-end/modules/entities/models"
 	"sort"
+	"strings"
 
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
 
@@ -228,38 +230,46 @@ func (r *capexRepositoryDB) GetCapexDashboardAggregates(ctx context.Context, fil
 		}
 		if val, ok := filter["year"]; ok {
 			if s, ok := val.(string); ok && s != "" && s != "All" {
-				tx = tx.Where(tableName+".year = ?", s)
+				tx = tx.Where(tableName+".year = ?", strings.ReplaceAll(s, "FY", ""))
 			}
 		}
 
-		// 🛠️ Key Mapping: Standardize between Frontend and Backend Repo
-		if fid, ok := filter["capex_file_id"].(string); ok && fid != "" {
-			filter["file_capex_budget_id"] = fid
-		}
-		if fid, ok := filter["capex_actual_file_id"].(string); ok && fid != "" {
-			filter["file_capex_actual_id"] = fid
+		// Added: Year Filter for Fallback
+		targetYear := ""
+		if val, ok := filter["year"]; ok {
+			if s, ok := val.(string); ok && s != "" {
+				targetYear = strings.ReplaceAll(s, "FY", "")
+			}
 		}
 
 		if tableName == "capex_budget_fact_entities" {
-			if fid, ok := filter["file_capex_budget_id"].(string); ok && fid != "" {
+			if fid, ok := filter["capex_file_id"].(string); ok && fid != "" {
 				tx = tx.Where("file_capex_budget_id = ?", fid)
 			} else {
 				// Fallback for independent budget
 				var latestFid string
-				r.db.Model(&models.CapexBudgetFactEntity{}).Order("created_at desc").Select("file_capex_budget_id").Limit(1).Take(&latestFid)
-				if latestFid != "" {
+				subQuery := r.db.Model(&models.CapexBudgetFactEntity{}).Order("created_at desc").Select("file_capex_budget_id").Limit(1)
+				if targetYear != "" {
+					subQuery = subQuery.Where("year = ?", targetYear)
+					tx = tx.Where(tableName+".year = ?", targetYear)
+				}
+				if err := subQuery.Take(&latestFid).Error; err == nil && latestFid != "" {
 					tx = tx.Where("file_capex_budget_id = ?", latestFid)
 				}
 			}
 		}
 		if tableName == "capex_actual_fact_entities" {
-			if fid, ok := filter["file_capex_actual_id"].(string); ok && fid != "" {
+			if fid, ok := filter["capex_actual_file_id"].(string); ok && fid != "" {
 				tx = tx.Where("file_capex_actual_id = ?", fid)
 			} else {
 				// Fallback for actual
 				var latestFid string
-				r.db.Model(&models.CapexActualFactEntity{}).Order("created_at desc").Select("file_capex_actual_id").Limit(1).Take(&latestFid)
-				if latestFid != "" {
+				subQuery := r.db.Model(&models.CapexActualFactEntity{}).Order("created_at desc").Select("file_capex_actual_id").Limit(1)
+				if targetYear != "" {
+					subQuery = subQuery.Where("year = ?", targetYear)
+					tx = tx.Where(tableName+".year = ?", targetYear)
+				}
+				if err := subQuery.Take(&latestFid).Error; err == nil && latestFid != "" {
 					tx = tx.Where("file_capex_actual_id = ?", latestFid)
 				}
 			}
@@ -271,37 +281,47 @@ func (r *capexRepositoryDB) GetCapexDashboardAggregates(ctx context.Context, fil
 	// 1. Department Aggregation
 	type DeptResult struct {
 		Department string
-		Total      float64
+		Total      decimal.Decimal
 	}
 
-	// CAPEX Budget
+	// CAPEX Budget - SUM FROM AMOUNT TABLE FOR PARITY
 	var budgetDept []DeptResult
-	tx1 := r.db.Table("capex_budget_fact_entities").Select("department, SUM(year_total) as total")
+	tx1 := r.db.Table("capex_budget_fact_entities").
+		Select("COALESCE(NULLIF(capex_budget_fact_entities.department, ''), 'None') as department, SUM(ba.amount) as total").
+		Joins("JOIN capex_budget_amount_entities ba ON ba.capex_budget_fact_id = capex_budget_fact_entities.id AND ba.deleted_at IS NULL")
+
 	tx1 = applyFilter(tx1, "capex_budget_fact_entities")
-	if err := tx1.WithContext(ctx).Group("department").Scan(&budgetDept).Error; err != nil {
+	if err := tx1.WithContext(ctx).Group("COALESCE(NULLIF(capex_budget_fact_entities.department, ''), 'None')").Scan(&budgetDept).Error; err != nil {
 		return nil, fmt.Errorf("capexRepo.GetDashboardAggregates.Budget: %w", err)
 	}
 
-	// CAPEX Actual
+	// CAPEX Actual - SUM FROM AMOUNT TABLE FOR PARITY
 	var actualDept []DeptResult
-	tx2 := r.db.Table("capex_actual_fact_entities").Select("department, SUM(year_total) as total")
+	tx2 := r.db.Table("capex_actual_fact_entities").
+		Select("COALESCE(NULLIF(capex_actual_fact_entities.department, ''), 'None') as department, SUM(aa.amount) as total").
+		Joins("JOIN capex_actual_amount_entities aa ON aa.capex_actual_fact_id = capex_actual_fact_entities.id AND aa.deleted_at IS NULL")
+
 	tx2 = applyFilter(tx2, "capex_actual_fact_entities")
-	if err := tx2.WithContext(ctx).Group("department").Scan(&actualDept).Error; err != nil {
+	if err := tx2.WithContext(ctx).Group("COALESCE(NULLIF(capex_actual_fact_entities.department, ''), 'None')").Scan(&actualDept).Error; err != nil {
 		return nil, fmt.Errorf("capexRepo.GetDashboardAggregates.Actual: %w", err)
 	}
 
 	// Merge
 	deptMap := make(map[string]*models.DepartmentStatDTO)
+	summary.TotalBudget = decimal.Zero
+	summary.TotalActual = decimal.Zero
+
 	for _, b := range budgetDept {
-		deptMap[b.Department] = &models.DepartmentStatDTO{Department: b.Department, Budget: b.Total}
-		summary.TotalBudget += b.Total
+		deptMap[b.Department] = &models.DepartmentStatDTO{Department: b.Department, Budget: b.Total, Actual: decimal.Zero}
+		summary.TotalBudget = summary.TotalBudget.Add(b.Total)
 	}
 	for _, a := range actualDept {
 		if _, ok := deptMap[a.Department]; !ok {
-			deptMap[a.Department] = &models.DepartmentStatDTO{Department: a.Department}
+			deptMap[a.Department] = &models.DepartmentStatDTO{Department: a.Department, Budget: decimal.Zero, Actual: a.Total}
+		} else {
+			deptMap[a.Department].Actual = a.Total
 		}
-		deptMap[a.Department].Actual += a.Total
-		summary.TotalActual += a.Total
+		summary.TotalActual = summary.TotalActual.Add(a.Total)
 	}
 
 	var allDepts []models.DepartmentStatDTO
@@ -344,14 +364,14 @@ func (r *capexRepositoryDB) GetCapexDashboardAggregates(ctx context.Context, fil
 		budget := d.Budget
 		actual := d.Actual
 
-		if budget == 0 {
-			if actual > 0 {
+		if budget.IsZero() {
+			if actual.GreaterThan(decimal.Zero) {
 				overBudgetCount++
 			}
 			continue
 		}
 
-		spendPct := (actual / budget) * 100
+		spendPct, _ := actual.Div(budget).Mul(decimal.NewFromInt(100)).Float64()
 		if spendPct >= redLimit {
 			overBudgetCount++
 		} else if spendPct >= yellowLimit {
@@ -362,34 +382,34 @@ func (r *capexRepositoryDB) GetCapexDashboardAggregates(ctx context.Context, fil
 	summary.NearLimitCount = nearLimitCount
 
 	sort.Slice(allDepts, func(i, j int) bool {
-		var valI, valJ float64
+		var valI, valJ decimal.Decimal
 		switch sortBy {
 		case "budget":
 			valI, valJ = allDepts[i].Budget, allDepts[j].Budget
 		case "actual":
 			valI, valJ = allDepts[i].Actual, allDepts[j].Actual
 		case "remaining":
-			valI = allDepts[i].Budget - allDepts[i].Actual
-			valJ = allDepts[j].Budget - allDepts[j].Actual
+			valI = allDepts[i].Budget.Sub(allDepts[i].Actual)
+			valJ = allDepts[j].Budget.Sub(allDepts[j].Actual)
 		case "remaining_pct":
-			if allDepts[i].Budget != 0 {
-				valI = (allDepts[i].Budget - allDepts[i].Actual) / allDepts[i].Budget
+			if !allDepts[i].Budget.IsZero() {
+				valI = allDepts[i].Budget.Sub(allDepts[i].Actual).Div(allDepts[i].Budget)
 			} else {
-				valI = -999999
+				valI = decimal.NewFromInt(-999999)
 			}
-			if allDepts[j].Budget != 0 {
-				valJ = (allDepts[j].Budget - allDepts[j].Actual) / allDepts[j].Budget
+			if !allDepts[j].Budget.IsZero() {
+				valJ = allDepts[j].Budget.Sub(allDepts[j].Actual).Div(allDepts[j].Budget)
 			} else {
-				valJ = -999999
+				valJ = decimal.NewFromInt(-999999)
 			}
 		default:
 			valI, valJ = allDepts[i].Actual, allDepts[j].Actual
 		}
 
 		if sortOrder == "asc" {
-			return valI < valJ
+			return valI.LessThan(valJ)
 		}
-		return valI > valJ
+		return valI.GreaterThan(valJ)
 	})
 
 	// Pagination
@@ -427,7 +447,7 @@ func (r *capexRepositoryDB) GetCapexDashboardAggregates(ctx context.Context, fil
 	// 2. Chart Aggregation
 	type MonthResult struct {
 		Month string
-		Total float64
+		Total decimal.Decimal
 	}
 	var budgetMonth []MonthResult
 	tx3 := r.db.Table("capex_budget_amount_entities").
@@ -449,13 +469,14 @@ func (r *capexRepositoryDB) GetCapexDashboardAggregates(ctx context.Context, fil
 
 	monthMap := make(map[string]*models.MonthlyStatDTO)
 	for _, m := range budgetMonth {
-		monthMap[m.Month] = &models.MonthlyStatDTO{Month: m.Month, Budget: m.Total}
+		monthMap[m.Month] = &models.MonthlyStatDTO{Month: m.Month, Budget: m.Total, Actual: decimal.Zero}
 	}
 	for _, m := range actualMonth {
 		if _, ok := monthMap[m.Month]; !ok {
-			monthMap[m.Month] = &models.MonthlyStatDTO{Month: m.Month}
+			monthMap[m.Month] = &models.MonthlyStatDTO{Month: m.Month, Budget: decimal.Zero, Actual: m.Total}
+		} else {
+			monthMap[m.Month].Actual = m.Total
 		}
-		monthMap[m.Month].Actual += m.Total
 	}
 
 	monthsOrder := []string{"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"}
@@ -463,7 +484,7 @@ func (r *capexRepositoryDB) GetCapexDashboardAggregates(ctx context.Context, fil
 		if val, ok := monthMap[mon]; ok {
 			summary.ChartData = append(summary.ChartData, *val)
 		} else {
-			summary.ChartData = append(summary.ChartData, models.MonthlyStatDTO{Month: mon, Budget: 0, Actual: 0})
+			summary.ChartData = append(summary.ChartData, models.MonthlyStatDTO{Month: mon, Budget: decimal.Zero, Actual: decimal.Zero})
 		}
 	}
 

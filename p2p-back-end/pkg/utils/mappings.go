@@ -40,11 +40,13 @@ func CompanyToCompanyChangeEvent(src *models.Companies) *events.CompanyEvent {
 // --- Department Mappings ---
 
 func SourceDepartmentsToDepartments(src *models.CentralDepartment) *models.Departments {
+	masterCode := GetMasterDeptCode(src.Code)
 	return &models.Departments{
 		ID:        uuid.New(),
 		CentralID: src.DeptID,
 		Name:      src.Name,
 		Code:      src.Code,
+		CodeMap:   &masterCode,
 	}
 }
 
@@ -107,6 +109,7 @@ func SourceUserToUser(src *models.CentralUser) *models.UserEntity {
 		Username:  src.Username,
 		NameTh:    src.NameTh,
 		NameEn:    src.NameEn,
+		Deleted:   src.Deleted,
 	}
 }
 
@@ -143,6 +146,7 @@ func UsersToUsersResponse(src *models.UserEntity) *models.UserResponse {
 		SectionID:    sectionID,
 		PositionID:   positionID,
 		Roles:        roles,
+		Deleted:      src.Deleted,
 	}
 }
 
@@ -170,6 +174,7 @@ func UserToUserChangeEvent(src *models.UserEntity) *events.UserEvent {
 		DepartmentID: deptID,
 		SectionID:    secID,
 		PositionID:   posID,
+		Deleted:      src.Deleted,
 	}
 }
 
@@ -182,6 +187,7 @@ func EventUserToUsers(src *events.UserEvent) *models.UserEntity {
 		Username:  src.Username,
 		NameTh:    src.NameTh,
 		NameEn:    src.NameEn,
+		Deleted:   src.Deleted,
 	}
 }
 
@@ -200,11 +206,13 @@ func EventCompanyToCompanies(src *events.CompanyEvent) *models.Companies {
 }
 
 func EventDepartmentToDepartments(src *events.DepartmentEvent) *models.Departments {
+	masterCode := GetMasterDeptCode(src.Code)
 	return &models.Departments{
 		ID:        uuid.New(),
 		CentralID: src.ID,
 		Name:      src.Name,
 		Code:      src.Code,
+		CodeMap:   &masterCode,
 	}
 }
 

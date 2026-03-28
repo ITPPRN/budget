@@ -5,7 +5,11 @@ import (
 	"p2p-back-end/modules/entities/models"
 	"p2p-back-end/pkg/utils"
 	"sort"
+	"strings"
 
+	_service "p2p-back-end/modules/budgets/service"
+
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
 
@@ -22,6 +26,23 @@ func NewRepository(db *gorm.DB) CapexVsActualRepository {
 }
 
 func (r *repository) GetCapexVsActualData(ctx context.Context, filter map[string]interface{}) ([]models.CapexVsActualExportDTO, error) {
+	// 🛠️ Inject Global Settings if missing
+	globalConfigs := _service.FetchGlobalSettings(r.db)
+	if filter["year"] == nil || filter["year"] == "" {
+		if val, ok := globalConfigs["actualYear"]; ok && val != "" {
+			filter["year"] = val
+		}
+	}
+	if filter["capex_file_id"] == nil || filter["capex_file_id"] == "" {
+		if val, ok := globalConfigs["selectedCapexBg"]; ok && val != "" {
+			filter["capex_file_id"] = val
+		}
+	}
+	if filter["capex_actual_file_id"] == nil || filter["capex_actual_file_id"] == "" {
+		if val, ok := globalConfigs["selectedCapexActual"]; ok && val != "" {
+			filter["capex_actual_file_id"] = val
+		}
+	}
 	type rawCapexRow struct {
 		Entity        string
 		Department    string
@@ -81,8 +102,14 @@ func (r *repository) GetCapexVsActualData(ctx context.Context, filter map[string
 		for _, res := range data {
 			key := rowKey{res.Entity, res.Department, res.CapexNo}
 			if row, ok := targetMap[key]; ok {
-				row.MonthsAmounts[res.Month] = utils.ToDecimal(res.Amount)
-				row.YearTotal = row.YearTotal.Add(utils.ToDecimal(res.Amount))
+				// Sum monthly amounts (fix overwrite bug)
+				amt := utils.ToDecimal(res.Amount)
+				if existingAmt, ok := row.MonthsAmounts[res.Month].(decimal.Decimal); ok {
+					row.MonthsAmounts[res.Month] = existingAmt.Add(amt)
+				} else {
+					row.MonthsAmounts[res.Month] = amt
+				}
+				row.YearTotal = row.YearTotal.Add(amt)
 				targetMap[key] = row
 			} else {
 				targetMap[key] = models.CapexVsActualExportDTO{
@@ -152,18 +179,29 @@ func (r *repository) applyCommonFilters(tx *gorm.DB, tableName string, filter ma
 			tx = tx.Where(tableName+".department IN ?", strs)
 		}
 	}
-	if tableName != "capex_budget_fact_entities" && tableName != "capex_actual_fact_entities" {
-		if val := utils.GetSafeString(filter, "year"); val != "" {
-			tx = tx.Where(tableName+".year = ?", val)
+	// Added: Year Filter
+	targetYear := ""
+	if val, ok := filter["year"]; ok {
+		if s, ok := val.(string); ok && s != "" {
+			targetYear = strings.ReplaceAll(s, "FY", "")
+			// Apply to actual table only if no explicit file ID.
+			// But for capex, we usually want to filter both.
+			// Logic: If file ID is given, don't filter by year on that table.
 		}
 	}
+
 	if tableName == "capex_budget_fact_entities" {
 		if val := utils.GetSafeString(filter, "capex_file_id"); val != "" {
 			tx = tx.Where(tableName+".file_capex_budget_id = ?", val)
 		} else {
+			// 🛠️ Fallback: Latest Capex Budget for target year
 			var latestFid string
-			r.db.Model(&models.CapexBudgetFactEntity{}).Order("created_at desc").Select("file_capex_budget_id").Limit(1).Take(&latestFid)
-			if latestFid != "" {
+			subQuery := r.db.Model(&models.CapexBudgetFactEntity{})
+			if targetYear != "" {
+				subQuery = subQuery.Where("year = ?", targetYear)
+				tx = tx.Where(tableName+".year = ?", targetYear)
+			}
+			if err := subQuery.Order("created_at desc").Limit(1).Pluck("file_capex_budget_id", &latestFid).Error; err == nil && latestFid != "" {
 				tx = tx.Where(tableName+".file_capex_budget_id = ?", latestFid)
 			}
 		}
@@ -172,9 +210,14 @@ func (r *repository) applyCommonFilters(tx *gorm.DB, tableName string, filter ma
 		if val := utils.GetSafeString(filter, "capex_actual_file_id"); val != "" {
 			tx = tx.Where(tableName+".file_capex_actual_id = ?", val)
 		} else {
+			// 🛠️ Fallback: Latest Capex Actual for target year
 			var latestFid string
-			r.db.Model(&models.CapexActualFactEntity{}).Order("created_at desc").Select("file_capex_actual_id").Limit(1).Take(&latestFid)
-			if latestFid != "" {
+			subQuery := r.db.Model(&models.CapexActualFactEntity{})
+			if targetYear != "" {
+				subQuery = subQuery.Where("year = ?", targetYear)
+				tx = tx.Where(tableName+".year = ?", targetYear)
+			}
+			if err := subQuery.Order("created_at desc").Limit(1).Pluck("file_capex_actual_id", &latestFid).Error; err == nil && latestFid != "" {
 				tx = tx.Where(tableName+".file_capex_actual_id = ?", latestFid)
 			}
 		}
