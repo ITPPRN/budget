@@ -81,7 +81,7 @@ const AuditReportModal = ({ open, onClose, filters, onSubmit, loading: submittin
     const handleAddItem = (item) => {
         setAddedItems(prev => [...prev, item]);
         setSearchResults(prev => prev.filter(r => r.id !== item.id));
-        setSearchQuery(''); // Clear search after adding
+        // Persistent search: We don't clear searchQuery here so user can add multiple items
     };
 
     const handleRemoveItem = (id) => {

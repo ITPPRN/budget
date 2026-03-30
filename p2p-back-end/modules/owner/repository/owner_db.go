@@ -438,12 +438,12 @@ func (r *ownerRepository) GetActualTransactions(ctx context.Context, filter map[
 			}
 
 			tableName := "actual_transaction_entities"
-			condition := "(COALESCE(NULLIF(" + tableName + ".department, ''), " + tableName + ".nav_code) IN ?)"
+			condition := "(TRIM(COALESCE(NULLIF(" + tableName + ".department, ''), '')) IN ?)"
 			if hasNone {
 				if len(filteredStrs) > 0 {
-					query = query.Where("("+condition+" OR COALESCE(NULLIF("+tableName+".department, ''), "+tableName+".nav_code) = '' OR COALESCE(NULLIF("+tableName+".department, ''), "+tableName+".nav_code) IS NULL OR COALESCE(NULLIF("+tableName+".department, ''), "+tableName+".nav_code) = 'None')", filteredStrs)
+					query = query.Where("("+condition+" OR TRIM(COALESCE(NULLIF("+tableName+".department, ''), '')) = '' OR TRIM(COALESCE(NULLIF("+tableName+".department, ''), '')) IS NULL OR TRIM(COALESCE(NULLIF("+tableName+".department, ''), '')) = 'None')", filteredStrs)
 				} else {
-					query = query.Where("(COALESCE(NULLIF(" + tableName + ".department, ''), " + tableName + ".nav_code) = '' OR COALESCE(NULLIF(" + tableName + ".department, ''), " + tableName + ".nav_code) IS NULL OR COALESCE(NULLIF(" + tableName + ".department, ''), " + tableName + ".nav_code) = 'None')")
+					query = query.Where("(TRIM(COALESCE(NULLIF(" + tableName + ".department, ''), '')) = '' OR TRIM(COALESCE(NULLIF(" + tableName + ".department, ''), '')) IS NULL OR TRIM(COALESCE(NULLIF(" + tableName + ".department, ''), '')) = 'None')")
 				}
 			} else {
 				query = query.Where(condition, strs)

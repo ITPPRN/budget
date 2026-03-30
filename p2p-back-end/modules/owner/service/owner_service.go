@@ -271,9 +271,11 @@ func (s *ownerService) InjectPermissions(ctx context.Context, user *models.UserI
 
 				if len(chosenDepts) > 0 {
 					for _, c := range chosenDepts {
-						cTrim := strings.TrimSpace(c)
+						cTrim := strings.ToUpper(strings.TrimSpace(c))
 						for _, a := range allowedDepts {
-							if cTrim == a {
+							aTrim := strings.ToUpper(strings.TrimSpace(a))
+							// 🛡️ Case-Insensitive Bi-directional Matching: "acc" matches "ACC - Accounting"
+							if cTrim == aTrim || strings.HasPrefix(cTrim, aTrim+" - ") || strings.HasPrefix(aTrim, cTrim+" - ") {
 								finalDepts = append(finalDepts, c)
 								break
 							}

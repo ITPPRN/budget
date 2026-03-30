@@ -41,7 +41,7 @@ func (r *repository) GetBudgetVsActualData(ctx context.Context, filter map[strin
 
 	// 1. Fetch Budget Data
 	var budgetResults []models.BudgetExportDTO
-	btx := r.db.Model(&models.BudgetFactEntity{}).
+	query := r.db.WithContext(ctx).Model(&models.BudgetFactEntity{}).
 		Select(`
 			budget_fact_entities.entity,
 			budget_fact_entities.branch,
@@ -54,17 +54,21 @@ func (r *repository) GetBudgetVsActualData(ctx context.Context, filter map[strin
 			ba.month,
 			ba.amount
 		`).
-		Joins("LEFT JOIN (SELECT conso_gl, group1, group2, group3 FROM gl_grouping_entities GROUP BY conso_gl, group1, group2, group3) bs ON budget_fact_entities.conso_gl = bs.conso_gl").
+		Joins(`LEFT JOIN (
+			SELECT entity_gl, entity, group1, group2, group3 
+			FROM gl_grouping_entities 
+			GROUP BY entity_gl, entity, group1, group2, group3
+		) bs ON budget_fact_entities.entity_gl = bs.entity_gl AND budget_fact_entities.entity = bs.entity`).
 		Joins("JOIN budget_amount_entities ba ON ba.budget_fact_id = budget_fact_entities.id AND ba.deleted_at IS NULL")
 
-	btx = r.applyCommonFilters(btx, "budget_fact_entities", filter)
-	if err := btx.Scan(&budgetResults).Error; err != nil {
+	query = r.applyCommonFilters(query, "budget_fact_entities", filter)
+	if err := query.Scan(&budgetResults).Error; err != nil {
 		return nil, err
 	}
 
 	// 2. Fetch Actual Data
-	var actualResults []models.BudgetExportDTO 
-	atx := r.db.Model(&models.ActualFactEntity{}).
+	var actualResults []models.BudgetExportDTO
+	atx := r.db.WithContext(ctx).Model(&models.ActualFactEntity{}).
 		Select(`
 			actual_fact_entities.entity,
 			actual_fact_entities.branch,
@@ -77,7 +81,11 @@ func (r *repository) GetBudgetVsActualData(ctx context.Context, filter map[strin
 			aa.month,
 			aa.amount
 		`).
-		Joins("LEFT JOIN (SELECT conso_gl, group1, group2, group3 FROM gl_grouping_entities GROUP BY conso_gl, group1, group2, group3) bs ON actual_fact_entities.conso_gl = bs.conso_gl").
+		Joins(`LEFT JOIN (
+			SELECT entity_gl, entity, group1, group2, group3 
+			FROM gl_grouping_entities 
+			GROUP BY entity_gl, entity, group1, group2, group3
+		) bs ON actual_fact_entities.entity_gl = bs.entity_gl AND actual_fact_entities.entity = bs.entity`).
 		Joins("JOIN actual_amount_entities aa ON aa.actual_fact_id = actual_fact_entities.id AND aa.deleted_at IS NULL")
 
 	atx = r.applyCommonFilters(atx, "actual_fact_entities", filter)
@@ -132,8 +140,12 @@ func (r *repository) GetBudgetVsActualData(ctx context.Context, filter map[strin
 
 	var finalResults []models.BudgetVsActualExportDTO
 	allKeysMap := make(map[rowKey]bool)
-	for k := range budgetMap { allKeysMap[k] = true }
-	for k := range actualMap { allKeysMap[k] = true }
+	for k := range budgetMap {
+		allKeysMap[k] = true
+	}
+	for k := range actualMap {
+		allKeysMap[k] = true
+	}
 
 	for k := range allKeysMap {
 		if bRow, ok := budgetMap[k]; ok {
@@ -160,10 +172,18 @@ func (r *repository) GetBudgetVsActualData(ctx context.Context, filter map[strin
 	}
 
 	sort.Slice(finalResults, func(i, j int) bool {
-		if finalResults[i].Entity != finalResults[j].Entity { return finalResults[i].Entity < finalResults[j].Entity }
-		if finalResults[i].Branch != finalResults[j].Branch { return finalResults[i].Branch < finalResults[j].Branch }
-		if finalResults[i].Department != finalResults[j].Department { return finalResults[i].Department < finalResults[j].Department }
-		if finalResults[i].ConsoGL != finalResults[j].ConsoGL { return finalResults[i].ConsoGL < finalResults[j].ConsoGL }
+		if finalResults[i].Entity != finalResults[j].Entity {
+			return finalResults[i].Entity < finalResults[j].Entity
+		}
+		if finalResults[i].Branch != finalResults[j].Branch {
+			return finalResults[i].Branch < finalResults[j].Branch
+		}
+		if finalResults[i].Department != finalResults[j].Department {
+			return finalResults[i].Department < finalResults[j].Department
+		}
+		if finalResults[i].ConsoGL != finalResults[j].ConsoGL {
+			return finalResults[i].ConsoGL < finalResults[j].ConsoGL
+		}
 		return finalResults[i].Type < finalResults[j].Type
 	})
 
@@ -197,7 +217,7 @@ func (r *repository) applyCommonFilters(tx *gorm.DB, tableName string, filter ma
 				if len(filteredStrs) > 0 {
 					tx = tx.Where("("+tableName+".department IN ? OR "+tableName+".department = '' OR "+tableName+".department IS NULL OR "+tableName+".department = 'None')", filteredStrs)
 				} else {
-					tx = tx.Where("("+tableName+".department = '' OR "+tableName+".department IS NULL OR "+tableName+".department = 'None')")
+					tx = tx.Where("(" + tableName + ".department = '' OR " + tableName + ".department IS NULL OR " + tableName + ".department = 'None')")
 				}
 			} else {
 				tx = tx.Where(tableName+".department IN ?", strs)
@@ -217,19 +237,24 @@ func (r *repository) applyCommonFilters(tx *gorm.DB, tableName string, filter ma
 	}
 
 	if tableName == "budget_fact_entities" {
-		if val := utils.GetSafeString(filter, "budget_file_id"); val != "" {
-			tx = tx.Where(tableName+".file_budget_id = ?", val)
-		} else {
-			// 🛠️ Fallback: Latest budget file ID for target year
+		if fid := utils.GetSafeString(filter, "budget_file_id"); fid != "" {
+			tx = tx.Where(tableName+".file_budget_id = ?", fid)
+		} else if targetYear != "" {
+			// 🛡️ Strict Fallback: Use only THE latest PL file for this year (Align with Dashboard)
 			var latestFid string
-			subQuery := r.db.Model(&models.BudgetFactEntity{})
-			if targetYear != "" {
-				subQuery = subQuery.Where("year = ?", targetYear)
-				tx = tx.Where(tableName+".year = ?", targetYear)
-			}
-			if err := subQuery.Order("created_at desc").Limit(1).Pluck("file_budget_id", &latestFid).Error; err == nil && latestFid != "" {
+			r.db.Model(&models.BudgetFactEntity{}).
+				Where("year = ?", targetYear).
+				Order("created_at DESC").
+				Limit(1).
+				Pluck("file_budget_id", &latestFid)
+
+			if latestFid != "" {
 				tx = tx.Where(tableName+".file_budget_id = ?", latestFid)
+			} else {
+				// No file found for this year = No data instead of summing ALL versions
+				tx = tx.Where("1 = 0")
 			}
+			tx = tx.Where(tableName+".year = ?", targetYear)
 		}
 	}
 	return tx

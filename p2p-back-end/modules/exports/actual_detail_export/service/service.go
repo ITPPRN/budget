@@ -3,12 +3,13 @@ package service
 import (
 	"context"
 	"fmt"
+	"p2p-back-end/modules/entities/models"
 	"p2p-back-end/modules/exports/actual_detail_export/repository"
 	"p2p-back-end/pkg/utils"
 )
 
 type ActualExportService interface {
-	ExportActualDetailExcel(ctx context.Context, filter map[string]interface{}) ([]byte, string, error)
+	ExportActualDetailExcel(ctx context.Context, user *models.UserInfo, filter map[string]interface{}) ([]byte, string, error)
 }
 
 type service struct {
@@ -19,16 +20,9 @@ func NewService(repo repository.ActualExportRepository) ActualExportService {
 	return &service{repo: repo}
 }
 
-func (s *service) ExportActualDetailExcel(ctx context.Context, filter map[string]interface{}) ([]byte, string, error) {
-	// 1. Sanitize Filters
-	sanitizedFilter := make(map[string]interface{})
-	for k, v := range filter {
-		nk, nv := utils.SanitizeFilter(k, v)
-		sanitizedFilter[nk] = nv
-	}
-
-	// 2. Fetch Data
-	data, err := s.repo.GetActualExportDetails(ctx, sanitizedFilter)
+func (s *service) ExportActualDetailExcel(ctx context.Context, user *models.UserInfo, filter map[string]interface{}) ([]byte, string, error) {
+	// 1. Fetch Data
+	data, err := s.repo.GetActualExportDetails(ctx, user, filter)
 	if err != nil {
 		return nil, "", err
 	}

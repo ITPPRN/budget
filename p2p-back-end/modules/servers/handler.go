@@ -91,8 +91,10 @@ func (s *server) Handlers() error {
 	_ownerCon.NewOwnerController(ownerGroup, s.Shd.OwnerService)
 
 	// --- Export Module Initialization ---
-	_bdEC.NewExportController(v1, _bdES.NewService(_bdER.NewRepository(s.Db)))
-	_adEC.NewExportController(v1, _adES.NewService(_adER.NewRepository(s.Db)))
+	exportGroup := v1.Group("")
+	exportGroup.Use(middlewares.JwtAuthentication(s.Shd.AuthService, nil))
+	_bdEC.NewExportController(exportGroup, _bdES.NewService(_bdER.NewRepository(s.Db)))
+	_adEC.NewExportController(exportGroup, _adES.NewService(_adER.NewRepository(s.Db)))
 	_dbsEC.NewExportController(v1, _dbsES.NewService(_dbsER.NewRepository(s.Db)))
 	_bvaEC.NewExportController(v1, _bvaES.NewService(_bvaER.NewRepository(s.Db)))
 	_cdsEC.NewExportController(v1, _cdsES.NewService(_cdsER.NewRepository(s.Db)))

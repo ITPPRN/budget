@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"p2p-back-end/modules/entities/models"
 	"p2p-back-end/modules/exports/budget_detail_export/service"
 	"github.com/gofiber/fiber/v2"
 )
@@ -20,7 +21,8 @@ func (c *budgetExportController) exportBudgetDetail(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
 
-	data, filename, err := c.srv.ExportBudgetDetailExcel(ctx.UserContext(), req)
+	user := ctx.Locals("user").(*models.UserInfo)
+	data, filename, err := c.srv.ExportBudgetDetailExcel(ctx.UserContext(), user, req)
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}

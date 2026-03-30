@@ -5,7 +5,7 @@ import (
 )
 
 // SanitizeFilter cleans and normalizes filter keys and values
-func SanitizeFilter(key string, val interface{}) (string, []string) {
+func SanitizeFilter(key string, val interface{}) (string, interface{}) {
 	// 1. Normalize Keys (e.g., 'entity' -> 'entities')
 	normalizedKey := key
 	switch strings.ToLower(key) {
@@ -19,24 +19,42 @@ func SanitizeFilter(key string, val interface{}) (string, []string) {
 		normalizedKey = "conso_gls"
 	}
 
-	// 2. Normalize Values (Ensure []string and strip " - " labels)
-	var result []string
+	// 2. Normalize Values
+	// Special Case: Single-value keys that should remain as string (not slice)
+	isSingleValueKey := strings.Contains(normalizedKey, "year") || strings.Contains(normalizedKey, "file_id")
+
+	var result interface{}
 	switch v := val.(type) {
 	case string:
-		if v != "" {
-			result = []string{stripLabel(v)}
+		stripped := stripLabel(v)
+		if isSingleValueKey {
+			result = stripped
+		} else if stripped != "" {
+			result = []string{stripped}
 		}
 	case []interface{}:
+		var slice []string
 		for _, item := range v {
 			if s, ok := item.(string); ok && s != "" {
-				result = append(result, stripLabel(s))
+				slice = append(slice, stripLabel(s))
 			}
 		}
+		if isSingleValueKey && len(slice) > 0 {
+			result = slice[0]
+		} else {
+			result = slice
+		}
 	case []string:
+		var slice []string
 		for _, s := range v {
 			if s != "" {
-				result = append(result, stripLabel(s))
+				slice = append(slice, stripLabel(s))
 			}
+		}
+		if isSingleValueKey && len(slice) > 0 {
+			result = slice[0]
+		} else {
+			result = slice
 		}
 	}
 

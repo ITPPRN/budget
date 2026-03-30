@@ -53,7 +53,7 @@ func (r *repository) GetOwnerBudgetVsActual(ctx context.Context, filter map[stri
 			ba.month,
 			ba.amount
 		`).
-		Joins("LEFT JOIN (SELECT conso_gl, group1, group2, group3 FROM gl_grouping_entities GROUP BY conso_gl, group1, group2, group3) bs ON budget_fact_entities.conso_gl = bs.conso_gl").
+		Joins("LEFT JOIN (SELECT conso_gl, MAX(group1) as group1, MAX(group2) as group2, MAX(group3) as group3 FROM gl_grouping_entities GROUP BY conso_gl) bs ON budget_fact_entities.conso_gl = bs.conso_gl").
 		Joins("JOIN budget_amount_entities ba ON ba.budget_fact_id = budget_fact_entities.id AND ba.deleted_at IS NULL")
 
 	btx = r.applyCommonFilters(btx, "budget_fact_entities", filter)
@@ -76,7 +76,7 @@ func (r *repository) GetOwnerBudgetVsActual(ctx context.Context, filter map[stri
 			aa.month,
 			aa.amount
 		`).
-		Joins("LEFT JOIN (SELECT conso_gl, group1, group2, group3 FROM gl_grouping_entities GROUP BY conso_gl, group1, group2, group3) bs ON actual_fact_entities.conso_gl = bs.conso_gl").
+		Joins("LEFT JOIN (SELECT conso_gl, MAX(group1) as group1, MAX(group2) as group2, MAX(group3) as group3 FROM gl_grouping_entities GROUP BY conso_gl) bs ON actual_fact_entities.conso_gl = bs.conso_gl").
 		Joins("JOIN actual_amount_entities aa ON aa.actual_fact_id = actual_fact_entities.id AND aa.deleted_at IS NULL")
 
 	// Apply Months filter to Actual only
@@ -84,10 +84,6 @@ func (r *repository) GetOwnerBudgetVsActual(ctx context.Context, filter map[stri
 		mstrs := utils.ToStringSlice(mVal)
 		if len(mstrs) > 0 {
 			atx = atx.Where("aa.month IN ?", mstrs)
-		} else {
-			// If empty array sent from UI, it usually means ALL months were supposed to be filtered or none.
-			// But for parity with Dashboard cards which use strictly selected months:
-			atx = atx.Where("1 = 0")
 		}
 	}
 
@@ -102,7 +98,6 @@ func (r *repository) GetOwnerBudgetVsActual(ctx context.Context, filter map[stri
 		Branch     string
 		Department string
 		ConsoGL    string
-		GLName     string
 	}
 
 	budgetMap := make(map[rowKey]models.BudgetVsActualExportDTO)
@@ -110,7 +105,7 @@ func (r *repository) GetOwnerBudgetVsActual(ctx context.Context, filter map[stri
 
 	process := func(data []models.BudgetExportDTO, targetMap map[rowKey]models.BudgetVsActualExportDTO, rowType string) {
 		for _, res := range data {
-			key := rowKey{res.Entity, res.Branch, res.Department, res.ConsoGL, res.GLName}
+			key := rowKey{res.Entity, res.Branch, res.Department, res.ConsoGL}
 			if row, ok := targetMap[key]; ok {
 				// Sum monthly amounts (fix overwrite bug)
 				if existingAmt, ok := row.MonthsAmounts[res.Month].(decimal.Decimal); ok {
@@ -216,13 +211,12 @@ func (r *repository) applyCommonFilters(tx *gorm.DB, tableName string, filter ma
 				}
 			}
 
-			// Mapping parity: ensure both use COALESCE(NULLIF(dept, ''), nav_code)
-			condition := "(COALESCE(NULLIF(" + tableName + ".department, ''), " + tableName + ".nav_code) IN ?)"
+			condition := "(TRIM(COALESCE(NULLIF(" + tableName + ".department, ''), " + tableName + ".nav_code)) IN ?)"
 			if hasNone {
 				if len(filteredStrs) > 0 {
-					tx = tx.Where("("+condition+" OR COALESCE(NULLIF("+tableName+".department, ''), "+tableName+".nav_code) = '' OR COALESCE(NULLIF("+tableName+".department, ''), "+tableName+".nav_code) IS NULL OR COALESCE(NULLIF("+tableName+".department, ''), "+tableName+".nav_code) = 'None')", filteredStrs)
+					tx = tx.Where("("+condition+" OR TRIM(COALESCE(NULLIF("+tableName+".department, ''), "+tableName+".nav_code)) = '' OR TRIM(COALESCE(NULLIF("+tableName+".department, ''), "+tableName+".nav_code)) IS NULL OR TRIM(COALESCE(NULLIF("+tableName+".department, ''), "+tableName+".nav_code)) = 'None')", filteredStrs)
 				} else {
-					tx = tx.Where("(COALESCE(NULLIF(" + tableName + ".department, ''), " + tableName + ".nav_code) = '' OR COALESCE(NULLIF(" + tableName + ".department, ''), " + tableName + ".nav_code) IS NULL OR COALESCE(NULLIF(" + tableName + ".department, ''), " + tableName + ".nav_code) = 'None')")
+					tx = tx.Where("(TRIM(COALESCE(NULLIF(" + tableName + ".department, ''), " + tableName + ".nav_code)) = '' OR TRIM(COALESCE(NULLIF(" + tableName + ".department, ''), " + tableName + ".nav_code)) IS NULL OR TRIM(COALESCE(NULLIF(" + tableName + ".department, ''), " + tableName + ".nav_code)) = 'None')")
 				}
 			} else {
 				tx = tx.Where(condition, strs)

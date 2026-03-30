@@ -6,6 +6,7 @@ import (
 	"p2p-back-end/pkg/utils"
 	"strings"
 
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
 
@@ -24,7 +25,7 @@ func NewRepository(db *gorm.DB) DeptBudgetStatusRepository {
 func (r *repository) GetDeptBudgetStatus(ctx context.Context, filter map[string]interface{}) ([]models.DeptBudgetStatusDTO, error) {
 	type summaryRow struct {
 		Department string
-		Total      float64
+		Total      decimal.Decimal
 	}
 
 	// 1. Get Budgets per Department
@@ -58,19 +59,18 @@ func (r *repository) GetDeptBudgetStatus(ctx context.Context, filter map[string]
 		return nil, err
 	}
 
-	// 3. Merge and Calculate
 	deptMap := make(map[string]*models.DeptBudgetStatusDTO)
 	for _, b := range budgetRows {
 		deptMap[b.Department] = &models.DeptBudgetStatusDTO{
 			Department: b.Department,
-			Budget:     utils.ToDecimal(b.Total),
+			Budget:     b.Total,
 		}
 	}
 	for _, a := range actualRows {
 		if _, ok := deptMap[a.Department]; !ok {
-			deptMap[a.Department] = &models.DeptBudgetStatusDTO{Department: a.Department}
+			deptMap[a.Department] = &models.DeptBudgetStatusDTO{Department: a.Department, Budget: decimal.NewFromFloat(0)}
 		}
-		deptMap[a.Department].Spend = utils.ToDecimal(a.Total)
+		deptMap[a.Department].Spend = a.Total
 	}
 
 	var results []models.DeptBudgetStatusDTO
@@ -140,6 +140,7 @@ func (r *repository) applyCommonFilters(tx *gorm.DB, tableName string, filter ma
 			tx = tx.Where(tableName+".year = ?", val)
 		}
 	}
+
 	if tableName == "budget_fact_entities" {
 		if val := utils.GetSafeString(filter, "budget_file_id"); val != "" {
 			tx = tx.Where(tableName+".file_budget_id = ?", val)

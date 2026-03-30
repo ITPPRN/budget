@@ -2,16 +2,14 @@ package repository
 
 import (
 	"context"
-	"fmt"
 	"p2p-back-end/modules/entities/models"
-	"p2p-back-end/pkg/utils"
 	"strings"
 
 	"gorm.io/gorm"
 )
 
 type ActualExportRepository interface {
-	GetActualExportDetails(ctx context.Context, filter map[string]interface{}) ([]models.ActualExportDTO, error)
+	GetActualExportDetails(ctx context.Context, user *models.UserInfo, filter map[string]interface{}) ([]models.ActualExportDTO, error)
 }
 
 type repository struct {
@@ -22,10 +20,83 @@ func NewRepository(db *gorm.DB) ActualExportRepository {
 	return &repository{db: db}
 }
 
-func (r *repository) GetActualExportDetails(ctx context.Context, filter map[string]interface{}) ([]models.ActualExportDTO, error) {
+// toStringSlice safely converts interface{} (from JSON filter map) to []string
+func toStringSlice(val interface{}) []string {
+	if strs, ok := val.([]string); ok {
+		return strs
+	}
+	if interfaces, ok := val.([]interface{}); ok {
+		var strs []string
+		for _, item := range interfaces {
+			if s, ok := item.(string); ok && s != "" {
+				strs = append(strs, s)
+			}
+		}
+		return strs
+	}
+	if s, ok := val.(string); ok && s != "" {
+		return []string{s}
+	}
+	return nil
+}
+
+func (r *repository) GetActualExportDetails(ctx context.Context, user *models.UserInfo, filter map[string]interface{}) ([]models.ActualExportDTO, error) {
 	var results []models.ActualExportDTO
 
-	query := r.db.Model(&models.ActualTransactionEntity{}).
+	// 🛡️ Security Check: Align with OwnerService Logic
+	isAdmin := false
+	for _, role := range user.Roles {
+		rUpper := strings.ToUpper(strings.TrimSpace(role))
+		if rUpper == "ADMIN" || rUpper == "ADMINISTRATOR" || strings.Contains(rUpper, "ADMIN") {
+			isAdmin = true
+			break
+		}
+	}
+
+	if !isAdmin {
+		// Non-Admin: Restrict to allowed departments only
+		allowedDepts := make([]string, 0)
+		for _, p := range user.Permissions {
+			if p.IsActive && p.DepartmentCode != "" {
+				allowedDepts = append(allowedDepts, strings.TrimSpace(p.DepartmentCode))
+			}
+		}
+
+		if len(allowedDepts) == 0 {
+			// No permissions = No data
+			filter["departments"] = []string{"__RESTRICTED_EMPTY__"}
+		} else {
+			// Intersect with requested departments
+			if val, ok := filter["departments"]; ok {
+				chosenDepts := toStringSlice(val)
+				if len(chosenDepts) > 0 {
+					var intersection []string
+					for _, c := range chosenDepts {
+						cTrim := strings.ToUpper(strings.TrimSpace(c))
+						for _, a := range allowedDepts {
+							aTrim := strings.ToUpper(strings.TrimSpace(a))
+							// 🛡️ Case-Insensitive Bi-directional Matching: "acc" matches "ACC - Accounting"
+							if cTrim == aTrim || strings.HasPrefix(cTrim, aTrim+" - ") || strings.HasPrefix(aTrim, cTrim+" - ") {
+								intersection = append(intersection, c)
+								break
+							}
+						}
+					}
+					if len(intersection) == 0 {
+						filter["departments"] = []string{"__RESTRICTED_NO_MATCH__"}
+					} else {
+						filter["departments"] = intersection
+					}
+				} else {
+					filter["departments"] = allowedDepts
+				}
+			} else {
+				filter["departments"] = allowedDepts
+			}
+		}
+	}
+
+	query := r.db.WithContext(ctx).Table("actual_transaction_entities").
 		Select(`
 			actual_transaction_entities.entity,
 			actual_transaction_entities.branch,
@@ -34,50 +105,87 @@ func (r *repository) GetActualExportDetails(ctx context.Context, filter map[stri
 			bs.group2,
 			bs.group3,
 			actual_transaction_entities.conso_gl,
-			bs.account_name as gl_name,
+			actual_transaction_entities.gl_account_name as gl_name,
 			actual_transaction_entities.doc_no,
 			actual_transaction_entities.amount,
 			actual_transaction_entities.vendor_name,
 			actual_transaction_entities.description,
 			actual_transaction_entities.posting_date
 		`).
-		Joins("LEFT JOIN (SELECT conso_gl, group1, group2, group3, MAX(account_name) as account_name FROM gl_grouping_entities GROUP BY conso_gl, group1, group2, group3) bs ON actual_transaction_entities.conso_gl = bs.conso_gl")
+		Joins(`LEFT JOIN (
+			SELECT entity_gl, entity, group1, group2, group3 
+			FROM gl_grouping_entities 
+			GROUP BY entity_gl, entity, group1, group2, group3
+		) bs ON actual_transaction_entities.entity_gl = bs.entity_gl AND actual_transaction_entities.entity = bs.entity`)
 
-	// Apply Dynamic Filters (Normalized by Service)
-	applyFilter := func(key string, dbCol string) {
-		if val, ok := filter[key]; ok {
-			strs := utils.ToStringSlice(val)
-			if len(strs) > 0 {
-				hasNone := false
-				var filteredStrs []string
-				for _, s := range strs {
-					if strings.EqualFold(strings.TrimSpace(s), "None") {
-						hasNone = true
-					} else if s != "" {
-						filteredStrs = append(filteredStrs, s)
-					}
+	// 1. Entities
+	if val, ok := filter["entities"]; ok {
+		if strs := toStringSlice(val); len(strs) > 0 {
+			query = query.Where("actual_transaction_entities.entity IN ?", strs)
+		}
+	}
+
+	// 2. Branches
+	if val, ok := filter["branches"]; ok {
+		if strs := toStringSlice(val); len(strs) > 0 {
+			query = query.Where("actual_transaction_entities.branch IN ?", strs)
+		}
+	}
+
+	// 3. Departments (Robust Filtering consistent with UI)
+	if val, ok := filter["departments"]; ok {
+		if strs := toStringSlice(val); len(strs) > 0 {
+			hasNone := false
+			var filteredStrs []string
+			for _, s := range strs {
+				if strings.EqualFold(strings.TrimSpace(s), "None") {
+					hasNone = true
+				} else if s != "" {
+					filteredStrs = append(filteredStrs, s)
 				}
+			}
 
-				if hasNone {
-					if len(filteredStrs) > 0 {
-						query = query.Where(fmt.Sprintf("(actual_transaction_entities.%s IN ? OR actual_transaction_entities.%s = '' OR actual_transaction_entities.%s IS NULL OR actual_transaction_entities.%s = 'None')", dbCol, dbCol, dbCol, dbCol), filteredStrs)
-					} else {
-						query = query.Where(fmt.Sprintf("(actual_transaction_entities.%s = '' OR actual_transaction_entities.%s IS NULL OR actual_transaction_entities.%s = 'None')", dbCol, dbCol, dbCol))
-					}
+			tableName := "actual_transaction_entities"
+			condition := "(TRIM(COALESCE(NULLIF(" + tableName + ".department, ''), '')) IN ?)"
+			if hasNone {
+				if len(filteredStrs) > 0 {
+					query = query.Where("("+condition+" OR TRIM(COALESCE(NULLIF("+tableName+".department, ''), '')) = '' OR TRIM(COALESCE(NULLIF("+tableName+".department, ''), '')) IS NULL OR TRIM(COALESCE(NULLIF("+tableName+".department, ''), '')) = 'None')", filteredStrs)
 				} else {
-					query = query.Where(fmt.Sprintf("actual_transaction_entities.%s IN ?", dbCol), strs)
+					query = query.Where("(TRIM(COALESCE(NULLIF(" + tableName + ".department, ''), '')) = '' OR TRIM(COALESCE(NULLIF(" + tableName + ".department, ''), '')) IS NULL OR TRIM(COALESCE(NULLIF(" + tableName + ".department, ''), '')) = 'None')")
 				}
+			} else {
+				query = query.Where(condition, strs)
 			}
 		}
 	}
 
-	applyFilter("entities", "entity")
-	applyFilter("branches", "branch")
-	applyFilter("departments", "department")
-	applyFilter("conso_gls", "conso_gl")
+	// 4. Conso GLs
+	if val, ok := filter["conso_gls"]; ok {
+		if strs := toStringSlice(val); len(strs) > 0 {
+			query = query.Where("actual_transaction_entities.conso_gl IN ?", strs)
+		}
+	}
 
-	if year := utils.GetSafeString(filter, "year"); year != "" {
-		query = query.Where("actual_transaction_entities.year = ?", year)
+	// 5. Date Range
+	if val, ok := filter["start_date"].(string); ok && val != "" {
+		query = query.Where("actual_transaction_entities.posting_date >= ?", val)
+	}
+	if val, ok := filter["end_date"].(string); ok && val != "" {
+		query = query.Where("actual_transaction_entities.posting_date <= ?", val)
+	}
+
+	// 6. Year (Strip FY)
+	if val, ok := filter["year"].(string); ok && val != "" && val != "All" {
+		query = query.Where("actual_transaction_entities.year = ?", strings.ReplaceAll(val, "FY", ""))
+	}
+
+	// 7. Months
+	if val, ok := filter["months"]; ok {
+		mstrs := toStringSlice(val)
+		if len(mstrs) > 0 {
+			// Extract month from posting_date for comparison
+			query = query.Where("UPPER(TO_CHAR(actual_transaction_entities.posting_date::DATE, 'MON')) IN ?", mstrs)
+		}
 	}
 
 	err := query.Order("actual_transaction_entities.posting_date DESC, actual_transaction_entities.entity").

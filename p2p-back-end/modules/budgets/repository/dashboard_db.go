@@ -421,18 +421,22 @@ func (r *dashboardRepository) GetDashboardAggregates(ctx context.Context, filter
 
 		// Added: ID-based version filters with Fallback
 		if tableName == "budget_fact_entities" {
-			if val, ok := filter["budget_file_id"]; ok && val != "" {
-				tx = tx.Where(tableName+".file_budget_id = ?", val)
-			} else {
-				// 🛠️ Fallback: If no ID provided, use the most recent budget file matching the year
+			if fid, ok := filter["budget_file_id"]; ok && fid != "" {
+				tx = tx.Where(tableName+".file_budget_id = ?", fid)
+			} else if yr, ok := filter["year"]; ok && yr != "" {
+				// 🛡️ Strict Fallback: Sum only THE latest PL file for this year
 				var latestFid string
-				subQuery := r.db.Model(&models.BudgetFactEntity{})
-				if targetYear != "" {
-					subQuery = subQuery.Where("year = ?", targetYear)
-					tx = tx.Where(tableName+".year = ?", targetYear) // Also filter the main query by year for fallback
-				}
-				if err := subQuery.Order("created_at desc").Limit(1).Pluck("file_budget_id", &latestFid).Error; err == nil && latestFid != "" {
+				r.db.Model(&models.BudgetFactEntity{}).
+					Where("year = ?", yr).
+					Order("created_at DESC").
+					Limit(1).
+					Pluck("file_budget_id", &latestFid)
+
+				if latestFid != "" {
 					tx = tx.Where(tableName+".file_budget_id = ?", latestFid)
+				} else {
+					// No file found for this year = No data instead of summing ALL random files
+					tx = tx.Where("1 = 0")
 				}
 			}
 		}

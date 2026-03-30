@@ -105,7 +105,7 @@ func (r *auditRepository) GetTransactionsByFilter(ctx context.Context, filter ma
 
 	if search, ok := filter["search"].(string); ok && search != "" {
 		pattern := "%" + search + "%"
-		query = query.Where("(doc_no LIKE ? OR description LIKE ? OR conso_gl LIKE ?)", pattern, pattern, pattern)
+		query = query.Where("(doc_no ILIKE ? OR description ILIKE ? OR conso_gl ILIKE ?)", pattern, pattern, pattern)
 	}
 
 	// Handle limit

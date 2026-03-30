@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"fmt"
 	"p2p-back-end/modules/entities/models"
 	"p2p-back-end/pkg/utils"
 	"sort"
@@ -14,7 +15,7 @@ import (
 )
 
 type BudgetExportRepository interface {
-	GetBudgetExportDetails(ctx context.Context, filter map[string]interface{}) ([]models.BudgetExportDTO, error)
+	GetBudgetExportDetails(ctx context.Context, user *models.UserInfo, filter map[string]interface{}) ([]models.BudgetExportDTO, error)
 }
 
 type repository struct {
@@ -25,7 +26,80 @@ func NewRepository(db *gorm.DB) BudgetExportRepository {
 	return &repository{db: db}
 }
 
-func (r *repository) GetBudgetExportDetails(ctx context.Context, filter map[string]interface{}) ([]models.BudgetExportDTO, error) {
+// toStringSlice safely converts interface{} (from JSON filter map) to []string
+func toStringSlice(val interface{}) []string {
+	if strs, ok := val.([]string); ok {
+		return strs
+	}
+	if interfaces, ok := val.([]interface{}); ok {
+		var strs []string
+		for _, item := range interfaces {
+			if s, ok := item.(string); ok && s != "" {
+				strs = append(strs, s)
+			}
+		}
+		return strs
+	}
+	if s, ok := val.(string); ok && s != "" {
+		return []string{s}
+	}
+	return nil
+}
+
+func (r *repository) GetBudgetExportDetails(ctx context.Context, user *models.UserInfo, filter map[string]interface{}) ([]models.BudgetExportDTO, error) {
+	// 🛡️ Security Check: Align with OwnerService Logic
+	isAdmin := false
+	for _, role := range user.Roles {
+		rUpper := strings.ToUpper(strings.TrimSpace(role))
+		if rUpper == "ADMIN" || rUpper == "ADMINISTRATOR" || strings.Contains(rUpper, "ADMIN") {
+			isAdmin = true
+			break
+		}
+	}
+
+	if !isAdmin {
+		// Non-Admin: Restrict to allowed departments only
+		allowedDepts := make([]string, 0)
+		for _, p := range user.Permissions {
+			if p.IsActive && p.DepartmentCode != "" {
+				allowedDepts = append(allowedDepts, strings.TrimSpace(p.DepartmentCode))
+			}
+		}
+
+		if len(allowedDepts) == 0 {
+			// No permissions = No data
+			filter["departments"] = []string{"__RESTRICTED_EMPTY__"}
+		} else {
+			// Intersect with requested departments
+			if val, ok := filter["departments"]; ok {
+				chosenDepts := toStringSlice(val)
+				if len(chosenDepts) > 0 {
+					var intersection []string
+					for _, c := range chosenDepts {
+						cTrim := strings.ToUpper(strings.TrimSpace(c))
+						for _, a := range allowedDepts {
+							aTrim := strings.ToUpper(strings.TrimSpace(a))
+							// 🛡️ Case-Insensitive Bi-directional Matching: "acc" matches "ACC - Accounting"
+							if cTrim == aTrim || strings.HasPrefix(cTrim, aTrim+" - ") || strings.HasPrefix(aTrim, cTrim+" - ") {
+								intersection = append(intersection, c)
+								break
+							}
+						}
+					}
+					if len(intersection) == 0 {
+						filter["departments"] = []string{"__RESTRICTED_NO_MATCH__"}
+					} else {
+						filter["departments"] = intersection
+					}
+				} else {
+					filter["departments"] = allowedDepts
+				}
+			} else {
+				filter["departments"] = allowedDepts
+			}
+		}
+	}
+
 	// 🛠️ Inject Global Settings if missing
 	globalConfigs := _service.FetchGlobalSettings(r.db)
 	if filter["year"] == nil || filter["year"] == "" {
@@ -40,8 +114,9 @@ func (r *repository) GetBudgetExportDetails(ctx context.Context, filter map[stri
 	}
 	var results []models.BudgetExportDTO
 
-	query := r.db.Model(&models.BudgetFactEntity{}).
+	query := r.db.WithContext(ctx).Model(&models.BudgetFactEntity{}).
 		Select(`
+			budget_fact_entities.id,
 			budget_fact_entities.entity,
 			budget_fact_entities.branch,
 			budget_fact_entities.department,
@@ -53,22 +128,30 @@ func (r *repository) GetBudgetExportDetails(ctx context.Context, filter map[stri
 			ba.month,
 			ba.amount
 		`).
-		Joins("LEFT JOIN (SELECT conso_gl, group1, group2, group3, MAX(account_name) as account_name FROM gl_grouping_entities GROUP BY conso_gl, group1, group2, group3) bs ON budget_fact_entities.conso_gl = bs.conso_gl").
-		Joins("JOIN budget_amount_entities ba ON ba.budget_fact_id = budget_fact_entities.id AND ba.deleted_at IS NULL")
+		Joins(`LEFT JOIN (
+			SELECT entity_gl, entity, group1, group2, group3 
+			FROM gl_grouping_entities 
+			GROUP BY entity_gl, entity, group1, group2, group3
+		) bs ON budget_fact_entities.entity_gl = bs.entity_gl AND budget_fact_entities.entity = bs.entity`).
+		Joins("LEFT JOIN budget_amount_entities ba ON ba.budget_fact_id = budget_fact_entities.id AND ba.deleted_at IS NULL")
 
-	// Apply Dynamic Filters (Normalized by Service)
+	// 1. Entities
 	if val, ok := filter["entities"]; ok {
-		if strs := utils.ToStringSlice(val); len(strs) > 0 {
+		if strs := toStringSlice(val); len(strs) > 0 {
 			query = query.Where("budget_fact_entities.entity IN ?", strs)
 		}
 	}
+
+	// 2. Branches
 	if val, ok := filter["branches"]; ok {
-		if strs := utils.ToStringSlice(val); len(strs) > 0 {
+		if strs := toStringSlice(val); len(strs) > 0 {
 			query = query.Where("budget_fact_entities.branch IN ?", strs)
 		}
 	}
+
+	// 3. Departments (Robust Filtering consistent with UI)
 	if val, ok := filter["departments"]; ok {
-		if strs := utils.ToStringSlice(val); len(strs) > 0 {
+		if strs := toStringSlice(val); len(strs) > 0 {
 			hasNone := false
 			var filteredStrs []string
 			for _, s := range strs {
@@ -79,39 +162,46 @@ func (r *repository) GetBudgetExportDetails(ctx context.Context, filter map[stri
 				}
 			}
 
+			tableName := "budget_fact_entities"
+			condition := "(TRIM(COALESCE(NULLIF(" + tableName + ".department, ''), '')) IN ?)"
 			if hasNone {
 				if len(filteredStrs) > 0 {
-					query = query.Where("(budget_fact_entities.department IN ? OR budget_fact_entities.department = '' OR budget_fact_entities.department IS NULL OR budget_fact_entities.department = 'None')", filteredStrs)
+					query = query.Where("("+condition+" OR TRIM(COALESCE(NULLIF("+tableName+".department, ''), '')) = '' OR TRIM(COALESCE(NULLIF("+tableName+".department, ''), '')) IS NULL OR TRIM(COALESCE(NULLIF("+tableName+".department, ''), '')) = 'None')", filteredStrs)
 				} else {
-					query = query.Where("(budget_fact_entities.department = '' OR budget_fact_entities.department IS NULL OR budget_fact_entities.department = 'None')")
+					query = query.Where("(TRIM(COALESCE(NULLIF(" + tableName + ".department, ''), '')) = '' OR TRIM(COALESCE(NULLIF(" + tableName + ".department, ''), '')) IS NULL OR TRIM(COALESCE(NULLIF(" + tableName + ".department, ''), '')) = 'None')")
 				}
 			} else {
-				query = query.Where("budget_fact_entities.department IN ?", strs)
+				query = query.Where(condition, strs)
 			}
 		}
 	}
+
+	// 4. Conso GLs
 	if val, ok := filter["conso_gls"]; ok {
-		if strs := utils.ToStringSlice(val); len(strs) > 0 {
+		if strs := toStringSlice(val); len(strs) > 0 {
 			query = query.Where("budget_fact_entities.conso_gl IN ?", strs)
 		}
 	}
 
+	// 5. Months (Disabled for Budget Detail Export to ensure full year parity with source file)
+	/*
 	if months, ok := filter["months"]; ok {
-		mstrs := utils.ToStringSlice(months)
+		mstrs := toStringSlice(months)
 		if len(mstrs) > 0 {
 			query = query.Where("ba.month IN ?", mstrs)
 		}
 	}
+	*/
 
-	// Added: Year Filter
+	// 6. Year Filter (Strip FY)
 	targetYear := ""
 	if val, ok := filter["year"]; ok {
 		if s, ok := val.(string); ok && s != "" {
 			targetYear = strings.ReplaceAll(s, "FY", "")
-			// Apply to budget only if no explicit file ID.
 		}
 	}
 
+	// 7. File Filter
 	if val := utils.GetSafeString(filter, "budget_file_id"); val != "" {
 		query = query.Where("budget_fact_entities.file_budget_id = ?", val)
 	} else {
@@ -127,59 +217,58 @@ func (r *repository) GetBudgetExportDetails(ctx context.Context, filter map[stri
 		}
 	}
 
-	err := query.Order("budget_fact_entities.entity, budget_fact_entities.branch, budget_fact_entities.department, budget_fact_entities.conso_gl").
-		Scan(&results).Error
-
-	if err != nil {
-		return nil, err
+	// Fetch matching results
+	type intermediateResult struct {
+		models.BudgetExportDTO
+		BudgetFactID string          `gorm:"column:id"`
+		Amount       decimal.Decimal `gorm:"column:amount"`
+		Month        string          `gorm:"column:month"`
+	}
+	var rawData []intermediateResult
+	if err := query.Scan(&rawData).Error; err != nil {
+		return nil, fmt.Errorf("budgetExportRepo.GetBudgetExportDetails: %w", err)
 	}
 
-	// Group results by key to calculate Year Total and ensure flat structure
-	type rowKey struct {
-		Entity     string
-		Branch     string
-		Department string
-		ConsoGL    string
-		GLName     string
-	}
-
-	grouped := make(map[rowKey]models.BudgetExportDTO)
-	for _, res := range results {
-		key := rowKey{res.Entity, res.Branch, res.Department, res.ConsoGL, res.GLName}
-		if row, ok := grouped[key]; ok {
-			// Sum monthly amounts (fix overwrite bug)
-			if existingAmt, ok := row.MonthsAmounts[res.Month].(decimal.Decimal); ok {
-				row.MonthsAmounts[res.Month] = existingAmt.Add(res.Amount)
-			} else {
-				row.MonthsAmounts[res.Month] = res.Amount
+	// 🛠️ Pivot Data: Group by BudgetFactID
+	budgetMap := make(map[string]*models.BudgetExportDTO)
+	for _, raw := range rawData {
+		key := raw.BudgetFactID
+		if _, exists := budgetMap[key]; !exists {
+			dto := &models.BudgetExportDTO{
+				Entity:        raw.Entity,
+				Branch:        raw.Branch,
+				Department:    raw.Department,
+				Group:         raw.Group,
+				Group2:        raw.Group2,
+				Group3:        raw.Group3,
+				ConsoGL:       raw.ConsoGL,
+				GLName:        raw.GLName,
+				MonthsAmounts: make(map[string]interface{}),
+				YearTotal:     decimal.Zero,
 			}
-			row.YearTotal = row.YearTotal.Add(res.Amount)
-			grouped[key] = row
-		} else {
-			res.MonthsAmounts = map[string]interface{}{res.Month: res.Amount}
-			res.YearTotal = res.Amount
-			grouped[key] = res
+			budgetMap[key] = dto
+		}
+
+		// Fill Monthly Amount
+		if raw.Month != "" {
+			budgetMap[key].MonthsAmounts[raw.Month] = raw.Amount
+			budgetMap[key].YearTotal = budgetMap[key].YearTotal.Add(raw.Amount)
 		}
 	}
 
-	finalResults := make([]models.BudgetExportDTO, 0, len(grouped))
-	for _, row := range grouped {
-		finalResults = append(finalResults, row)
+	// Convert map to slice
+	results = make([]models.BudgetExportDTO, 0, len(budgetMap))
+	for _, dto := range budgetMap {
+		results = append(results, *dto)
 	}
 
-	// Sort final results consistently
-	sort.Slice(finalResults, func(i, j int) bool {
-		if finalResults[i].Entity != finalResults[j].Entity {
-			return finalResults[i].Entity < finalResults[j].Entity
-		}
-		if finalResults[i].Branch != finalResults[j].Branch {
-			return finalResults[i].Branch < finalResults[j].Branch
-		}
-		if finalResults[i].Department != finalResults[j].Department {
-			return finalResults[i].Department < finalResults[j].Department
-		}
-		return finalResults[i].ConsoGL < finalResults[j].ConsoGL
+	// Sort results for consistency
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].Entity != results[j].Entity { return results[i].Entity < results[j].Entity }
+		if results[i].Branch != results[j].Branch { return results[i].Branch < results[j].Branch }
+		if results[i].Department != results[j].Department { return results[i].Department < results[j].Department }
+		return results[i].ConsoGL < results[j].ConsoGL
 	})
 
-	return finalResults, nil
+	return results, nil
 }
