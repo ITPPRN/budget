@@ -479,6 +479,9 @@ func (r *ownerRepository) GetActualTransactions(ctx context.Context, filter map[
 		query = query.Where("actual_transaction_entities.year = ?", strings.ReplaceAll(val, "FY", ""))
 	}
 
+	// 🛡️ Owner Workflow Filter: Only show items that are still actionable (Pending or in Basket/Draft)
+	query = query.Where("actual_transaction_entities.status IN (?, ?)", models.TxStatusPending, models.TxStatusDraft)
+
 	// 3. Pagination & Count
 	page := 1
 	limit := 10

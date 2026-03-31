@@ -57,30 +57,31 @@ func (s *auditService) Approve(ctx context.Context, user *models.UserInfo, paylo
 	month, _ := payload["month"].(string)
 	entity, _ := payload["entity"].(string)
 	branch, _ := payload["branch"].(string)
-	selectedIDs, _ := payload["selected_item_ids"].([]interface{})
+	rejectedIDs, _ := payload["rejected_item_ids"].([]interface{})
 
-	// Handle selective approval
-	if len(selectedIDs) > 0 {
-		var txIDs []uuid.UUID
-		for _, idStr := range selectedIDs {
+	// Handle Composite Approval: 
+	// 1. Items in "Reject Basket" -> Status = REPORTED (Send to Admin)
+	// 2. All other items in scope -> Status = COMPLETE (Closed/Finished)
+	
+	var rejectedTxIDs []uuid.UUID
+	if len(rejectedIDs) > 0 {
+		for _, idStr := range rejectedIDs {
 			id, err := uuid.Parse(fmt.Sprintf("%v", idStr))
 			if err == nil {
-				txIDs = append(txIDs, id)
+				rejectedTxIDs = append(rejectedTxIDs, id)
 			}
 		}
 
-		// 1. Mark selected items as REPORTED (Ready for Admin/Accountant)
-		if err := s.auditRepo.UpdateTransactionsStatus(ctx, txIDs, models.TxStatusReported); err != nil {
-			return fmt.Errorf("failed to report selected items: %w", err)
+		// Mark items in "Reject Basket" as REPORTED
+		if err := s.auditRepo.UpdateTransactionsStatus(ctx, rejectedTxIDs, models.TxStatusReported); err != nil {
+			return fmt.Errorf("failed to report basket items: %w", err)
 		}
+	}
 
-		// 2. Mark UN-SELECTED items in same scope as COMPLETE (Won't show in dashboard anymore)
-		// This achieves the "Complete" logic for everything else.
-		// We first find the scope (Dept/Month/Year) which we already have in 'targets'
-		for _, dept := range targets {
-			if err := s.auditRepo.MarkRestAsComplete(ctx, dept, year, month, txIDs); err != nil {
-				return fmt.Errorf("failed to auto-complete remaining items: %w", err)
-			}
+	// 🛠️ Auto-Complete: Mark UN-SELECTED (Non-Basket) items in same scope as COMPLETE
+	for _, dept := range targets {
+		if err := s.auditRepo.MarkRestAsComplete(ctx, dept, year, month, rejectedTxIDs); err != nil {
+			return fmt.Errorf("failed to auto-complete remaining items: %w", err)
 		}
 	}
 
@@ -93,7 +94,7 @@ func (s *auditService) Approve(ctx context.Context, user *models.UserInfo, paylo
 			Year:          year,
 			Month:         month,
 			Status:        "CONFIRMED",
-			RejectedCount: 0,
+			RejectedCount: len(rejectedIDs), // Store how many were actually rejected in this basket
 			CreatedBy:     user.Name,
 		}
 

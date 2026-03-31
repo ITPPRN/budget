@@ -31,7 +31,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import InfoIcon from '@mui/icons-material/Info';
 import api from '../../utils/api/axiosInstance';
 
-const AuditReportModal = ({ open, onClose, filters, onSubmit, loading: submitting }) => {
+const AuditReportModal = ({ open, onClose, filters, onSubmit, initialItems = [], loading: submitting }) => {
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState([]);
     const [searching, setSearching] = useState(false);
@@ -42,9 +42,10 @@ const AuditReportModal = ({ open, onClose, filters, onSubmit, loading: submittin
         if (open) {
             setSearchQuery('');
             setSearchResults([]);
-            setAddedItems([]);
+            // Initialize with items already in the basket if any
+            setAddedItems(initialItems || []);
         }
-    }, [open]);
+    }, [open, initialItems]);
 
     // Search Logic (Debounced or on change - let's do local search for performance if pre-loaded, 
     // but the senior said "Search to add", implying searching the WHOLE month dataset)
@@ -219,11 +220,11 @@ const AuditReportModal = ({ open, onClose, filters, onSubmit, loading: submittin
                     variant="contained" 
                     color="error" 
                     size="large"
-                    startIcon={submitting ? <CircularProgress size={20} color="inherit" /> : <ReportProblemIcon />}
+                    startIcon={submitting ? <CircularProgress size={20} color="inherit" /> : <AddCircleIcon />}
                     disabled={submitting || addedItems.length === 0}
                     sx={{ px: 4, borderRadius: 2, textTransform: 'none' }}
                 >
-                    {submitting ? "กำลังส่ง..." : "แจ้งแก้ไขยอดเงิน (Submit Report)"}
+                    {submitting ? "กำลังประมวลผล..." : "ใส่ตะกร้า (Add to Basket)"}
                 </Button>
             </DialogActions>
         </Dialog>

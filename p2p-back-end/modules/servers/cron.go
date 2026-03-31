@@ -114,6 +114,35 @@ func (s *server) StartCronJob() {
 		}); err != nil {
 			logs.Fatal(fmt.Sprintf("Failed to register DW Sync Cron Job: %v", err))
 		}
+
+		// // 🚀 --- TEMPORARY: IMMEDIATE STARTUP SYNC (FOR TESTING) ---
+		// // This will run ONCE right now! Delete this block after testing is done.
+		// go func() {
+		// 	s.SyncMutex.Lock()
+		// 	defer s.SyncMutex.Unlock()
+			
+		// 	ctx := context.Background()
+		// 	logs.Info("🚀 IMMEDIATE STARTUP SYNC: STARTING NOW (DW -> MAPPING)...")
+
+		// 	// 1. Sync from Data Warehouse (Raw CLIK/ACHHMW data)
+		// 	if err := s.Shd.ExternalSyncService.SyncFromDW(ctx); err != nil {
+		// 		logs.Errorf("🚀 Startup Sync: DW Failed: %v", err)
+		// 	}
+
+		// 	// 2. Refresh Mapping & Facts (For 2025 - 2026)
+		// 	years := []string{"2025", "2026"}
+		// 	for _, y := range years {
+		// 		logs.Infof("🚀 Startup Sync: Mapping Year %s...", y)
+		// 		if err := s.Shd.ActualService.SyncActuals(ctx, y, []string{}); err != nil {
+		// 			logs.Errorf("🚀 Startup Sync: Mapping %s Failed: %v", y, err)
+		// 		}
+		// 	}
+
+		// 	// 3. Finalize Metadata
+		// 	s.Shd.ActualService.RefreshDataInventory(ctx)
+		// 	logs.Info("🚀 IMMEDIATE STARTUP SYNC: COMPLETED SUCCESSFULLY")
+		// }()
+		// // 🚀 --- END TEMPORARY BLOCK ---
 	}
 
 	// Start the Cron scheduler

@@ -50,6 +50,7 @@ const ActualTable = React.memo(({
     const [openFullScreen, setOpenFullScreen] = useState(false);
     const [auditLoading, setAuditLoading] = useState(false);
     const [reportModalOpen, setReportModalOpen] = useState(false);
+    const [rejectedBasket, setRejectedBasket] = useState([]); // 🛡️ Local Basket for Rejections
 
     // Filter Popover State
     const [anchorEl, setAnchorEl] = useState(null);
@@ -84,7 +85,12 @@ const ActualTable = React.memo(({
     };
 
     const handleApprove = async () => {
-        if (!window.confirm("คุณแน่ใจหรือไม่ว่าต้องการยืนยันความถูกต้องของข้อมูล (Approve) สำหรับแผนกและเดือนที่เลือก?")) return;
+        const basketCount = rejectedBasket.length;
+        const msg = basketCount > 0 
+            ? `คุณมี ${basketCount} รายการในตะกร้าที่จะถูกปฏิเสธ และรายการที่เหลือทั้งหมดในเดือนนี้จะถูกยืนยันอัตโนมัติ. คุณแน่ใจหรือไม่?`
+            : "คุณแน่ใจหรือไม่ว่าต้องการยืนยันความถูกต้องของข้อมูลทั้งหมด (Approve All) สำหรับเดือนที่เลือก?";
+            
+        if (!window.confirm(msg)) return;
         
         setAuditLoading(true);
         try {
@@ -93,9 +99,11 @@ const ActualTable = React.memo(({
                 branch: filters.branch,
                 department: filters.department,
                 year: filters.year,
-                month: filters.month || (filters.months && filters.months[0])
+                month: filters.month || (filters.months && filters.months[0]),
+                rejected_item_ids: rejectedBasket // Send the basket!
             });
-            toast.success("ยืนยันข้อมูลเรียบร้อยแล้ว");
+            toast.success("ยืนยันข้อมูลและส่งรายการปฏิเสธเรียบร้อยแล้ว");
+            setRejectedBasket([]); // Clear basket after success
         } catch (err) {
             toast.error("เกิดข้อผิดพลาดในการยืนยันข้อมูล: " + (err.response?.data?.error || err.message));
         } finally {
@@ -103,24 +111,11 @@ const ActualTable = React.memo(({
         }
     };
 
-    const handleReportSubmit = async (selectedIds) => {
-        setAuditLoading(true);
-        try {
-            await api.post('/budgets/audit/report', {
-                entity: filters.entity,
-                branch: filters.branch,
-                department: filters.department,
-                year: filters.year,
-                month: filters.month || (filters.months && filters.months[0]),
-                rejected_item_ids: selectedIds
-            });
-            toast.success(`แจ้งแก้ไข ${selectedIds.length} รายการเรียบร้อยแล้ว`);
-            setReportModalOpen(false);
-        } catch (err) {
-            toast.error("เกิดข้อผิดพลาดในการแจ้งแก้ไข: " + (err.response?.data?.error || err.message));
-        } finally {
-            setAuditLoading(false);
-        }
+    const handleReportSubmit = (selectedIds) => {
+        // 🛠️ Just add to basket, don't call API yet!
+        setRejectedBasket(selectedIds);
+        setReportModalOpen(false);
+        toast.info(`เก็บ ${selectedIds.length} รายการไว้ในตะกร้าปฏิเสธแล้ว`);
     };
 
     // Data is now paginated from server
@@ -169,11 +164,12 @@ const ActualTable = React.memo(({
                                     <TableCell sx={{ borderRight: '1px solid #e0e0e0' }}>{row.description}</TableCell>
                                     <TableCell sx={{ borderRight: '1px solid #e0e0e0', fontSize: '0.85rem' }}>{row.posting_date}</TableCell>
                                     <TableCell sx={{ fontWeight: 'bold', fontSize: '0.75rem', color: 
-                                        row.audit_status === 'Approved' ? '#1cc88a' : 
-                                        row.audit_status === 'Rejected' || row.audit_status === 'Request Change' ? '#f6c23e' : 
+                                        row.status === 'REPORTED' ? '#1cc88a' : 
+                                        row.status === 'DRAFT' ? '#f6c23e' : 
+                                        row.status === 'COMPLETE' ? '#4e73df' :
                                         'inherit' 
                                     }}>
-                                        {row.audit_status || "-"}
+                                        {row.status || row.audit_status || "-"}
                                     </TableCell>
                                 </TableRow>
                             ))
@@ -202,7 +198,7 @@ const ActualTable = React.memo(({
                                 disabled={auditLoading}
                                 sx={{ textTransform: 'none', borderRadius: '4px', fontSize: '0.75rem' }}
                             >
-                                Approve
+                                ยืนยันรายการ
                             </Button>
                             <Button 
                                 variant="contained" 
@@ -213,7 +209,7 @@ const ActualTable = React.memo(({
                                 disabled={auditLoading}
                                 sx={{ textTransform: 'none', borderRadius: '4px', fontSize: '0.75rem' }}
                             >
-                                Report
+                                {rejectedBasket.length > 0 ? `ปฏิเสธรายการ (${rejectedBasket.length})` : "ปฏิเสธรายการ"}
                             </Button>
                         </>
                     )}
@@ -351,6 +347,7 @@ const ActualTable = React.memo(({
                 open={reportModalOpen}
                 onClose={() => setReportModalOpen(false)}
                 filters={filters}
+                initialItems={data.filter(d => rejectedBasket.includes(d.id))} // Pass actual objects
                 onSubmit={handleReportSubmit}
                 loading={auditLoading}
             />

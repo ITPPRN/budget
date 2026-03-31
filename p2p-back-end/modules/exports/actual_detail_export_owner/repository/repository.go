@@ -142,7 +142,7 @@ func (r *repository) GetOwnerActualExportDetails(ctx context.Context, user *mode
 					} else if s != "" {
 						dt := strings.ToUpper(strings.TrimSpace(s))
 						// 🛡️ Match: Exactly Code, or Code as Prefix "Code - ...", or NavCode itself
-						pConds = append(pConds, "UPPER(TRIM(actual_transaction_entities.department)) = ? OR UPPER(TRIM(actual_transaction_entities.department)) LIKE ? OR UPPER(TRIM(actual_transaction_entities.nav_code)) = ?")
+						pConds = append(pConds, "UPPER(TRIM(actual_transaction_entities.department)) = ? OR UPPER(TRIM(actual_transaction_entities.department)) LIKE ? OR UPPER(TRIM(actual_transaction_entities.entity_gl)) = ?")
 						pVals = append(pVals, dt, dt+" - %", dt)
 					}
 				}

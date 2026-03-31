@@ -109,7 +109,7 @@ func (r *repository) GetOwnerBudgetExportDetails(ctx context.Context, user *mode
 					} else if s != "" {
 						dt := strings.ToUpper(strings.TrimSpace(s))
 						// 🛡️ Match: Exactly Code, or Code as Prefix "Code - ...", or NavCode itself
-						pConds = append(pConds, "UPPER(TRIM(budget_fact_entities.department)) = ? OR UPPER(TRIM(budget_fact_entities.department)) LIKE ? OR UPPER(TRIM(budget_fact_entities.nav_code)) = ?")
+						pConds = append(pConds, "UPPER(TRIM(budget_fact_entities.department)) = ? OR UPPER(TRIM(budget_fact_entities.department)) LIKE ? OR UPPER(TRIM(budget_fact_entities.department)) = ?")
 						pVals = append(pVals, dt, dt+" - %", dt)
 					}
 				}
