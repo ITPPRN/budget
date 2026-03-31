@@ -67,7 +67,8 @@ func (r *externalSyncRepository) FetchCLIKInBatches(ctx context.Context, year in
 			"Additional_Currency_Amount", "VAT_Amount", "Bal_Account_Type", "Bal_Account_No", 
 			"User_ID", "Source_Code", "Reason_Code", "Reversed", "Reversed_by_Entry_No", 
 			"Car_ID", "Reversed_Entry_No", "FA_Entry_Type", "FA_Entry_No", "Dimension_Set_ID", 
-			"Cutomer_No", "Cutomer_Name", "Vendor_Name", "Serial_No", "Serial_Description"
+			"Cutomer_No", "Cutomer_Name", "Vendor_Name", "Serial_No", "Serial_Description",
+			'CLIK' as company
 		`).
 		Where("EXTRACT(YEAR FROM CAST(\"Posting_Date\" AS DATE)) = ? AND EXTRACT(MONTH FROM CAST(\"Posting_Date\" AS DATE)) = ?", year, month).
 		Order("\"general_ledger_entries_clik\".\"id\"").
@@ -101,6 +102,12 @@ func (r *externalSyncRepository) UpsertCLIKLocal(ctx context.Context, data []mod
 	if len(data) == 0 {
 		return nil
 	}
+
+	// Ensure Company is set to 'CLIK' for all rows
+	for i := range data {
+		data[i].Company = "CLIK"
+	}
+
 	err := r.localDb.WithContext(ctx).
 		Table("general_ledger_entries_clik").
 		Clauses(clause.OnConflict{

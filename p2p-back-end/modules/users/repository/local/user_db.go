@@ -61,6 +61,7 @@ func (r *userRepositoryDB) GetAll(optional map[string]interface{}, ctx context.C
 		"department_code": "departments.code",
 	}
 
+	logs.Infof("[DEBUG] Repo GetAll: currentUserId=%v, role=%v, allowedDepts=%v", optional["visibility_current_user_id"], optional["visibility_role"], optional["visibility_allowed_depts"])
 	logs.Infof("Repo GetAll: offset=%d, size=%d, optional=%+v", offset, size, optional)
 
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
@@ -79,9 +80,9 @@ func (r *userRepositoryDB) GetAll(optional map[string]interface{}, ctx context.C
 	logs.Infof("GetAll: Fetching users for Management (Current User ID: %s)", currentUserID)
 
 	if role != "ADMIN" {
-		// Not Admin: Filter by (Self OR Allowed Departments with Role Restrictions)
-		visibilityQuery := "user_entities.id = ?"
-		args := []interface{}{currentUserID}
+		// 🛡️ CRITICAL: Always ensure the current user can see themselves
+		visibilityQuery := "user_entities.id = ? OR user_entities.username = ?"
+		args := []interface{}{currentUserID, currentUserID}
 
 		notOwnerOrAdmin := `NOT EXISTS (
 			SELECT 1 FROM user_permission_entities 
@@ -107,8 +108,8 @@ func (r *userRepositoryDB) GetAll(optional map[string]interface{}, ctx context.C
 		}
 		if field == "search" && value != nil && value != "" {
 			searchStr := fmt.Sprintf("%%%v%%", value)
-			condition = condition.Where("(user_entities.username ILIKE ? OR user_entities.first_name ILIKE ? OR user_entities.last_name ILIKE ? OR user_entities.name_th ILIKE ? OR user_entities.name_en ILIKE ?)",
-				searchStr, searchStr, searchStr, searchStr, searchStr)
+			condition = condition.Where("(user_entities.id ILIKE ? OR user_entities.username ILIKE ? OR user_entities.first_name ILIKE ? OR user_entities.last_name ILIKE ? OR user_entities.name_th ILIKE ? OR user_entities.name_en ILIKE ?)",
+				searchStr, searchStr, searchStr, searchStr, searchStr, searchStr)
 			continue
 		}
 		if field == "status" && value != nil && value != "ALL" {
@@ -140,9 +141,19 @@ func (r *userRepositoryDB) GetAll(optional map[string]interface{}, ctx context.C
 	}
 
 	// --- Sorting: Self at Top, then Username ---
-	// Use both ID and Username for robustness in "Self" detection (Case-Insensitive)
 	if currentUserID != "" {
-		condition = condition.Order(fmt.Sprintf("CASE WHEN LOWER(user_entities.id) = LOWER('%s') OR LOWER(user_entities.username) = LOWER('%s') THEN 0 ELSE 1 END", currentUserID, currentUserID))
+		logs.Infof("[SORT] Panning current user to top: %s", currentUserID)
+		// 🚀 NUCLEAR OPTION: Match anything that identifies the current user
+		condition = condition.Order(gorm.Expr(`
+			CASE 
+				WHEN user_entities.id = ? 
+				OR user_entities.username = ? 
+				OR LOWER(user_entities.username) = LOWER(?)
+				OR (LOWER(user_entities.first_name) || ' ' || LOWER(user_entities.last_name)) = LOWER(?)
+				OR user_entities.id ILIKE ?
+				THEN 0 
+				ELSE 1 
+			END`, currentUserID, currentUserID, currentUserID, currentUserID, "%"+currentUserID+"%"))
 	}
 	condition = condition.Order("LOWER(user_entities.username) ASC")
 
@@ -150,14 +161,10 @@ func (r *userRepositoryDB) GetAll(optional map[string]interface{}, ctx context.C
 		return nil, 0, fmt.Errorf("error getting users: %w", err)
 	}
 
-	// Debug: check first few results
+	// Double check: if current user is not in the list (due to pagination), we can't easily prepend.
+	// But since they are at the top of the SORT, they should be in the first page.
 	if len(users) > 0 {
-		logs.Infof("GetAll Result: First user in list is %s (ID: %s)", users[0].Username, users[0].ID)
-		if users[0].ID == currentUserID {
-			logs.Info("✅ SUCCESS: Logged-in user is at the top.")
-		} else {
-			logs.Warnf("⚠️ WARNING: Logged-in user is NOT at the top. Top ID: %s vs Current ID: %s", users[0].ID, currentUserID)
-		}
+		logs.Infof("[DEBUG] GetAll Top User: %s (ID: %s)", users[0].Username, users[0].ID)
 	}
 
 	logs.Info(fmt.Sprintf("Repo Result - Total: %d, ResultCount: %d", totalRecords64, len(users)))
@@ -408,4 +415,3 @@ func (r *userRepositoryDB) UpdateUserRoles(ctx context.Context, userID string, r
 	logs.Infof("[Repo] UpdateUserRoles Success: RowsAffected=%d", result.RowsAffected)
 	return nil
 }
-

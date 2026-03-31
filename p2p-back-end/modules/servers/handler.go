@@ -45,11 +45,17 @@ import (
 	_bvaoES "p2p-back-end/modules/exports/budgetvsactual_export_owner/service"
 	_bvaoER "p2p-back-end/modules/exports/budgetvsactual_export_owner/repository"
 
-
-
 	_cbeEC "p2p-back-end/modules/exports/capex_budget_export_owner/controller"
 	_cbeES "p2p-back-end/modules/exports/capex_budget_export_owner/service"
 	_cbeER "p2p-back-end/modules/exports/capex_budget_export_owner/repository"
+
+	_bdeoEC "p2p-back-end/modules/exports/budget_detail_export_owner/controller"
+	_bdeoES "p2p-back-end/modules/exports/budget_detail_export_owner/service"
+	_bdeoER "p2p-back-end/modules/exports/budget_detail_export_owner/repository"
+
+	_adeoEC "p2p-back-end/modules/exports/actual_detail_export_owner/controller"
+	_adeoES "p2p-back-end/modules/exports/actual_detail_export_owner/service"
+	_adeoER "p2p-back-end/modules/exports/actual_detail_export_owner/repository"
 )
 
 func (s *server) Handlers() error {
@@ -101,8 +107,11 @@ func (s *server) Handlers() error {
 	_cvaEC.NewExportController(v1, _cvaES.NewService(_cvaER.NewRepository(s.Db)))
 
 	_bvaoEC.NewExportController(ownerGroup, _bvaoES.NewService(_bvaoER.NewRepository(s.Db), s.Shd.OwnerService))
-
 	_cbeEC.NewExportController(ownerGroup, _cbeES.NewService(_cbeER.NewRepository(s.Db), s.Shd.OwnerService))
+
+	// Owner Detail Exports
+	_bdeoEC.NewExportController(ownerGroup, _bdeoES.NewService(_bdeoER.NewRepository(s.Db), s.Shd.OwnerService))
+	_adeoEC.NewExportController(ownerGroup, _adeoES.NewService(_adeoER.NewRepository(s.Db), s.Shd.OwnerService))
 
 	s.App.Use(func(c *fiber.Ctx) error {
 		return c.Status(fiber.ErrInternalServerError.Code).JSON(fiber.Map{

@@ -40,15 +40,19 @@ func (r *repository) GetDeptBudgetStatus(ctx context.Context, filter map[string]
 	var actualRows []summaryRow
 	atx := r.db.Model(&models.ActualFactEntity{})
 
+	// Select base columns early to avoid GORM's default "SELECT *" which fails with GROUP BY
+	colExpr := "COALESCE(NULLIF(actual_fact_entities.department, ''), actual_fact_entities.nav_code) as department"
+
 	// Month filter logic (must sum from amount table)
 	if months, ok := filter["months"]; ok {
 		mstrs := utils.ToStringSlice(months)
 		if len(mstrs) > 0 {
-			atx = atx.Select("COALESCE(NULLIF(actual_fact_entities.department, ''), actual_fact_entities.nav_code) as department, SUM(actual_amount_entities.amount) as total").
+			atx = atx.Select(colExpr + ", SUM(actual_amount_entities.amount) as total").
 				Joins("JOIN actual_amount_entities ON actual_amount_entities.actual_fact_id = actual_fact_entities.id").
 				Where("actual_amount_entities.month IN ?", mstrs)
 		} else {
-			atx = atx.Where("1 = 0")
+			// If months requested but empty, force 0 results but keep valid SQL structure
+			atx = atx.Select(colExpr + ", 0 as total").Where("1 = 0")
 		}
 	} else {
 		atx = atx.Select("COALESCE(NULLIF(department, ''), nav_code) as department, SUM(year_total) as total")

@@ -43,58 +43,6 @@ func toStringSlice(val interface{}) []string {
 func (r *repository) GetActualExportDetails(ctx context.Context, user *models.UserInfo, filter map[string]interface{}) ([]models.ActualExportDTO, error) {
 	var results []models.ActualExportDTO
 
-	// 🛡️ Security Check: Align with OwnerService Logic
-	isAdmin := false
-	for _, role := range user.Roles {
-		rUpper := strings.ToUpper(strings.TrimSpace(role))
-		if rUpper == "ADMIN" || rUpper == "ADMINISTRATOR" || strings.Contains(rUpper, "ADMIN") {
-			isAdmin = true
-			break
-		}
-	}
-
-	if !isAdmin {
-		// Non-Admin: Restrict to allowed departments only
-		allowedDepts := make([]string, 0)
-		for _, p := range user.Permissions {
-			if p.IsActive && p.DepartmentCode != "" {
-				allowedDepts = append(allowedDepts, strings.TrimSpace(p.DepartmentCode))
-			}
-		}
-
-		if len(allowedDepts) == 0 {
-			// No permissions = No data
-			filter["departments"] = []string{"__RESTRICTED_EMPTY__"}
-		} else {
-			// Intersect with requested departments
-			if val, ok := filter["departments"]; ok {
-				chosenDepts := toStringSlice(val)
-				if len(chosenDepts) > 0 {
-					var intersection []string
-					for _, c := range chosenDepts {
-						cTrim := strings.ToUpper(strings.TrimSpace(c))
-						for _, a := range allowedDepts {
-							aTrim := strings.ToUpper(strings.TrimSpace(a))
-							// 🛡️ Case-Insensitive Bi-directional Matching: "acc" matches "ACC - Accounting"
-							if cTrim == aTrim || strings.HasPrefix(cTrim, aTrim+" - ") || strings.HasPrefix(aTrim, cTrim+" - ") {
-								intersection = append(intersection, c)
-								break
-							}
-						}
-					}
-					if len(intersection) == 0 {
-						filter["departments"] = []string{"__RESTRICTED_NO_MATCH__"}
-					} else {
-						filter["departments"] = intersection
-					}
-				} else {
-					filter["departments"] = allowedDepts
-				}
-			} else {
-				filter["departments"] = allowedDepts
-			}
-		}
-	}
 
 	query := r.db.WithContext(ctx).Table("actual_transaction_entities").
 		Select(`

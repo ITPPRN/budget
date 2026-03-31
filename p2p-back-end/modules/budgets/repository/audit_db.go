@@ -118,3 +118,32 @@ func (r *auditRepository) GetTransactionsByFilter(ctx context.Context, filter ma
 	}
 	return txs, nil
 }
+
+func (r *auditRepository) UpdateTransactionsStatus(ctx context.Context, ids []uuid.UUID, status string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	if err := r.db.WithContext(ctx).Model(&models.ActualTransactionEntity{}).
+		Where("id IN ?", ids).
+		Update("status", status).Error; err != nil {
+		return fmt.Errorf("auditRepo.UpdateTransactionsStatus: %w", err)
+	}
+	return nil
+}
+
+func (r *auditRepository) MarkRestAsComplete(ctx context.Context, department, year, month string, excludedIDs []uuid.UUID) error {
+	query := r.db.WithContext(ctx).Model(&models.ActualTransactionEntity{}).
+		Where("department = ? AND year = ? AND posting_date LIKE ?", 
+			department, year, fmt.Sprintf("%s-%s-%%", year, month))
+
+	if len(excludedIDs) > 0 {
+		query = query.Where("id NOT IN ?", excludedIDs)
+	}
+
+	// Only mark PENDING or DRAFT ones as COMPLETE
+	if err := query.Where("status IN ?", []string{models.TxStatusPending, models.TxStatusDraft}).
+		Update("status", models.TxStatusComplete).Error; err != nil {
+		return fmt.Errorf("auditRepo.MarkRestAsComplete: %w", err)
+	}
+	return nil
+}

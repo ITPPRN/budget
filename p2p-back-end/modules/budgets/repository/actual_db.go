@@ -102,7 +102,10 @@ func (r *actualRepository) DeleteAllActualTransactions(ctx context.Context) erro
 }
 
 func (r *actualRepository) DeleteActualTransactionsByYear(ctx context.Context, year string) error {
-	if err := r.db.WithContext(ctx).Unscoped().Where("year = ?", year).Delete(&models.ActualTransactionEntity{}).Error; err != nil {
+	// 🛡️ CRITICAL: Only delete PENDING transactions to preserve Owner work (Drafts, Reported, Complete)
+	if err := r.db.WithContext(ctx).Unscoped().
+		Where("year = ? AND status = ?", year, models.TxStatusPending).
+		Delete(&models.ActualTransactionEntity{}).Error; err != nil {
 		return fmt.Errorf("actualRepo.DeleteActualTransactionsByYear: %w", err)
 	}
 	return nil
@@ -118,8 +121,9 @@ func (r *actualRepository) DeleteActualTransactionsByMonth(ctx context.Context, 
 		return fmt.Errorf("actualRepo.DeleteActualTransactionsByMonth: invalid month: %s", month)
 	}
 	pattern := fmt.Sprintf("%s-%s-%%", year, mCode)
+	// 🛡️ CRITICAL: Only delete PENDING transactions to preserve Owner work
 	if err := r.db.WithContext(ctx).Unscoped().
-		Where("year = ? AND posting_date LIKE ?", year, pattern).
+		Where("year = ? AND posting_date LIKE ? AND status = ?", year, pattern, models.TxStatusPending).
 		Delete(&models.ActualTransactionEntity{}).Error; err != nil {
 		return fmt.Errorf("actualRepo.DeleteActualTransactionsByMonth: %w", err)
 	}
@@ -200,7 +204,7 @@ func (r *actualRepository) GetAggregatedCLIK(ctx context.Context, year string, m
 	var results []models.ActualAggregatedDTO
 	query := r.db.WithContext(ctx).Table("general_ledger_entries_clik").
 		Select(`
-			'CLIK' as company,
+			company,
 			"Global_Dimension_2_Code" as branch, 
 			"Global_Dimension_1_Code" as department, 
 			"G_L_Account_No" as gl_account_no, 
@@ -235,7 +239,7 @@ func (r *actualRepository) GetRawTransactionsCLIK(ctx context.Context, year stri
 			"Global_Dimension_1_Code" as department,
 			"Amount" as amount,
 			"Vendor_Name" as vendor,
-			'CLIK' as company,
+			company,
 			"Global_Dimension_2_Code" as branch
 		`).
 		Where("TO_CHAR(\"Posting_Date\"::DATE, 'YYYY') = ?", year)

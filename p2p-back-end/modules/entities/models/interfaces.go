@@ -312,6 +312,8 @@ type AuditRepository interface {
 	GetRejectedItemsByLogID(ctx context.Context, logID string) ([]AuditLogRejectedItemEntity, error)
 	GetTransactionsByIDs(ctx context.Context, ids []uuid.UUID) ([]ActualTransactionEntity, error)
 	GetTransactionsByFilter(ctx context.Context, filter map[string]interface{}) ([]ActualTransactionEntity, error)
+	UpdateTransactionsStatus(ctx context.Context, ids []uuid.UUID, status string) error
+	MarkRestAsComplete(ctx context.Context, department, year, month string, excludedIDs []uuid.UUID) error
 }
 
 type AuditService interface {
@@ -397,6 +399,7 @@ type ActualTransactionDTO struct {
 	Department    string          `json:"department" gorm:"column:department"`
 	Company       string          `json:"company" gorm:"column:company"`
 	Branch        string          `json:"branch" gorm:"column:branch"`
+	Status        string          `json:"status" gorm:"column:status"`
 }
 
 type BudgetDetailDTO struct {

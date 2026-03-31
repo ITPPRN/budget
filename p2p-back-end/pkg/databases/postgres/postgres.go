@@ -53,12 +53,14 @@ func NewPostgresConnection(cfg *configs.Config, connType string) (*gorm.DB, erro
 			logs.Warn("Failed to backfill deleted flag for users: ", zap.Error(err))
 		}
 
-		// --- DIAGNOSTIC: Dump admin user status ---
-		var admins []map[string]interface{}
-		db.Table("user_entities").Where("username = ?", "admin").Find(&admins)
-		for _, a := range admins {
-			logs.Infof("[DIAGNOSTIC] Found admin in DB: ID=%v, Username=%v, Deleted=%v", a["id"], a["username"], a["deleted"])
+		// --- 🚀 FORCE REACTIVATE ADMIN (Don't remove until confirm) ---
+		if err := db.Table("user_entities").Where("username = ?", "admin").Update("deleted", false).Error; err != nil {
+			logs.Errorf("CRITICAL: Failed to reactivate admin user: %v", err)
+		} else {
+			logs.Info("✅ [STARTUP] Admin account has been force-reactivated.")
 		}
+
+
 
 		// 3. Seed GL Mappings (Unified)
 		if err := seeders.SeedGLGrouping(db); err != nil {

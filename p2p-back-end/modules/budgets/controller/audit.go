@@ -35,11 +35,17 @@ func (c *auditController) approve(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
 
+	// 🛡️ Prevent empty selection approval (especially for Owners)
+	ids, _ := req["selected_item_ids"].([]interface{})
+	if len(ids) == 0 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Please select at least one item to approve/report"})
+	}
+
 	if err := c.auditSrv.Approve(ctx.UserContext(), user, req); err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	return ctx.JSON(fiber.Map{"status": "success", "message": "Audit log approved"})
+	return ctx.JSON(fiber.Map{"status": "success", "message": "Selection approved and processed"})
 }
 
 func (c *auditController) report(ctx *fiber.Ctx) error {

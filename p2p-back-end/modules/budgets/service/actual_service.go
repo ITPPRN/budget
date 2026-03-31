@@ -40,7 +40,6 @@ func (s *actualService) SyncActuals(ctx context.Context, year string, months []s
 	}
 
 	mappingMap := make(map[string]models.GlGroupingEntity)
-	globalMappingMap := make(map[string]models.GlGroupingEntity) // Fallback for any company
 	glProfileMap := make(map[string]string)                      // ConsoGL -> Group1 (Profile)
 
 	for _, g := range groupings {
@@ -49,11 +48,6 @@ func (s *actualService) SyncActuals(ctx context.Context, year string, months []s
 			normEntity := NormalizeEntityCode(g.Entity)
 			key := fmt.Sprintf("%s_%s", normEntity, g.EntityGL)
 			mappingMap[key] = g
-
-			// Global mapping: Just GL (Pick the first active one found)
-			if _, exists := globalMappingMap[g.EntityGL]; !exists {
-				globalMappingMap[g.EntityGL] = g
-			}
 
 			// Store ConsoGL -> Profile (Group 1)
 			if g.ConsoGL != "" && g.Group1 != "" {
@@ -155,19 +149,14 @@ func (s *actualService) SyncActuals(ctx context.Context, year string, months []s
 			processRowsBatch := func(rows []models.ActualTransactionDTO) {
 				for _, row := range rows {
 					company := NormalizeEntityCode(row.Company)
-					// 1. Look up specific mapping (Company + GL)
+					// 1. Look up STRICT mapping (Company + GL) - NO GLOBAL FALLBACK
 					key := fmt.Sprintf("%s_%s", company, row.EntityGL)
 					mapping, ok := mappingMap[key]
 
-					// 2. If not found, look up global mapping (Any Company + GL)
-					if !ok {
-						mapping = globalMappingMap[row.EntityGL]
-					}
-
 					totalRows++
 
-					// NEW: Filter - Only sync if the GL is mapped (Exclude junk/unmapped GLs)
-					if mapping.ConsoGL == "" {
+					// FILTER: Only sync if the GL is specifically mapped for this company
+					if !ok || mapping.ConsoGL == "" {
 						filteredRows++
 						continue
 					}
@@ -199,7 +188,7 @@ func (s *actualService) SyncActuals(ctx context.Context, year string, months []s
 						EntityGL:    row.EntityGL,
 						ConsoGL:       mapping.ConsoGL,
 						Year:          year,
-						GLAccountName: row.GLAccountName,
+						GLAccountName: mapping.AccountName, // Use the name from mapping table as requested
 					})
 
 					// 2. Aggregate for Fact Table

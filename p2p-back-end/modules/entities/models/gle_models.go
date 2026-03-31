@@ -101,6 +101,7 @@ type ClikGleEntity struct {
 	SerialNo                  string          `gorm:"column:Serial_No"`
 	CustomerNo                string          `gorm:"column:Cutomer_No"`
 	SerialDescription         string          `gorm:"column:Serial_Description"`
+	Company                   string          `gorm:"column:company"`
 }
 
 func (ClikGleEntity) TableName() string { return "general_ledger_entries_clik" }

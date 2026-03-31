@@ -1,0 +1,35 @@
+package controller
+
+import (
+	"p2p-back-end/modules/entities/models"
+	"p2p-back-end/modules/exports/budget_detail_export_owner/service"
+	"github.com/gofiber/fiber/v2"
+)
+
+type ownerBudgetExportController struct {
+	srv service.OwnerBudgetExportService
+}
+
+func NewExportController(router fiber.Router, srv service.OwnerBudgetExportService) {
+	c := &ownerBudgetExportController{srv: srv}
+	router.Post("/export-budget-detail", c.exportOwnerBudgetDetail)
+}
+
+func (c *ownerBudgetExportController) exportOwnerBudgetDetail(ctx *fiber.Ctx) error {
+	var req map[string]interface{}
+	if err := ctx.BodyParser(&req); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
+	}
+
+	user := ctx.Locals("user").(*models.UserInfo)
+	data, filename, err := c.srv.ExportOwnerBudgetDetailExcel(ctx.UserContext(), user, req)
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	ctx.Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	ctx.Set("Content-Disposition", "attachment; filename="+filename)
+	ctx.Set("Access-Control-Expose-Headers", "Content-Disposition")
+
+	return ctx.Status(fiber.StatusOK).Send(data)
+}

@@ -53,10 +53,36 @@ func (s *auditService) Approve(ctx context.Context, user *models.UserInfo, paylo
 		return fmt.Errorf("no authorized departments found to approve")
 	}
 
-	entity, _ := payload["entity"].(string)
-	branch, _ := payload["branch"].(string)
 	year, _ := payload["year"].(string)
 	month, _ := payload["month"].(string)
+	entity, _ := payload["entity"].(string)
+	branch, _ := payload["branch"].(string)
+	selectedIDs, _ := payload["selected_item_ids"].([]interface{})
+
+	// Handle selective approval
+	if len(selectedIDs) > 0 {
+		var txIDs []uuid.UUID
+		for _, idStr := range selectedIDs {
+			id, err := uuid.Parse(fmt.Sprintf("%v", idStr))
+			if err == nil {
+				txIDs = append(txIDs, id)
+			}
+		}
+
+		// 1. Mark selected items as REPORTED (Ready for Admin/Accountant)
+		if err := s.auditRepo.UpdateTransactionsStatus(ctx, txIDs, models.TxStatusReported); err != nil {
+			return fmt.Errorf("failed to report selected items: %w", err)
+		}
+
+		// 2. Mark UN-SELECTED items in same scope as COMPLETE (Won't show in dashboard anymore)
+		// This achieves the "Complete" logic for everything else.
+		// We first find the scope (Dept/Month/Year) which we already have in 'targets'
+		for _, dept := range targets {
+			if err := s.auditRepo.MarkRestAsComplete(ctx, dept, year, month, txIDs); err != nil {
+				return fmt.Errorf("failed to auto-complete remaining items: %w", err)
+			}
+		}
+	}
 
 	for _, dept := range targets {
 		log := &models.AuditLogEntity{
@@ -151,6 +177,11 @@ func (s *auditService) Report(ctx context.Context, user *models.UserInfo, payloa
 
 		if err := s.auditRepo.SaveRejectedItems(ctx, rejectedItems); err != nil {
 			return fmt.Errorf("failed to save items for dept %s: %w", dept, err)
+		}
+
+		// 🛠️ Update Transaction Status to DRAFT (Basket Mode)
+		if err := s.auditRepo.UpdateTransactionsStatus(ctx, txIDs, models.TxStatusDraft); err != nil {
+			return fmt.Errorf("failed to mark items as draft: %w", err)
 		}
 	}
 

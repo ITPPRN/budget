@@ -230,7 +230,7 @@ const OwnerDetailContent = () => {
             capex_actual_file_id: syncConfig.selectedCapexActual,
         };
 
-        await downloadExcelFile('/export-budget-detail', payload, `Owner_Budget_Detail_Report_${actualYear}.xlsx`);
+        await downloadExcelFile('/owner/export-budget-detail', payload, `Owner_Budget_Detail_Report_${actualYear}.xlsx`);
     };
 
     const handleActualExport = async () => {
@@ -255,7 +255,7 @@ const OwnerDetailContent = () => {
             capex_actual_file_id: syncConfig.selectedCapexActual,
         };
 
-        await downloadExcelFile('/export-actual-detail', payload, `Owner_Actual_Detail_Report_${actualYear}.xlsx`);
+        await downloadExcelFile('/owner/export-actual-detail', payload, `Owner_Actual_Detail_Report_${actualYear}.xlsx`);
     };
 
     if (!user) {

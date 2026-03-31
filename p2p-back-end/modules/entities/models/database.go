@@ -366,8 +366,16 @@ type ActualTransactionEntity struct {
 	Year       string `gorm:"index" json:"year"`
 
 	// Status
-	IsValid bool `gorm:"default:true" json:"is_valid"`
+	IsValid bool   `gorm:"default:true" json:"is_valid"`
+	Status  string `gorm:"type:varchar(20);default:'PENDING';index" json:"status"`
 }
+
+const (
+	TxStatusPending  = "PENDING"
+	TxStatusDraft    = "DRAFT"
+	TxStatusReported = "REPORTED"
+	TxStatusComplete = "COMPLETE"
+)
 
 func (ActualTransactionEntity) TableName() string { return "actual_transaction_entities" }
 
