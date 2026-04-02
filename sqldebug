@@ -1,0 +1,61 @@
+SELECT DISTINCT 
+    s."G_L_Account_No", -- รหัสบัญชีจากระบบบัญชี
+    s."company",         -- รหัสบริษัท (เช่น 07)
+    s."G_L_Account_Name",-- ชื่อบัญชีจากต้นทาง
+    s."Document_No"      -- เลขที่เอกสาร
+FROM achhmw_gle_api s
+LEFT JOIN gl_grouping_entities m 
+    ON s."G_L_Account_No" = m.entity_gl 
+    AND s."company" = m.entity
+WHERE s."Document_No" = '07-APP2604-0001' -- เจาะจงบิลที่มีปัญหา
+  AND m.entity_gl IS NULL; -- กรองเฉพาะตัวที่ยังไม่มีในระบบ P2P
+
+
+  SELECT DISTINCT 
+    s."G_L_Account_No", 
+    s."company", 
+    s."G_L_Account_Name",
+    COUNT(s."Document_No") as transaction_count -- ดูว่าใช้บ่อยแค่ไหน
+FROM achhmw_gle_api s
+LEFT JOIN gl_grouping_entities m 
+    ON s."G_L_Account_No" = m.entity_gl 
+    AND s."company" = m.entity
+WHERE m.entity_gl IS NULL             -- 🎯 เอาเฉพาะที่ยังไม่ได้ Map
+  AND s."Posting_Date" >= '2026-01-01' -- 📅 เอาของปีนี้เท่านั้น
+GROUP BY s."G_L_Account_No", s."company", s."G_L_Account_Name"
+ORDER BY transaction_count DESC;      -- เรียงตามความฮอต ตัวไหนใช้เยอะให้รีบ Map ก่อน
+
+
+
+
+WITH combined_data AS (
+  
+    SELECT 
+        "company" AS comp, 
+        "G_L_Account_No" AS gl, 
+        "G_L_Account_Name" AS name
+    FROM achhmw_gle_api
+    WHERE "Posting_Date" >= '2026-01-01'
+
+    UNION ALL
+
+
+    SELECT 
+        "company" AS comp, 
+        "G_L_Account_No" AS gl, 
+        "G_L_Account_Name" AS name
+    FROM general_ledger_entries_clik
+    WHERE "Posting_Date" >= '2026-01-01'
+)
+SELECT DISTINCT 
+    c.comp, 
+    c.gl, 
+    c.name,
+    COUNT(*) AS total_tx
+FROM combined_data c
+LEFT JOIN gl_grouping_entities m 
+    ON c.gl = m.entity_gl 
+    AND c.comp = m.entity
+WHERE m.entity_gl IS NULL 
+GROUP BY c.comp, c.gl, c.name
+ORDER BY total_tx DESC;
