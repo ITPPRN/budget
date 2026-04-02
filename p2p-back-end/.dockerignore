@@ -1,0 +1,9 @@
+.env
+*.env
+.git
+.DS_Store
+main
+app/main
+gosec-report.json
+testResult/
+*.md

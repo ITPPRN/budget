@@ -9,7 +9,7 @@ export default defineConfig({
     proxy: {
       // เมื่อไหร่ที่ Frontend ยิงไปที่ /api
       "/v1": {
-        target: "https://dzv6zh3b-8000.asse.devtunnels.ms/", // 👉 ส่งต่อไปหา Go Backend ที่พอร์ต 8000
+        target: "http://localhost:8000", // Go Backend
         changeOrigin: true,
         secure: false,
       },

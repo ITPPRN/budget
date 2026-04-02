@@ -29,7 +29,7 @@ ORDER BY transaction_count DESC;      -- เรียงตามความฮ
 
 
 WITH combined_data AS (
-  
+ 
     SELECT 
         "company" AS comp, 
         "G_L_Account_No" AS gl, 
@@ -38,7 +38,6 @@ WITH combined_data AS (
     WHERE "Posting_Date" >= '2026-01-01'
 
     UNION ALL
-
 
     SELECT 
         "company" AS comp, 
@@ -50,12 +49,12 @@ WITH combined_data AS (
 SELECT DISTINCT 
     c.comp, 
     c.gl, 
-    c.name,
-    COUNT(*) AS total_tx
+    c.name
 FROM combined_data c
 LEFT JOIN gl_grouping_entities m 
     ON c.gl = m.entity_gl 
     AND c.comp = m.entity
 WHERE m.entity_gl IS NULL 
-GROUP BY c.comp, c.gl, c.name
-ORDER BY total_tx DESC;
+ORDER BY c.comp, c.gl;
+
+ดึงทุกตารางรวมกันรายการที่ข้าม
