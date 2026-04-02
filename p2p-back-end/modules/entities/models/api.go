@@ -7,7 +7,7 @@ type UserRegisReq struct {
 
 type RegisterKCReq struct {
 	Username     string   `json:"username" validate:"required" example:"test1"`
-	Password     string   `json:"password" validate:"required,min=6" example:"test1"`
+	Password     string   `json:"password" validate:"required,min=6" example:"test1"` // #nosec G117 -- login request DTO
 	Email        string   `json:"email" validate:"required,email" example:"test@example.com"`
 	FirstName    string   `json:"first_name" validate:"required" example:"test1"`
 	LastName     string   `json:"last_name" validate:"required" example:"test1"`
@@ -17,7 +17,7 @@ type RegisterKCReq struct {
 
 type LoginReq struct {
 	Username string `json:"username" validate:"required" example:"test1"`
-	Password string `json:"password" validate:"required" example:"test1"`
+	Password string `json:"password" validate:"required" example:"test1"` // #nosec G117 -- login request DTO
 }
 
 type ChangePasswordReq struct {

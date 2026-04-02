@@ -144,8 +144,8 @@ func (s *masterDataService) ImportGLGrouping(ctx context.Context, fileHeader *mu
 	if err != nil {
 		return fmt.Errorf("masterDataSrv.ImportGLGrouping: %w", err)
 	}
-	defer file.Close()
-
+	// defer file.Close()
+	defer func() { _ = file.Close() }()
 	ext := strings.ToLower(fileHeader.Filename[strings.LastIndex(fileHeader.Filename, ".")+1:])
 	if ext != "xlsx" {
 		return fmt.Errorf("masterDataSrv.ImportGLGrouping: only .xlsx files are supported")
@@ -155,7 +155,8 @@ func (s *masterDataService) ImportGLGrouping(ctx context.Context, fileHeader *mu
 	if err != nil {
 		return fmt.Errorf("masterDataSrv.ImportGLGrouping: failed to read excel file: %v", err)
 	}
-	defer f.Close()
+	// defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	sheets := f.GetSheetList()
 	if len(sheets) == 0 {
@@ -199,7 +200,7 @@ func (s *masterDataService) ImportGLGrouping(ctx context.Context, fileHeader *mu
 			existing.Group3 = g3
 			existing.ConsoGL = consoGL
 			existing.AccountName = accName
-			s.repo.UpdateGLGrouping(ctx, &existing)
+			_ =s.repo.UpdateGLGrouping(ctx, &existing)
 			updateCount++
 			continue
 		}
@@ -215,7 +216,7 @@ func (s *masterDataService) ImportGLGrouping(ctx context.Context, fileHeader *mu
 			Group3:      g3,
 			IsActive:    true,
 		}
-		s.repo.CreateGLGrouping(ctx, &newEntry)
+		_ =s.repo.CreateGLGrouping(ctx, &newEntry)
 		importCount++
 	}
 

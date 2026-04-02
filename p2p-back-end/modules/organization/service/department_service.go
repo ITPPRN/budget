@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+
 	"p2p-back-end/logs"
 	"p2p-back-end/modules/entities/models"
 	"p2p-back-end/modules/organization/repository"
@@ -28,12 +29,12 @@ func (s *departmentService) ManageDepartments(ctx context.Context) error {
 	}
 
 	// 2. Prepare Master Data & Mappings
-	type MappingRow struct {
-		Master string
-		ACG    []string
-		HMW    []string
-		CLIK   []string
-	}
+	// type MappingRow struct {
+	// 	Master string
+	// 	ACG    []string
+	// 	HMW    []string
+	// 	CLIK   []string
+	// }
 
 	// --- Unified Mapping from utils ---
 	mappingData := utils.DepartmentMappingData
@@ -139,7 +140,7 @@ func (s *departmentService) ManageDepartments(ctx context.Context) error {
 	if len(usersToFix) > 0 {
 		logs.Infof("Repair: Checking %d users for missing or broken department links...", len(usersToFix))
 		for _, u := range usersToFix {
-			fixed := false
+			// fixed := false
 			var targetDeptCode string
 
 			// 1. Try to get code from ACTIVE permissions
@@ -163,14 +164,14 @@ func (s *departmentService) ManageDepartments(ctx context.Context) error {
 				if dept, ok := granularMap[targetDeptCode]; ok {
 					logs.Infof("   -> Fixing user %s: Linking to Granular Dept [%s] (ID: %s)", u.Username, dept.Code, dept.ID)
 					s.repo.GetDB().Model(&u).Update("department_id", dept.ID)
-					fixed = true
+					// fixed = true
 				}
 			}
 
-			if !fixed {
-				// Comment out to reduce log spam as requested by user
-				// logs.Warnf("   -> Fix Failed: User %s (%s) has no valid granular department match for code '%s'.", u.Username, u.NameTh, targetDeptCode)
-			}
+			// if !fixed {
+			// 	// Comment out to reduce log spam as requested by user
+			// 	// logs.Warnf("   -> Fix Failed: User %s (%s) has no valid granular department match for code '%s'.", u.Username, u.NameTh, targetDeptCode)
+			// }
 		}
 	}
 
@@ -207,7 +208,7 @@ func (s *departmentService) GetMasterDepartment(ctx context.Context, navCode, en
 	}
 	// Ensure Department is loaded
 	if mapping.Department == nil {
-		return nil, errors.New("Mapping found but Department not loaded")
+		return nil, errors.New("mapping found but Department not loaded")
 	}
 	return mapping.Department, nil
 }

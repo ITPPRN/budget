@@ -255,7 +255,7 @@ func (s *auditService) checkOwnerPermission(ctx context.Context, userID, departm
 	
 	perms, err := s.userRepo.GetUserPermissions(ctx, userID)
 	if err != nil {
-		return fmt.Errorf("Failed to verify permissions: %w", err)
+		return fmt.Errorf("failed to verify permissions: %w", err)
 	}
 
 	for _, p := range perms {
@@ -263,5 +263,5 @@ func (s *auditService) checkOwnerPermission(ctx context.Context, userID, departm
 			return nil
 		}
 	}
-	return fmt.Errorf("Permission Denied: You are not the owner of department %s", department)
+	return fmt.Errorf("permission Denied: You are not the owner of department %s", department)
 }

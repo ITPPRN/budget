@@ -6,9 +6,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 
-	"github.com/shopspring/decimal"
 	"p2p-back-end/logs"
 	"p2p-back-end/modules/entities/models"
 )
@@ -382,7 +382,7 @@ func (r *dashboardRepository) GetDashboardAggregates(ctx context.Context, filter
 					if len(filteredStrs) > 0 {
 						tx = tx.Where("("+tableName+".department IN ? OR "+tableName+".department = '' OR "+tableName+".department IS NULL OR "+tableName+".department = 'None')", filteredStrs)
 					} else {
-						tx = tx.Where("("+tableName+".department = '' OR "+tableName+".department IS NULL OR "+tableName+".department = 'None')")
+						tx = tx.Where("(" + tableName + ".department = '' OR " + tableName + ".department IS NULL OR " + tableName + ".department = 'None')")
 					}
 				} else {
 					tx = tx.Where(tableName+".department IN ?", strs)
@@ -461,13 +461,13 @@ func (r *dashboardRepository) GetDashboardAggregates(ctx context.Context, filter
 		}
 
 		// Added: Restricted flag (Extra safety)
-		if val, ok := filter["is_restricted"].(bool); ok && val {
-			if _, hasDept := filter["departments"]; !hasDept {
-				// If restricted but no departments given, and not admin (handled in service),
-				// we should probably enforce a non-match.
-				// But service should handle this.
-			}
-		}
+		// if val, ok := filter["is_restricted"].(bool); ok && val {
+		// 	if _, hasDept := filter["departments"]; !hasDept {
+		// 		// If restricted but no departments given, and not admin (handled in service),
+		// 		// we should probably enforce a non-match.
+		// 		// But service should handle this.
+		// 	}
+		// }
 		return tx
 	}
 
@@ -501,7 +501,7 @@ func (r *dashboardRepository) GetDashboardAggregates(ctx context.Context, filter
 	}
 	var budgetDept []DeptResult
 	tx1 := r.db.Model(&models.BudgetFactEntity{}).
-		Select(selectCol+", SUM(ba.amount) as total").
+		Select(selectCol + ", SUM(ba.amount) as total").
 		Joins("JOIN budget_amount_entities ba ON ba.budget_fact_id = budget_fact_entities.id AND ba.deleted_at IS NULL")
 
 	tx1 = applyFilter(tx1, "budget_fact_entities")
@@ -513,7 +513,7 @@ func (r *dashboardRepository) GetDashboardAggregates(ctx context.Context, filter
 	// Actual - ALWAYS JOIN AMOUNT FOR PARITY
 	var actualDept []DeptResult
 	tx2 := r.db.Model(&models.ActualFactEntity{}).
-		Select(selectCol+", SUM(aa.amount) as total").
+		Select(selectCol + ", SUM(aa.amount) as total").
 		Joins("JOIN actual_amount_entities aa ON aa.actual_fact_id = actual_fact_entities.id AND aa.deleted_at IS NULL")
 
 	// If months filter is provided, it's already using join-summing, but we've unified it above.

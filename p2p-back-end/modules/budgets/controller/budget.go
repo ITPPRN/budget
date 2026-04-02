@@ -2,10 +2,12 @@ package controller
 
 import (
 	"fmt"
-	"p2p-back-end/modules/entities/models"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+
+	"p2p-back-end/logs"
+	"p2p-back-end/modules/entities/models"
 )
 
 type budgetController struct {
@@ -230,6 +232,7 @@ func (c *budgetController) syncActuals(ctx *fiber.Ctx) error {
 	var req SyncReq
 	if err := ctx.BodyParser(&req); err != nil {
 		// Default
+		logs.Error(err)
 	}
 	if req.Year == "" {
 		req.Year = fmt.Sprintf("%d", time.Now().Year())
@@ -527,5 +530,3 @@ func (c *budgetController) setUserConfig(ctx *fiber.Ctx) error {
 	}
 	return ctx.JSON(fiber.Map{"status": "success"})
 }
-
-

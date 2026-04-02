@@ -119,7 +119,10 @@ func LogHttp(c *fiber.Ctx) error {
 	duration := time.Since(start)
 
 	respStatus := c.Response().StatusCode()
-	duration = time.Since(start)
+	// duration = time.Since(start)
+
+	fmt.Printf("Execution took %v\n", duration)
+	
 
 	// 🔥 Capture Request Body for POST/PUT (Great for debugging Frontend mismatches)
 	reqBody := ""

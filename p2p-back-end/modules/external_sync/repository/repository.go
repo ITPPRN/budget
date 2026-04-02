@@ -17,7 +17,9 @@ type externalSyncRepository struct {
 func NewExternalSyncRepository(localDb *gorm.DB, dwDb *gorm.DB) models.ExternalSyncRepository {
 	// Robustness: Ensure local tables have correct schema/PK.
 	// We previously dropped these once to clear legacy ghost columns.
-	localDb.AutoMigrate(&models.AchHmwGleEntity{}, &models.ClikGleEntity{})
+	if err := localDb.AutoMigrate(&models.AchHmwGleEntity{}, &models.ClikGleEntity{}); err != nil {
+		fmt.Printf("[WARN] AutoMigrate failed: %v\n", err)
+	}
 
 	return &externalSyncRepository{
 		localDb: localDb,

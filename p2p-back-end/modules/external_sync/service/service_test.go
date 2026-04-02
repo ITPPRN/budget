@@ -258,7 +258,7 @@ func TestSyncFromDW_FetchHMW_CallsUpsertViaHandler(t *testing.T) {
 			repo.On("FetchHMWInBatches", mock.Anything, year, month, 2000, mock.AnythingOfType("func([]models.AchHmwGleEntity) error")).
 				Run(func(args mock.Arguments) {
 					handler := args.Get(4).(func([]models.AchHmwGleEntity) error)
-					handler(testData)
+					_ =handler(testData)
 				}).Return(nil)
 			repo.On("FetchCLIKInBatches", mock.Anything, year, month, 2000, mock.AnythingOfType("func([]models.ClikGleEntity) error")).Return(nil)
 		}
@@ -298,7 +298,7 @@ func TestSyncFromDW_FetchCLIK_CallsUpsertViaHandler(t *testing.T) {
 			repo.On("FetchCLIKInBatches", mock.Anything, year, month, 2000, mock.AnythingOfType("func([]models.ClikGleEntity) error")).
 				Run(func(args mock.Arguments) {
 					handler := args.Get(4).(func([]models.ClikGleEntity) error)
-					handler(testData)
+					_ =handler(testData)
 				}).Return(nil)
 		}
 		yearStr := fmt.Sprintf("%d", year)

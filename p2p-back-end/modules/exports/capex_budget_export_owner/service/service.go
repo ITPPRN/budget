@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+
 	"p2p-back-end/modules/entities/models"
 	"p2p-back-end/modules/exports/capex_budget_export_owner/repository"
 	"p2p-back-end/pkg/utils"
@@ -50,15 +51,15 @@ func (s *service) ExportOwnerCapexExcel(ctx context.Context, user *models.UserIn
 	// 4. Fill Data
 	rowIdx := 2
 	for _, row := range data {
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("A%d", rowIdx), row.Entity)
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("B%d", rowIdx), row.Department)
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("C%d", rowIdx), row.CapexNo)
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("D%d", rowIdx), row.CapexName)
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("E%d", rowIdx), row.CapexCategory)
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("F%d", rowIdx), row.Budget.InexactFloat64())
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("G%d", rowIdx), row.Actual.InexactFloat64())
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("H%d", rowIdx), row.Remaining.InexactFloat64())
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("I%d", rowIdx), row.Percentage)
+		_ = helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("A%d", rowIdx), row.Entity)
+		_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("B%d", rowIdx), row.Department)
+		_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("C%d", rowIdx), row.CapexNo)
+		_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("D%d", rowIdx), row.CapexName)
+		_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("E%d", rowIdx), row.CapexCategory)
+		_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("F%d", rowIdx), row.Budget.InexactFloat64())
+		_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("G%d", rowIdx), row.Actual.InexactFloat64())
+		_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("H%d", rowIdx), row.Remaining.InexactFloat64())
+		_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("I%d", rowIdx), row.Percentage)
 		rowIdx++
 	}
 

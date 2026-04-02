@@ -28,14 +28,13 @@ import (
 	"github.com/go-redis/redis/v8"
 	"github.com/gofiber/fiber/v2"
 	amqp "github.com/rabbitmq/amqp091-go"
+	"github.com/robfig/cron/v3"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
 	"p2p-back-end/configs"
 	"p2p-back-end/logs"
 	"p2p-back-end/pkg/utils"
-
-	"github.com/robfig/cron/v3"
 )
 
 type server struct {
@@ -101,7 +100,7 @@ func (s *server) Start() {
 	if err := s.Handlers(); err != nil {
 		logs.Fatal("Failed to setup handlers", zap.Error(err))
 	}
- 
+
 	// --- Phase 2: RabbitMQ Resilience ---
 	if s.MqChannel != nil {
 		s.startRabbitMQ()
@@ -146,14 +145,14 @@ func (s *server) startRabbitMQ() {
 
 			// 1. ตั้งค่า QoS
 			if err := ch.Qos(10, 0, false); err != nil {
-				ch.Close()
+				_ = ch.Close() // #nosec G104 -- best-effort cleanup before fatal/retry
 				logs.Fatal("Failed to set QoS", zap.Error(err))
 			}
 
 			// 2. Declare Queue และ Bind
 			q, err := ch.QueueDeclare("p2p_service_sync_queue", true, false, false, false, nil)
 			if err != nil {
-				ch.Close()
+				_ = ch.Close() // #nosec G104 -- best-effort cleanup before fatal/retry
 				logs.Error("Failed to declare queue", zap.Error(err))
 				time.Sleep(5 * time.Second)
 				continue
@@ -168,7 +167,7 @@ func (s *server) startRabbitMQ() {
 			}
 			for _, key := range keys {
 				if err := ch.QueueBind(q.Name, key, "authen_event_topic", false, nil); err != nil {
-					ch.Close()
+					_ = ch.Close() // #nosec G104 -- best-effort cleanup before fatal/retry
 					logs.Fatal(fmt.Sprintf("Failed to bind queue %s to key %s", q.Name, key), zap.Error(err))
 				}
 			}
@@ -176,7 +175,7 @@ func (s *server) startRabbitMQ() {
 			// 3. เริ่มฟังข้อความ
 			msgs, err := ch.Consume(q.Name, "", false, false, false, false, nil)
 			if err != nil {
-				ch.Close()
+				_ = ch.Close() // #nosec G104 -- best-effort cleanup before fatal/retry
 				logs.Error("Failed to start consuming", zap.Error(err))
 				time.Sleep(5 * time.Second)
 				continue
@@ -195,7 +194,8 @@ func (s *server) startRabbitMQ() {
 			// Block รอจนกว่า Channel จะล่ม
 			errClose := <-notifyClose
 			logs.Warn("❌ RabbitMQ Consumer Channel closed. Retrying...", zap.Error(errClose))
-			ch.Close()
+			// _ = ch.Close() // #nosec G104 -- best-effort cleanup before fatal/retry
+			s.reconnectChannel()
 		}
 	}()
 }

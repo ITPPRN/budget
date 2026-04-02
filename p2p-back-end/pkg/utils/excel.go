@@ -16,7 +16,7 @@ type ExcelHelper struct {
 func NewExcelHelper(sheetName string) *ExcelHelper {
 	f := excelize.NewFile()
 	// Rename default "Sheet1"
-	f.SetSheetName("Sheet1", sheetName)
+	_ = f.SetSheetName("Sheet1", sheetName)
 	return &ExcelHelper{
 		File:  f,
 		Sheet: sheetName,
@@ -37,8 +37,8 @@ func (h *ExcelHelper) SetHeaders(headers []string) error {
 	for i, name := range headers {
 		colName, _ := excelize.ColumnNumberToName(i + 1)
 		cell := fmt.Sprintf("%s1", colName)
-		h.File.SetCellValue(h.Sheet, cell, name)
-		h.File.SetCellStyle(h.Sheet, cell, cell, style)
+		_ = h.File.SetCellValue(h.Sheet, cell, name)
+		_ = h.File.SetCellStyle(h.Sheet, cell, cell, style)
 	}
 
 	return nil
@@ -48,7 +48,7 @@ func (h *ExcelHelper) SetHeaders(headers []string) error {
 func (h *ExcelHelper) AutoWidth(colCount int) {
 	for i := 1; i <= colCount; i++ {
 		colName, _ := excelize.ColumnNumberToName(i)
-		h.File.SetColWidth(h.Sheet, colName, colName, 15) // Default reasonable width
+		_ = h.File.SetColWidth(h.Sheet, colName, colName, 15) // Default reasonable width
 	}
 }
 

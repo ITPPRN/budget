@@ -11,7 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
-	"github.com/xuri/excelize/v2"
+	// "github.com/xuri/excelize/v2"
 	"gorm.io/datatypes"
 
 	"p2p-back-end/modules/entities/models"
@@ -363,25 +363,25 @@ func (s *capexService) ClearCapexActual(ctx context.Context) error {
 // ---------------------------------------------------------------------
 // Excel Parsing Helper
 // ---------------------------------------------------------------------
-func parseExcelToJSON(fileHeader *multipart.FileHeader) ([][]string, error) {
-	f, err := fileHeader.Open()
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
+// func parseExcelToJSON(fileHeader *multipart.FileHeader) ([][]string, error) {
+// 	f, err := fileHeader.Open()
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	// defer f.Close()
+// 	defer func() { _ = f.Close() }()
+// 	excelFile, err := excelize.OpenReader(f)
+// 	if err != nil {
+// 		return nil, err
+// 	}
 
-	excelFile, err := excelize.OpenReader(f)
-	if err != nil {
-		return nil, err
-	}
-
-	// Assuming first sheet
-	sheetName := excelFile.GetSheetName(0)
-	rows, err := excelFile.GetRows(sheetName)
-	if err != nil {
-		return nil, err
-	}
-	return rows, nil
-}
+// 	// Assuming first sheet
+// 	sheetName := excelFile.GetSheetName(0)
+// 	rows, err := excelFile.GetRows(sheetName)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	return rows, nil
+// }
 
 // Placeholder since strict types used above

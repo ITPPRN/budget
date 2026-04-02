@@ -341,12 +341,22 @@ func (h *authController) setUserPermissions(ctx *fiber.Ctx, user *models.UserInf
 		isTargetOwner := false
 		for _, r := range targetProfile.Roles {
 			upperR := strings.ToUpper(r)
-			if upperR == "ADMIN" {
+			// เปลี่ยนจาก if-else เป็น switch เพื่อความชัดเจน
+			switch upperR {
+			case "ADMIN":
 				isTargetAdmin = true
-			} else if upperR == "OWNER" {
+			case "OWNER":
 				isTargetOwner = true
 			}
 		}
+		// for _, r := range targetProfile.Roles {
+		// 	upperR := strings.ToUpper(r)
+		// 	if upperR == "ADMIN" {
+		// 		isTargetAdmin = true
+		// 	} else if upperR == "OWNER" {
+		// 		isTargetOwner = true
+		// 	}
+		// }
 
 		if actorIsOwner {
 			if isTargetAdmin || isTargetOwner {
