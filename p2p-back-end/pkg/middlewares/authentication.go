@@ -21,7 +21,7 @@ var (
 	keySet           jwk.Set // Global variable to cache the public keys
 	once             sync.Once
 	keycloakIssuer   string
-	keycloakClientID string
+	// keycloakClientID string
 
 	secretGateWay  string // Secret from API Gateway (e.g. APISIX)
 	internalSecret string // Secret for internal service-to-service calls
@@ -33,7 +33,7 @@ func InitKeycloakValidator(host string, port string, realm string, clientID stri
 		// Construct the necessary OIDC URLs
 		keycloakIssuer = fmt.Sprintf("http://%s:%s/realms/%s", host, port, realm)
 		jwksURL := fmt.Sprintf("%s/protocol/openid-connect/certs", keycloakIssuer)
-		keycloakClientID = clientID
+		// keycloakClientID = clientID
 
 		logs.Infof("Initializing Keycloak Validator, fetching keys from: %s", jwksURL)
 

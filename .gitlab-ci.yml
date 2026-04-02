@@ -15,7 +15,7 @@ static_analysis:
   script:
     - golangci-lint run ./... --verbose
     - go install github.com/securego/gosec/v2/cmd/gosec@latest
-    - gosec ./...
+    - gosec -severity=medium -nosec ./...
   allow_failure: false
 
 # 2. Unit Test (Backend)

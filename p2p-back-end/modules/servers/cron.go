@@ -145,7 +145,9 @@ func (s *server) StartCronJob() {
 			}
 		
 			// 3. Finalize Metadata
-			s.Shd.ActualService.RefreshDataInventory(ctx)
+			if err := s.Shd.ActualService.RefreshDataInventory(ctx); err != nil {
+				logs.Errorf("🚀 Startup Sync: RefreshDataInventory Failed: %v", err)
+			}
 			logs.Info("🚀 IMMEDIATE STARTUP SYNC: COMPLETED SUCCESSFULLY")
 		}()
 		// 🚀 --- END TEMPORARY BLOCK ---

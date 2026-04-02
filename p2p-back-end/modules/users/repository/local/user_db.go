@@ -44,7 +44,7 @@ func applyJoins(condition *gorm.DB, optional map[string]interface{}, fieldTableM
 	// 2. Join for Visibility
 	if !joined && optional["visibility_allowed_depts"] != nil {
 		condition = condition.Joins("LEFT JOIN departments ON departments.id = user_entities.department_id")
-		joined = true
+		// joined = true
 	}
 
 	return condition
@@ -112,10 +112,20 @@ func (r *userRepositoryDB) GetAll(optional map[string]interface{}, ctx context.C
 				searchStr, searchStr, searchStr, searchStr, searchStr, searchStr)
 			continue
 		}
+		// if field == "status" && value != nil && value != "ALL" {
+		// 	if value == "ACTIVE" {
+		// 		condition = condition.Where("(EXISTS (SELECT 1 FROM user_permission_entities WHERE user_permission_entities.user_id = user_entities.id AND user_permission_entities.is_active = true) OR COALESCE(user_entities.roles::text, '') ILIKE '%ADMIN%')")
+		// 	} else if value == "INACTIVE" {
+		// 		condition = condition.Where("(NOT EXISTS (SELECT 1 FROM user_permission_entities WHERE user_permission_entities.user_id = user_entities.id AND user_permission_entities.is_active = true) AND COALESCE(user_entities.roles::text, '') NOT ILIKE '%ADMIN%')")
+		// 	}
+		// 	continue
+		// }
 		if field == "status" && value != nil && value != "ALL" {
-			if value == "ACTIVE" {
+			// เปลี่ยนมาใช้ switch แทน if-else
+			switch value {
+			case "ACTIVE":
 				condition = condition.Where("(EXISTS (SELECT 1 FROM user_permission_entities WHERE user_permission_entities.user_id = user_entities.id AND user_permission_entities.is_active = true) OR COALESCE(user_entities.roles::text, '') ILIKE '%ADMIN%')")
-			} else if value == "INACTIVE" {
+			case "INACTIVE":
 				condition = condition.Where("(NOT EXISTS (SELECT 1 FROM user_permission_entities WHERE user_permission_entities.user_id = user_entities.id AND user_permission_entities.is_active = true) AND COALESCE(user_entities.roles::text, '') NOT ILIKE '%ADMIN%')")
 			}
 			continue

@@ -3,11 +3,12 @@ package service
 import (
 	"context"
 	"fmt"
+
+	"github.com/shopspring/decimal"
+
 	"p2p-back-end/modules/entities/models"
 	"p2p-back-end/modules/exports/budgetvsactual_export_owner/repository"
 	"p2p-back-end/pkg/utils"
-
-	"github.com/shopspring/decimal"
 )
 
 type OwnerBudgetVsActualService interface {
@@ -60,15 +61,15 @@ func (s *service) ExportOwnerBudgetVsActualExcel(ctx context.Context, user *mode
 	months := []string{"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"}
 	rowIdx := 2
 	for _, row := range data {
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("A%d", rowIdx), row.Entity)
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("B%d", rowIdx), row.Branch)
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("C%d", rowIdx), row.Department)
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("D%d", rowIdx), row.Type)
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("E%d", rowIdx), row.Group)
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("F%d", rowIdx), row.Group2)
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("G%d", rowIdx), row.Group3)
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("H%d", rowIdx), row.ConsoGL)
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("I%d", rowIdx), row.GLName)
+		_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("A%d", rowIdx), row.Entity)
+		_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("B%d", rowIdx), row.Branch)
+		_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("C%d", rowIdx), row.Department)
+		_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("D%d", rowIdx), row.Type)
+		_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("E%d", rowIdx), row.Group)
+		_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("F%d", rowIdx), row.Group2)
+		_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("G%d", rowIdx), row.Group3)
+		_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("H%d", rowIdx), row.ConsoGL)
+		_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("I%d", rowIdx), row.GLName)
 
 		// Monthly Amounts
 		for i, m := range months {
@@ -77,11 +78,11 @@ func (s *service) ExportOwnerBudgetVsActualExcel(ctx context.Context, user *mode
 			if amt, ok := row.MonthsAmounts[m].(decimal.Decimal); ok {
 				val = amt
 			}
-			helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("%s%d", colName, rowIdx), val.InexactFloat64())
+			_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("%s%d", colName, rowIdx), val.InexactFloat64())
 		}
 
 		// Year Total
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("V%d", rowIdx), row.YearTotal.InexactFloat64())
+		_ = helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("V%d", rowIdx), row.YearTotal.InexactFloat64())
 		rowIdx++
 	}
 

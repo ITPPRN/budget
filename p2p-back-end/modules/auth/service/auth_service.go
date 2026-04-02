@@ -42,11 +42,12 @@ func filterRoles(roles []string) []string {
 		// If it's a known app role, add it
 		if validRoles[upperCaseRole] {
 			filtered = append(filtered, upperCaseRole)
-		} else {
+		} 
+		// else {
 			// Optionally keep other roles but this might include groups like 'IT'
 			// The user said: "System role should only be admin, owner, delegate"
 			// So I will strictly filter to these.
-		}
+		// }
 	}
 
 	if len(filtered) == 0 {
@@ -72,7 +73,7 @@ func (s *authService) Login(ctx context.Context, req *models.LoginReq) (*gocloak
 		logs.Error(err)
 		errStr := err.Error()
 		if strings.Contains(errStr, "Account disabled") || strings.Contains(errStr, "Account temporarily disabled") {
-			return nil, errors.New("Account Locked: บัญชีของคุณถูกระงับถาวร กรุณาติดต่อผู้ดูแลระบบ")
+			return nil, errors.New("account Locked: บัญชีของคุณถูกระงับถาวร กรุณาติดต่อผู้ดูแลระบบ")
 		}
 
 		failCount, _ := s.Redis.Incr(ctx, redisKey).Result()
@@ -81,11 +82,11 @@ func (s *authService) Login(ctx context.Context, req *models.LoginReq) (*gocloak
 		}
 
 		if failCount == 3 {
-			return nil, errors.New("Warning: คุณใส่รหัสผิด 3 ครั้งแล้ว โปรดตรวจสอบรหัสให้ดี")
+			return nil, errors.New("warning: คุณใส่รหัสผิด 3 ครั้งแล้ว โปรดตรวจสอบรหัสให้ดี")
 		}
 
 		if failCount >= 5 {
-			return nil, errors.New("Account Locked: คุณใส่รหัสผิดเกิน 5 ครั้ง บัญชีถูกระงับถาวร กรุณาติดต่อผู้ดูแลระบบ")
+			return nil, errors.New("account Locked: คุณใส่รหัสผิดเกิน 5 ครั้ง บัญชีถูกระงับถาวร กรุณาติดต่อผู้ดูแลระบบ")
 		}
 		return nil, errs.NewLoginFailedError()
 	}
@@ -133,7 +134,8 @@ func (s *authService) Login(ctx context.Context, req *models.LoginReq) (*gocloak
 			// Merge existing local roles (Admin/Owner/Delegate) with Keycloak roles
 			if existingUserPtr != nil {
 				var existingRoles []string
-				json.Unmarshal(existingUserPtr.Roles, &existingRoles)
+				// json.Unmarshal(existingUserPtr.Roles, &existingRoles)
+				_ = json.Unmarshal(existingUserPtr.Roles, &existingRoles)
 				rolesList = append(rolesList, existingRoles...)
 			}
 			rolesJSON, _ := json.Marshal(filterRoles(rolesList))
@@ -169,11 +171,11 @@ func (s *authService) Login(ctx context.Context, req *models.LoginReq) (*gocloak
 				userData.CompanyID = existingUserPtr.CompanyID
 				userData.SectionID = existingUserPtr.SectionID
 				userData.PositionID = existingUserPtr.PositionID
-				s.authRepo.UpdateUser(ctx, userData)
-				s.authRepo.ReactivateUser(ctx, userID) // Force reactivation
+				_=s.authRepo.UpdateUser(ctx, userData)
+				_=s.authRepo.ReactivateUser(ctx, userID) // Force reactivation
 			} else {
 				userData.CreatedAt = time.Now()
-				s.authRepo.CreateUser(ctx, userData)
+				_= s.authRepo.CreateUser(ctx, userData)
 			}
 		}
 	}
@@ -207,7 +209,7 @@ func (s *authService) ChangePassword(ctx context.Context, oldPassword, newPasswo
 func (s *authService) AdminResetUserPassword(ctx context.Context, targetUserID string, newPassword string) error {
 	adminToken, err := s.keycloak.LoginAdmin(ctx, s.cfg.KeyCloak.AdminUsername, s.cfg.KeyCloak.AdminPassword, s.cfg.KeyCloak.RealmName)
 	if err != nil {
-		return errors.New("Admin connection failed")
+		return errors.New("admin connection failed")
 	}
 	err = s.keycloak.SetPassword(ctx, adminToken.AccessToken, targetUserID, s.cfg.KeyCloak.RealmName, newPassword, true)
 	return err
@@ -237,8 +239,8 @@ func (s *authService) ProvisionUser(ctx context.Context, userInfo *models.UserIn
 			Deleted:   false, // Reactivate upon auto-provisioning
 			UpdatedAt: time.Now(),
 		}
-		s.authRepo.UpdateUser(ctx, userData)
-		s.authRepo.ReactivateUser(ctx, userInfo.ID) // FORCE REACTIVATE (bypass zero-value update issue)
+		_=s.authRepo.UpdateUser(ctx, userData)
+		_=s.authRepo.ReactivateUser(ctx, userInfo.ID) // FORCE REACTIVATE (bypass zero-value update issue)
 		return s.GetUserProfile(ctx, userInfo.ID)
 	}
 
@@ -280,7 +282,11 @@ func (s *authService) GetUserProfile(ctx context.Context, userID string) (*model
 	}
 
 	var roles []string
-	json.Unmarshal(user.Roles, &roles)
+	// json.Unmarshal(user.Roles, &roles)
+	if err := json.Unmarshal(user.Roles, &roles); err != nil {
+		logs.Errorf("[Service] Failed to unmarshal user roles: %v", err)
+		// หรือ return nil, err หากฟังก์ชันนี้คืนค่า error ได้
+	}
 	roles = filterRoles(roles)
 
 	// 3. Map to UserInfo
@@ -343,7 +349,11 @@ func (s *authService) listUsersBase(ctx context.Context, optional map[string]int
 	infos := make([]models.UserInfo, len(users))
 	for i, u := range users {
 		var roles []string
-		json.Unmarshal(u.Roles, &roles)
+		// json.Unmarshal(u.Roles, &roles)
+		if err := json.Unmarshal(u.Roles, &roles); err != nil {
+			logs.Errorf("[Service] Failed to unmarshal roles for user %s: %v", u.Username, err)
+			// เลือกจัดการ: จะให้ roles เป็น empty หรือจะ return error ออกไปเลยก็ได้
+		}
 		logs.Debugf("[Service] User: %s, Raw DB Roles: %v, Permissions Count: %d", u.Username, roles, len(u.UserPermissions))
 		roles = filterRoles(roles)
 

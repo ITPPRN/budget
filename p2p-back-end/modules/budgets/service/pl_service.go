@@ -27,7 +27,7 @@ func NewPLBudgetService(repo models.PLBudgetRepository, depSrv models.Department
 
 func (s *plBudgetService) ImportBudget(ctx context.Context, fileHeader *multipart.FileHeader, userID string, versionName string) error {
 	expectedHeaders := []string{"Entity", "Branch", "Entity GL", "Conso GL", "GROUP1", "GL Name", "Department", "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC", "YEARTOTAL"}
-	
+
 	rows, err := excel.ParseExcelToJSONStrict(fileHeader, expectedHeaders)
 	if err != nil {
 		return fmt.Errorf("plService.ImportBudget: %w", err)
@@ -130,7 +130,7 @@ func (s *plBudgetService) processBudgetFact(ctx context.Context, rows [][]string
 
 	// Since we strictly validated against expectedHeaders before insert, we know exactly what columns exist
 	// We'll dynamically find their precise index in case the user shuffled the order (e.g., put JAN before Entity)
-	
+
 	colMap := make(map[string]int)
 	for i, h := range headerRow {
 		cleanHeader := strings.TrimSpace(strings.ToUpper(h))
@@ -148,7 +148,7 @@ func (s *plBudgetService) processBudgetFact(ctx context.Context, rows [][]string
 
 	var headers []models.BudgetFactEntity
 	months := []string{"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"}
-	
+
 	// Create map for month indexes
 	monthIdxs := make([]int, 12)
 	for m := 0; m < 12; m++ {
@@ -178,8 +178,10 @@ func (s *plBudgetService) processBudgetFact(ctx context.Context, rows [][]string
 		deptLookup := normalize(rawDept)
 
 		// Apply Department Mapping
-		dept := rawDept // Default to original
+		// dept := rawDept // Default to original
+		// originalDept := rawDept
 		originalDept := rawDept
+		var dept string
 
 		if master, err := s.depSrv.GetMasterDepartment(ctx, deptLookup, entity); err == nil && master != nil {
 			dept = master.Code

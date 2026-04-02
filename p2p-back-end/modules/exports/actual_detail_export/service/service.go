@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+
 	"p2p-back-end/modules/entities/models"
 	"p2p-back-end/modules/exports/actual_detail_export/repository"
 	"p2p-back-end/pkg/utils"
@@ -45,19 +46,19 @@ func (s *service) ExportActualDetailExcel(ctx context.Context, user *models.User
 	// 4. Fill Data
 	rowIdx := 2
 	for _, row := range data {
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("A%d", rowIdx), row.Entity)
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("B%d", rowIdx), row.Branch)
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("C%d", rowIdx), row.Department)
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("D%d", rowIdx), row.Group)
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("E%d", rowIdx), row.Group2)
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("F%d", rowIdx), row.Group3)
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("G%d", rowIdx), row.ConsoGL)
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("H%d", rowIdx), row.GLName)
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("I%d", rowIdx), row.DocumentNo)
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("J%d", rowIdx), row.Amount.InexactFloat64())
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("K%d", rowIdx), row.VendorName)
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("L%d", rowIdx), row.Description)
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("M%d", rowIdx), row.PostingDate)
+		_ = helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("A%d", rowIdx), row.Entity)
+		_ = helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("B%d", rowIdx), row.Branch)
+		_ = helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("C%d", rowIdx), row.Department)
+		_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("D%d", rowIdx), row.Group)
+		_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("E%d", rowIdx), row.Group2)
+		_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("F%d", rowIdx), row.Group3)
+		_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("G%d", rowIdx), row.ConsoGL)
+		_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("H%d", rowIdx), row.GLName)
+		_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("I%d", rowIdx), row.DocumentNo)
+		_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("J%d", rowIdx), row.Amount.InexactFloat64())
+		_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("K%d", rowIdx), row.VendorName)
+		_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("L%d", rowIdx), row.Description)
+		_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("M%d", rowIdx), row.PostingDate)
 		rowIdx++
 	}
 

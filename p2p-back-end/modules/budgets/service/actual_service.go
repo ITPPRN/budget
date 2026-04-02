@@ -273,8 +273,8 @@ func (s *actualService) SyncActuals(ctx context.Context, year string, months []s
 			// 	}
 			// 	transactions = nil // Help GC
 			// }
-			hmwRows = nil
-			clikRows = nil
+			// hmwRows = nil
+			// clikRows = nil
 		}
 
 		// 5. Save Aggregated Facts (Re-build Headers)
