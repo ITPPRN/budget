@@ -3,7 +3,7 @@ services:
     build:
       context: ./p2p-back-end
       dockerfile: Dockerfile
-    container_name: p2p_backend
+    container_name: bud_backend
     restart: unless-stopped
     environment:
       - INFISICAL_PROJECT_ID=${INFISICAL_PROJECT_ID}
@@ -11,7 +11,7 @@ services:
       - INFISICAL_CLIENT_SECRET=${INFISICAL_CLIENT_SECRET}
       - INFISICAL_URL=${INFISICAL_URL}
     ports:
-      - "8000:8000"
+      - "18000:8000"
     networks:
       - app_network
 
@@ -22,7 +22,7 @@ services:
     container_name: p2p_frontend
     restart: unless-stopped
     ports:
-      - "80:80"
+      - "1301:80"
     depends_on:
       - go_backend
     networks:
