@@ -1,0 +1,33 @@
+services:
+  go_backend:
+    build:
+      context: ./p2p-back-end
+      dockerfile: Dockerfile
+    container_name: p2p_backend
+    restart: unless-stopped
+    environment:
+      - INFISICAL_PROJECT_ID=${INFISICAL_PROJECT_ID}
+      - INFISICAL_CLIENT_ID=${INFISICAL_CLIENT_ID}
+      - INFISICAL_CLIENT_SECRET=${INFISICAL_CLIENT_SECRET}
+      - INFISICAL_URL=${INFISICAL_URL}
+    ports:
+      - "8000:8000"
+    networks:
+      - app_network
+
+  frontend:
+    build:
+      context: ./p2p-front-end
+      dockerfile: Dockerfile
+    container_name: p2p_frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - go_backend
+    networks:
+      - app_network
+
+networks:
+  app_network:
+    driver: bridge

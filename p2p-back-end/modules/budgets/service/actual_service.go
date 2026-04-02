@@ -153,11 +153,21 @@ func (s *actualService) SyncActuals(ctx context.Context, year string, months []s
 					key := fmt.Sprintf("%s_%s", company, row.EntityGL)
 					mapping, ok := mappingMap[key]
 
+					if row.DocNo == "07-APP2604-0001" || row.DocNo == "PVL2603-0040" {
+						fmt.Printf("[DEBUG-SYNC] Checking Doc: %s | Key: %s | FoundInMap: %v\n", row.DocNo, key, ok)
+						if ok {
+							fmt.Printf("[DEBUG-SYNC] ConsoGL: '%s' | MappedName: '%s'\n", mapping.ConsoGL, mapping.AccountName)
+						}
+					}
+
 					totalRows++
 
 					// FILTER: Only sync if the GL is specifically mapped for this company
 					if !ok || mapping.ConsoGL == "" {
 						filteredRows++
+						if row.DocNo == "07-APP2604-0001" || row.DocNo == "PVL2603-0040" {
+							fmt.Printf("[DEBUG-SYNC] ❌ REJECTED: Reason = No GL Mapping or ConsoGL is empty\n")
+						}
 						continue
 					}
 
@@ -171,6 +181,12 @@ func (s *actualService) SyncActuals(ctx context.Context, year string, months []s
 					lookupDept := normalize(row.Department)
 					if masterDept, err := s.depSrv.GetMasterDepartment(ctx, lookupDept, company); err == nil && masterDept != nil {
 						deptCode = masterDept.Code
+					}else {
+						// --- DEBUG BLOCK 2 ---
+						if row.DocNo == "07-APP2604-0001" || row.DocNo == "PVL2603-0040" {
+							fmt.Printf("[DEBUG-SYNC] ⚠️ DEPT NOT FOUND: NavCode '%s' not matched in P2P Master. Using original: '%s'\n", lookupDept, deptCode)
+						}
+						// ---------------------
 					}
 
 					// 1. Transaction Table (Centralized Detail)
@@ -202,6 +218,9 @@ func (s *actualService) SyncActuals(ctx context.Context, year string, months []s
 						for _, p := range parts {
 							if len(p) == 2 && p != "20" && p != "26" { // Heuristic: Month is a 2-digit part excluding common years
 								monCode = p
+								if row.DocNo == "07-APP2604-0001" || row.DocNo == "PVL2603-0040" {
+									fmt.Printf("[DEBUG-SYNC] 📅 MONTH EXTRACTED: RawDate '%s' -> Detected Part '%s' -> Final Month: %s\n", row.PostingDate, p, monthToCodeMap[p])
+								}
 								break
 							}
 						}
@@ -235,11 +254,25 @@ func (s *actualService) SyncActuals(ctx context.Context, year string, months []s
 
 			// 3. Save Transactions IMMEDIATELY to free memory
 			if len(transactions) > 0 {
-				if err := trxRepo.CreateActualTransactions(ctx, transactions); err != nil {
-					return fmt.Errorf("transaction.CreateTransactions(%s): %w", mName, err)
+				const chunkSize = 500 // 🍰 แบ่งส่งทีละ 500 รายการ
+				for i := 0; i < len(transactions); i += chunkSize {
+					end := i + chunkSize
+					if end > len(transactions) {
+						end = len(transactions)
+					}
+					// ส่งทีละก้อนเล็กๆ แทนก้อนใหญ่ก้อนเดียว
+					if err := trxRepo.CreateActualTransactions(ctx, transactions[i:end]); err != nil {
+						return fmt.Errorf("transaction.CreateTransactionsChunk: %w", err)
+					}
 				}
-				transactions = nil // Help GC
+				transactions = nil 
 			}
+			// if len(transactions) > 0 {
+			// 	if err := trxRepo.CreateActualTransactions(ctx, transactions); err != nil {
+			// 		return fmt.Errorf("transaction.CreateTransactions(%s): %w", mName, err)
+			// 	}
+			// 	transactions = nil // Help GC
+			// }
 			hmwRows = nil
 			clikRows = nil
 		}

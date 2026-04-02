@@ -59,51 +59,54 @@ func (s *auditService) Approve(ctx context.Context, user *models.UserInfo, paylo
 	branch, _ := payload["branch"].(string)
 	rejectedIDs, _ := payload["rejected_item_ids"].([]interface{})
 
-	// Handle Composite Approval: 
-	// 1. Items in "Reject Basket" -> Status = REPORTED (Send to Admin)
-	// 2. All other items in scope -> Status = COMPLETE (Closed/Finished)
-	
-	var rejectedTxIDs []uuid.UUID
-	if len(rejectedIDs) > 0 {
-		for _, idStr := range rejectedIDs {
-			id, err := uuid.Parse(fmt.Sprintf("%v", idStr))
-			if err == nil {
-				rejectedTxIDs = append(rejectedTxIDs, id)
+	// Wrap all DB writes in a single transaction
+	return s.auditRepo.WithTrx(func(trxRepo models.AuditRepository) error {
+		// Handle Composite Approval:
+		// 1. Items in "Reject Basket" -> Status = REPORTED (Send to Admin)
+		// 2. All other items in scope -> Status = COMPLETE (Closed/Finished)
+
+		var rejectedTxIDs []uuid.UUID
+		if len(rejectedIDs) > 0 {
+			for _, idStr := range rejectedIDs {
+				id, err := uuid.Parse(fmt.Sprintf("%v", idStr))
+				if err == nil {
+					rejectedTxIDs = append(rejectedTxIDs, id)
+				}
+			}
+
+			// Mark items in "Reject Basket" as REPORTED
+			if err := trxRepo.UpdateTransactionsStatus(ctx, rejectedTxIDs, models.TxStatusReported); err != nil {
+				return fmt.Errorf("failed to report basket items: %w", err)
 			}
 		}
 
-		// Mark items in "Reject Basket" as REPORTED
-		if err := s.auditRepo.UpdateTransactionsStatus(ctx, rejectedTxIDs, models.TxStatusReported); err != nil {
-			return fmt.Errorf("failed to report basket items: %w", err)
-		}
-	}
-
-	// 🛠️ Auto-Complete: Mark UN-SELECTED (Non-Basket) items in same scope as COMPLETE
-	for _, dept := range targets {
-		if err := s.auditRepo.MarkRestAsComplete(ctx, dept, year, month, rejectedTxIDs); err != nil {
-			return fmt.Errorf("failed to auto-complete remaining items: %w", err)
-		}
-	}
-
-	for _, dept := range targets {
-		log := &models.AuditLogEntity{
-			ID:            uuid.New(),
-			Entity:        entity,
-			Branch:        branch,
-			Department:    dept,
-			Year:          year,
-			Month:         month,
-			Status:        "CONFIRMED",
-			RejectedCount: len(rejectedIDs), // Store how many were actually rejected in this basket
-			CreatedBy:     user.Name,
+		// Auto-Complete: Mark UN-SELECTED (Non-Basket) items in same scope as COMPLETE
+		for _, dept := range targets {
+			if err := trxRepo.MarkRestAsComplete(ctx, dept, year, month, rejectedTxIDs); err != nil {
+				return fmt.Errorf("failed to auto-complete remaining items: %w", err)
+			}
 		}
 
-		if err := s.auditRepo.SaveAuditLog(ctx, log); err != nil {
-			return fmt.Errorf("failed to save approval log for dept %s: %w", dept, err)
-		}
-	}
+		for _, dept := range targets {
+			log := &models.AuditLogEntity{
+				ID:            uuid.New(),
+				Entity:        entity,
+				Branch:        branch,
+				Department:    dept,
+				Year:          year,
+				Month:         month,
+				Status:        "CONFIRMED",
+				RejectedCount: len(rejectedIDs),
+				CreatedBy:     user.Name,
+			}
 
-	return nil
+			if err := trxRepo.SaveAuditLog(ctx, log); err != nil {
+				return fmt.Errorf("failed to save approval log for dept %s: %w", dept, err)
+			}
+		}
+
+		return nil
+	})
 }
 
 func (s *auditService) Report(ctx context.Context, user *models.UserInfo, payload map[string]interface{}) error {
@@ -161,7 +164,9 @@ func (s *auditService) Report(ctx context.Context, user *models.UserInfo, payloa
 		}
 
 		var rejectedItems []models.AuditLogRejectedItemEntity
+		var deptTxIDs []uuid.UUID
 		for _, tx := range items {
+			deptTxIDs = append(deptTxIDs, tx.ID)
 			rejectedItems = append(rejectedItems, models.AuditLogRejectedItemEntity{
 				ID:            uuid.New(),
 				AuditLogID:    logID,
@@ -180,9 +185,9 @@ func (s *auditService) Report(ctx context.Context, user *models.UserInfo, payloa
 			return fmt.Errorf("failed to save items for dept %s: %w", dept, err)
 		}
 
-		// 🛠️ Update Transaction Status to DRAFT (Basket Mode)
-		if err := s.auditRepo.UpdateTransactionsStatus(ctx, txIDs, models.TxStatusDraft); err != nil {
-			return fmt.Errorf("failed to mark items as draft: %w", err)
+		// Update only this department's transaction IDs to REPORTED
+		if err := s.auditRepo.UpdateTransactionsStatus(ctx, deptTxIDs, models.TxStatusReported); err != nil {
+			return fmt.Errorf("failed to mark items as reported for dept %s: %w", dept, err)
 		}
 	}
 

@@ -69,10 +69,13 @@ func (s *plBudgetService) SyncBudget(ctx context.Context, fileID string) error {
 		}
 
 		// Process & Insert
-		parsedUUID, _ := uuid.Parse(fileID)
+		parsedUUID, err := uuid.Parse(fileID)
+		if err != nil {
+			return fmt.Errorf("transaction.InvalidFileID: %w", err)
+		}
 		year := extractYear(fileEntity.FileName)
 		if year == "" {
-			year = "2026" // Fallback to current fiscal year
+			year = fmt.Sprintf("%d", time.Now().Year())
 		}
 		fmt.Printf("[DEBUG] SyncBudget: Processing facts for Year %s...\n", year)
 		headers, err := s.processBudgetFact(ctx, rows, parsedUUID, year)
