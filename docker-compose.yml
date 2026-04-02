@@ -22,7 +22,7 @@ services:
     container_name: p2p_frontend
     restart: unless-stopped
     ports:
-      - "1301:80"
+      - "13001:80"
     depends_on:
       - go_backend
     networks:
