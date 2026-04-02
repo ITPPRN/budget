@@ -1,6 +1,8 @@
 package postgres
 
 import (
+	"time"
+
 	"go.uber.org/zap"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -35,6 +37,17 @@ func NewPostgresConnection(cfg *configs.Config, connType string) (*gorm.DB, erro
 		logs.Error("Failed to connect to database: ", zap.Error(err))
 		return nil, err
 	}
+
+	// Connection pool settings เพื่อป้องกัน "driver: bad connection"
+	sqlDB, err := db.DB()
+	if err != nil {
+		logs.Error("Failed to get underlying sql.DB: ", zap.Error(err))
+		return nil, err
+	}
+	sqlDB.SetMaxIdleConns(10)
+	sqlDB.SetMaxOpenConns(50)
+	sqlDB.SetConnMaxLifetime(30 * time.Minute)
+	sqlDB.SetConnMaxIdleTime(5 * time.Minute)
 
 	// 1. สร้าง Extension
 	db.Exec("CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\";")

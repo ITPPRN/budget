@@ -306,6 +306,7 @@ type OwnerService interface {
 
 // 7. Audit Log Domain
 type AuditRepository interface {
+	WithTrx(trxHandle func(repo AuditRepository) error) error
 	SaveAuditLog(ctx context.Context, log *AuditLogEntity) error
 	SaveRejectedItems(ctx context.Context, items []AuditLogRejectedItemEntity) error
 	GetAuditLogs(ctx context.Context, filter map[string]interface{}) ([]AuditLogEntity, error)

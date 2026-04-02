@@ -27,9 +27,9 @@ func (s *externalSyncService) SyncFromDW(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 360*time.Minute)
 	defer cancel()
 
-	startYear := 2026
 	now := time.Now()
 	currentYear := now.Year()
+	startYear := currentYear - 1
 	currentMonth := int(now.Month())
 
 	batchSize := 2000

@@ -18,6 +18,13 @@ func NewAuditRepository(db *gorm.DB) models.AuditRepository {
 	return &auditRepository{db: db}
 }
 
+func (r *auditRepository) WithTrx(trxHandle func(repo models.AuditRepository) error) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		repo := NewAuditRepository(tx)
+		return trxHandle(repo)
+	})
+}
+
 func (r *auditRepository) SaveAuditLog(ctx context.Context, log *models.AuditLogEntity) error {
 	if err := r.db.WithContext(ctx).Create(log).Error; err != nil {
 		return fmt.Errorf("auditRepo.SaveAuditLog: %w", err)

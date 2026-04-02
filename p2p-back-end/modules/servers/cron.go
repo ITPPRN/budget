@@ -15,19 +15,22 @@ func (s *server) StartCronJob() {
 	// 1. Job: Tier 1 - Fast Sync (Every 5 mins)
 	// Sync only the current month of the current year for real-time reactivity.
 	if _, err := s.Cron.AddFunc("0/5 * * * *", func() {
+		// TryLock: ถ้ามี sync ใหญ่กำลังรันอยู่ ให้ skip รอบนี้ไป ไม่ต้องรอ queue
+		if !s.SyncMutex.TryLock() {
+			logs.Info("⏰ Tier 1 Job: Skipped (another sync is running)")
+			return
+		}
+		defer s.SyncMutex.Unlock()
+
 		now := time.Now()
 		yearStr := now.Format("2006")
 		monCode := now.Format("01")
 
-		// Month map for name conversion
 		monthMap := map[string]string{
 			"01": "JAN", "02": "FEB", "03": "MAR", "04": "APR", "05": "MAY", "06": "JUN",
 			"07": "JUL", "08": "AUG", "09": "SEP", "10": "OCT", "11": "NOV", "12": "DEC",
 		}
 		mName := monthMap[monCode]
-
-		s.SyncMutex.Lock()
-		defer s.SyncMutex.Unlock()
 
 		logs.Infof("⏰ Tier 1 Job: Fast-Sync Current Month (%s %s) Started", mName, yearStr)
 		if err := s.Shd.ActualService.SyncActuals(context.Background(), yearStr, []string{mName}); err != nil {
@@ -46,8 +49,8 @@ func (s *server) StartCronJob() {
 
 		logs.Info("⏰ Tier 2 Job: Full Maintenance Sync Started")
 
-		startYear := 2026
 		currentYear := time.Now().Year()
+		startYear := currentYear - 1
 
 		for year := startYear; year <= currentYear; year++ {
 			yearStr := fmt.Sprintf("%d", year)
@@ -117,28 +120,30 @@ func (s *server) StartCronJob() {
 		}
 
 		// 🚀 --- TEMPORARY: IMMEDIATE STARTUP SYNC (FOR TESTING) ---
+		// TODO: Remove this block before production deployment.
 		// This will run ONCE right now! Delete this block after testing is done.
 		go func() {
 			s.SyncMutex.Lock()
 			defer s.SyncMutex.Unlock()
-
+		
 			ctx := context.Background()
 			logs.Info("🚀 IMMEDIATE STARTUP SYNC: STARTING NOW (DW -> MAPPING)...")
-
+		
 			// 1. Sync from Data Warehouse (Raw CLIK/ACHHMW data)
-			if err := s.Shd.ExternalSyncService.SyncFromDW(ctx); err != nil {
-				logs.Errorf("🚀 Startup Sync: DW Failed: %v", err)
-			}
-
-			// 2. Refresh Mapping & Facts (For 2025 - 2026)
-			years := []string{"2025", "2026"}
-			for _, y := range years {
-				logs.Infof("🚀 Startup Sync: Mapping Year %s...", y)
-				if err := s.Shd.ActualService.SyncActuals(ctx, y, []string{}); err != nil {
-					logs.Errorf("🚀 Startup Sync: Mapping %s Failed: %v", y, err)
+			// if err := s.Shd.ExternalSyncService.SyncFromDW(ctx); err != nil {
+			// 	logs.Errorf("🚀 Startup Sync: DW Failed: %v", err)
+			// }
+		
+			// 2. Refresh Mapping & Facts
+			now := time.Now()
+			for y := now.Year() ; y <= now.Year(); y++ {
+				yStr := fmt.Sprintf("%d", y)
+				logs.Infof("🚀 Startup Sync: Mapping Year %s...", yStr)
+				if err := s.Shd.ActualService.SyncActuals(ctx, yStr, []string{}); err != nil {
+					logs.Errorf("🚀 Startup Sync: Mapping %s Failed: %v", yStr, err)
 				}
 			}
-
+		
 			// 3. Finalize Metadata
 			s.Shd.ActualService.RefreshDataInventory(ctx)
 			logs.Info("🚀 IMMEDIATE STARTUP SYNC: COMPLETED SUCCESSFULLY")
