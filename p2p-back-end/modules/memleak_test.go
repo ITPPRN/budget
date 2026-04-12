@@ -18,7 +18,6 @@ import (
 	"p2p-back-end/logs"
 	"p2p-back-end/modules/entities/events"
 	"p2p-back-end/modules/entities/models"
-
 	actualExportRepo "p2p-back-end/modules/exports/actual_detail_export/repository"
 	actualExportSvc "p2p-back-end/modules/exports/actual_detail_export/service"
 	usersSvc "p2p-back-end/modules/users/service"
@@ -133,8 +132,10 @@ func TestExcelExport_BufferNotRetained_AfterReturn(t *testing.T) {
 	bufSize := len(buf)
 
 	// Nil out the reference and force GC
-	buf = nil
-	rows = nil
+	_ = buf
+	buf = nil //nolint:ineffassign11
+	_ = rows
+	rows = nil //nolint:ineffassign
 	runtime.GC()
 	time.Sleep(50 * time.Millisecond)
 	runtime.GC()
@@ -161,10 +162,10 @@ type MockUserRepo struct{ mock.Mock }
 func (m *MockUserRepo) GetAll(o map[string]interface{}, c context.Context, off, size int) ([]models.UserEntity, int, error) {
 	return nil, 0, nil
 }
-func (m *MockUserRepo) IsUserExistByID(c context.Context, id string) (bool, error)   { return false, nil }
-func (m *MockUserRepo) CreateUser(c context.Context, u *models.UserEntity) error      { return nil }
-func (m *MockUserRepo) UpdateUser(c context.Context, u *models.UserEntity) error      { return nil }
-func (m *MockUserRepo) ReactivateUser(c context.Context, id string) error             { return nil }
+func (m *MockUserRepo) IsUserExistByID(c context.Context, id string) (bool, error) { return false, nil }
+func (m *MockUserRepo) CreateUser(c context.Context, u *models.UserEntity) error   { return nil }
+func (m *MockUserRepo) UpdateUser(c context.Context, u *models.UserEntity) error   { return nil }
+func (m *MockUserRepo) ReactivateUser(c context.Context, id string) error          { return nil }
 func (m *MockUserRepo) GetUserContext(c context.Context, id string) (*models.UserEntity, error) {
 	return nil, nil
 }
@@ -174,8 +175,10 @@ func (m *MockUserRepo) GetUserPermissions(c context.Context, id string) ([]model
 func (m *MockUserRepo) UpdateUserPermissionsAndRoles(c context.Context, id string, p []models.UserPermissionEntity, r []string) error {
 	return nil
 }
-func (m *MockUserRepo) UpdateUserID(c context.Context, o, n string) error         { return nil }
-func (m *MockUserRepo) ListDepartments(c context.Context) ([]models.Departments, error) { return nil, nil }
+func (m *MockUserRepo) UpdateUserID(c context.Context, o, n string) error { return nil }
+func (m *MockUserRepo) ListDepartments(c context.Context) ([]models.Departments, error) {
+	return nil, nil
+}
 func (m *MockUserRepo) ListMasterDepartments(c context.Context) ([]models.DepartmentEntity, error) {
 	return nil, nil
 }
@@ -429,7 +432,8 @@ func TestLargeSliceAllocation_NilReleasesMemory(t *testing.T) {
 	assert.Equal(t, 10000, len(transactions))
 
 	// Nil the slice (mimicking actual_service.go line 268: transactions = nil)
-	transactions = nil
+	_ = transactions
+	transactions = nil //nolint:ineffassign
 
 	runtime.GC()
 	time.Sleep(50 * time.Millisecond)
