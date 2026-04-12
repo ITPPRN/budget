@@ -40,7 +40,7 @@ func (s *actualService) SyncActuals(ctx context.Context, year string, months []s
 	}
 
 	mappingMap := make(map[string]models.GlGroupingEntity)
-	glProfileMap := make(map[string]string)                      // ConsoGL -> Group1 (Profile)
+	glProfileMap := make(map[string]string) // ConsoGL -> Group1 (Profile)
 
 	for _, g := range groupings {
 		if g.IsActive {
@@ -64,7 +64,7 @@ func (s *actualService) SyncActuals(ctx context.Context, year string, months []s
 		"SURIN": "SUR", "VEERAWAT": "VEE",
 		"AUTOCORP HEAD OFFICE": "HQ",
 		"":                     "Branch00",
-		"BRANCH01": "Branch01", "BRANCH02": "Branch02", "BRANCH03": "Branch03",
+		"BRANCH01":             "Branch01", "BRANCH02": "Branch02", "BRANCH03": "Branch03",
 		"BRANCH04": "Branch04", "BRANCH05": "Branch05", "BRANCH06": "Branch06",
 		"BRANCH07": "Branch07", "BRANCH08": "Branch08", "BRANCH09": "Branch09",
 		"BRANCH10": "Branch10", "BRANCH11": "Branch11", "BRANCH12": "Branch12",
@@ -153,21 +153,12 @@ func (s *actualService) SyncActuals(ctx context.Context, year string, months []s
 					key := fmt.Sprintf("%s_%s", company, row.EntityGL)
 					mapping, ok := mappingMap[key]
 
-					if row.DocNo == "07-APP2604-0001" || row.DocNo == "PVL2603-0040" {
-						fmt.Printf("[DEBUG-SYNC] Checking Doc: %s | Key: %s | FoundInMap: %v\n", row.DocNo, key, ok)
-						if ok {
-							fmt.Printf("[DEBUG-SYNC] ConsoGL: '%s' | MappedName: '%s'\n", mapping.ConsoGL, mapping.AccountName)
-						}
-					}
-
 					totalRows++
 
 					// FILTER: Only sync if the GL is specifically mapped for this company
 					if !ok || mapping.ConsoGL == "" {
 						filteredRows++
-						if row.DocNo == "07-APP2604-0001" || row.DocNo == "PVL2603-0040" {
-							fmt.Printf("[DEBUG-SYNC] ❌ REJECTED: Reason = No GL Mapping or ConsoGL is empty\n")
-						}
+
 						continue
 					}
 
@@ -175,33 +166,26 @@ func (s *actualService) SyncActuals(ctx context.Context, year string, months []s
 
 					// We now have the best possible mapping (Specific > Global)
 
-
 					branch := mapToCode(row.Branch, branchNameMap)
 					deptCode := row.Department
 					lookupDept := normalize(row.Department)
 					if masterDept, err := s.depSrv.GetMasterDepartment(ctx, lookupDept, company); err == nil && masterDept != nil {
 						deptCode = masterDept.Code
-					}else {
-						// --- DEBUG BLOCK 2 ---
-						if row.DocNo == "07-APP2604-0001" || row.DocNo == "PVL2603-0040" {
-							fmt.Printf("[DEBUG-SYNC] ⚠️ DEPT NOT FOUND: NavCode '%s' not matched in P2P Master. Using original: '%s'\n", lookupDept, deptCode)
-						}
-						// ---------------------
-					}
+					} 
 
 					// 1. Transaction Table (Centralized Detail)
 					transactions = append(transactions, models.ActualTransactionEntity{
-						ID:          uuid.New(),
-						Source:      row.Source,
-						PostingDate: row.PostingDate,
-						DocNo:       row.DocNo,
-						Description: row.Description,
-						Amount:      row.Amount,
-						VendorName:  row.Vendor,
-						Entity:      company,
-						Branch:      branch,
-						Department:  deptCode,
-						EntityGL:    row.EntityGL,
+						ID:            uuid.New(),
+						Source:        row.Source,
+						PostingDate:   row.PostingDate,
+						DocNo:         row.DocNo,
+						Description:   row.Description,
+						Amount:        row.Amount,
+						VendorName:    row.Vendor,
+						Entity:        company,
+						Branch:        branch,
+						Department:    deptCode,
+						EntityGL:      row.EntityGL,
 						ConsoGL:       mapping.ConsoGL,
 						Year:          year,
 						GLAccountName: mapping.AccountName, // Use the name from mapping table as requested
@@ -218,9 +202,7 @@ func (s *actualService) SyncActuals(ctx context.Context, year string, months []s
 						for _, p := range parts {
 							if len(p) == 2 && p != "20" && p != "26" { // Heuristic: Month is a 2-digit part excluding common years
 								monCode = p
-								if row.DocNo == "07-APP2604-0001" || row.DocNo == "PVL2603-0040" {
-									fmt.Printf("[DEBUG-SYNC] 📅 MONTH EXTRACTED: RawDate '%s' -> Detected Part '%s' -> Final Month: %s\n", row.PostingDate, p, monthToCodeMap[p])
-								}
+
 								break
 							}
 						}
@@ -265,7 +247,7 @@ func (s *actualService) SyncActuals(ctx context.Context, year string, months []s
 						return fmt.Errorf("transaction.CreateTransactionsChunk: %w", err)
 					}
 				}
-				transactions = nil 
+				transactions = nil
 			}
 			// if len(transactions) > 0 {
 			// 	if err := trxRepo.CreateActualTransactions(ctx, transactions); err != nil {
@@ -357,15 +339,12 @@ func (s *actualService) RefreshDataInventory(ctx context.Context) error {
 	return s.repo.RefreshDataInventory(ctx)
 }
 
-
-
-
 // func (s *actualService) SyncActualsDebug(ctx context.Context, targetDocNo string) error {
 //     fmt.Printf("\n--- [🕵️ TARGETED DEBUG] Doc: %s ---\n", targetDocNo)
 
 //     groupings, _ := s.masterSrv.ListGLGroupings(ctx)
 //     mappingMap := make(map[string]models.GlGroupingEntity)
-    
+
 //     fmt.Printf("📦 [STEP 1: DB SCANNING]\n")
 //     for _, g := range groupings {
 //         if g.IsActive && strings.Contains(g.EntityGL, "51310010") {
@@ -373,8 +352,8 @@ func (s *actualService) RefreshDataInventory(ctx context.Context) error {
 //             normEntity := NormalizeEntityCode(g.Entity)
 //             key := fmt.Sprintf("%s_%s", normEntity, g.EntityGL)
 //             mappingMap[key] = g
-            
-//             fmt.Printf("   📌 DB Mapping -> Entity: [%s] | GL: [%s] | Norm: [%s] | Key: [%s]\n", 
+
+//             fmt.Printf("   📌 DB Mapping -> Entity: [%s] | GL: [%s] | Norm: [%s] | Key: [%s]\n",
 //                 g.Entity, g.EntityGL, normEntity, key)
 //         }
 //     }
@@ -386,23 +365,23 @@ func (s *actualService) RefreshDataInventory(ctx context.Context) error {
 //     return s.repo.WithTrx(func(trxRepo models.ActualRepository) error {
 //         for _, mName := range months {
 //             hmwRows, _ := trxRepo.GetRawTransactionsHMW(ctx, year, []string{mName})
-//             allRows := hmwRows 
+//             allRows := hmwRows
 
 //             for _, row := range allRows {
 //                 if row.DocNo != targetDocNo { continue }
 
 //                 fmt.Printf("\n⚡ [STEP 2: RUNTIME CHECK]\n")
 //                 fmt.Printf("   📑 Data ดิบ -> Company: [%s] | GL: [%s]\n", row.Company, row.EntityGL)
-                
+
 //                 company := NormalizeEntityCode(row.Company)
 //                 runtimeKey := fmt.Sprintf("%s_%s", company, row.EntityGL)
-                
+
 //                 fmt.Printf("   🎯 ระบบพยายามหา Key: [%s]\n", runtimeKey)
 
 //                 mapping, ok := mappingMap[runtimeKey]
 //                 if !ok {
 //                     fmt.Printf("   ❌ RESULT -> ไม่เจอ! เพราะ [%s] ไม่ตรงกับ Key ใน DB ด้านบน\n", runtimeKey)
-                    
+
 //                     // สแกนหาตัวใกล้เคียงเพื่อฟันธง
 //                     for k := range mappingMap {
 //                         if strings.Contains(k, row.EntityGL) {
@@ -418,15 +397,13 @@ func (s *actualService) RefreshDataInventory(ctx context.Context) error {
 //     })
 // }
 
-
-
 // func (s *actualService) SyncActualsDebug(ctx context.Context, targetDocNo string) error {
 //     fmt.Printf("\n--- [🕵️ TARGETED DEBUG] Doc: %s ---\n", targetDocNo)
 
 //     // ดึง Mapping ทั้งหมดมาก่อน
 //     groupings, _ := s.masterSrv.ListGLGroupings(ctx)
 //     mappingMap := make(map[string]models.GlGroupingEntity)
-    
+
 //     fmt.Printf("📦 [STEP 1: DB SCANNING]\n")
 //     for _, g := range groupings {
 //         // กรองเฉพาะ GL ที่เราสงสัยเพื่อลด noise ใน log (51310010)
@@ -434,8 +411,8 @@ func (s *actualService) RefreshDataInventory(ctx context.Context) error {
 //             normEntity := NormalizeEntityCode(g.Entity)
 //             key := fmt.Sprintf("%s_%s", normEntity, g.EntityGL)
 //             mappingMap[key] = g
-            
-//             fmt.Printf("   📌 DB Mapping -> Entity: [%s] | GL: [%s] | Norm: [%s] | Key: [%s]\n", 
+
+//             fmt.Printf("   📌 DB Mapping -> Entity: [%s] | GL: [%s] | Norm: [%s] | Key: [%s]\n",
 //                 g.Entity, g.EntityGL, normEntity, key)
 //         }
 //     }
@@ -456,25 +433,25 @@ func (s *actualService) RefreshDataInventory(ctx context.Context) error {
 //             foundAny := false
 //             for _, row := range allRows {
 //                 // เช็ค DocNo (ใช้ strings.Contains เผื่อมี Space หรือ Prefix ต่างกันเล็กน้อย)
-//                 if !strings.Contains(row.DocNo, targetDocNo) { 
-//                     continue 
+//                 if !strings.Contains(row.DocNo, targetDocNo) {
+//                     continue
 //                 }
 //                 foundAny = true
 
 //                 fmt.Printf("\n⚡ [STEP 2: RUNTIME CHECK] (Source Table: %s)\n", row.Source)
-//                 fmt.Printf("   📑 Data ดิบ -> Company: [%s] | GL: [%s] | Doc: [%s]\n", 
+//                 fmt.Printf("   📑 Data ดิบ -> Company: [%s] | GL: [%s] | Doc: [%s]\n",
 //                     row.Company, row.EntityGL, row.DocNo)
-                
+
 //                 // กระบวนการเดียวกับใน Actual Service จริงๆ
 //                 company := NormalizeEntityCode(row.Company)
 //                 runtimeKey := fmt.Sprintf("%s_%s", company, row.EntityGL)
-                
+
 //                 fmt.Printf("   🎯 ระบบพยายามหา Key: [%s]\n", runtimeKey)
 
 //                 mapping, ok := mappingMap[runtimeKey]
 //                 if !ok {
 //                     fmt.Printf("   ❌ RESULT -> ไม่เจอใน Mapping! เพราะ Key [%s] ไม่ตรงกับใน DB\n", runtimeKey)
-                    
+
 //                     // ช่วยหาว่าในระบบมี GL นี้ภายใต้ชื่อบริษัทอื่นไหม
 //                     for k := range mappingMap {
 //                         if strings.Contains(k, row.EntityGL) {
@@ -487,7 +464,7 @@ func (s *actualService) RefreshDataInventory(ctx context.Context) error {
 //             }
 
 //             if !foundAny {
-//                 fmt.Printf("\n⚠️ [RESULT] ไม่พบเลขบิล [%s] ใน Table ของเดือน %s ปี %s เลย (ลองเช็ค Year/Month อีกครั้ง)\n", 
+//                 fmt.Printf("\n⚠️ [RESULT] ไม่พบเลขบิล [%s] ใน Table ของเดือน %s ปี %s เลย (ลองเช็ค Year/Month อีกครั้ง)\n",
 //                     targetDocNo, mName, year)
 //             }
 //         }
@@ -501,7 +478,7 @@ func (s *actualService) RefreshDataInventory(ctx context.Context) error {
 //     // 1. ดึง Mapping ทั้งหมดมาเก็บไว้ (เอาเงื่อนไข IF ออกเพื่อให้ Match ได้ทุก GL)
 //     groupings, _ := s.masterSrv.ListGLGroupings(ctx)
 //     mappingMap := make(map[string]models.GlGroupingEntity)
-    
+
 //     for _, g := range groupings {
 //         if g.IsActive {
 //             normEntity := NormalizeEntityCode(g.Entity)
@@ -524,15 +501,15 @@ func (s *actualService) RefreshDataInventory(ctx context.Context) error {
 
 //             for _, row := range allRows {
 //                 // กรองเฉพาะเลขบิลที่ต้องการ
-//                 if !strings.Contains(row.DocNo, targetDocNo) { 
-//                     continue 
+//                 if !strings.Contains(row.DocNo, targetDocNo) {
+//                     continue
 //                 }
 //                 foundAny = true
 
 //                 // --- ส่วนที่เพิ่ม/แก้ไขเพื่อให้เห็นข้อมูลชัดขึ้น ---
 //                 company := NormalizeEntityCode(row.Company)
 //                 runtimeKey := fmt.Sprintf("%s_%s", company, row.EntityGL)
-                
+
 //                 fmt.Printf("\n🔍 [ENTRY FOUND]")
 //                 fmt.Printf("\n   ├─ Source Table: %s", row.Source)
 //                 fmt.Printf("\n   ├─ GL Account:   [%s] <--- เช็คเลขนี้!", row.EntityGL)

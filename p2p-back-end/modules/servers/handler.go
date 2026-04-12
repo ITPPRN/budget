@@ -7,6 +7,10 @@ import (
 	// Export Modules (Admin
 	// Export Modules (Admin
 	// Export Modules (Admin
+	// Export Modules (Admin
+	// Export Modules (Admin
+	// Export Modules (Admin
+	// Export Modules (Admin
 
 	"github.com/gofiber/contrib/fiberzap/v2"
 	"github.com/gofiber/fiber/v2"
@@ -85,7 +89,7 @@ func (s *server) Handlers() error {
 	}
 
 	// --- Start Background Tasks (Cron) ---
-	// s.StartCronJob()
+	s.StartCronJob()
 
 	// --- Controller Registration ---
 	_authCon.NewUserController(v1.Group("/auth"), s.Shd.AuthService, s.Shd.DepartmentService, s.Shd.UserService)
