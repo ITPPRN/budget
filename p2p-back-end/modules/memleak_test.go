@@ -133,8 +133,10 @@ func TestExcelExport_BufferNotRetained_AfterReturn(t *testing.T) {
 	bufSize := len(buf)
 
 	// Nil out the reference and force GC
-	buf = nil
-	rows = nil
+	_ = buf
+	buf = nil //nolint:ineffassign
+	_ = rows
+	rows = nil //nolint:ineffassign
 	runtime.GC()
 	time.Sleep(50 * time.Millisecond)
 	runtime.GC()
@@ -429,7 +431,8 @@ func TestLargeSliceAllocation_NilReleasesMemory(t *testing.T) {
 	assert.Equal(t, 10000, len(transactions))
 
 	// Nil the slice (mimicking actual_service.go line 268: transactions = nil)
-	transactions = nil
+	_ = transactions
+	transactions = nil //nolint:ineffassign
 
 	runtime.GC()
 	time.Sleep(50 * time.Millisecond)
