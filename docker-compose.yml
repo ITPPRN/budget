@@ -1,8 +1,9 @@
 services:
   go_backend:
-    build:
-      context: ./p2p-back-end
-      dockerfile: Dockerfile
+    # build:
+    #   context: ./p2p-back-end
+    #   dockerfile: Dockerfile
+    image: ${CI_REGISTRY_IMAGE}/backend:latest
     container_name: bud_backend
     restart: unless-stopped
     environment:
@@ -16,9 +17,10 @@ services:
       - app_network
 
   frontend:
-    build:
-      context: ./p2p-front-end
-      dockerfile: Dockerfile
+    # build:
+    #   context: ./p2p-front-end
+    #   dockerfile: Dockerfile
+    image: ${CI_REGISTRY_IMAGE}/frontend:latest
     container_name: p2p_frontend
     restart: unless-stopped
     ports:
