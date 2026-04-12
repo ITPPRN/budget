@@ -24,7 +24,6 @@ func NewMasterService(
 	}
 }
 
-
 func (s *masterService) BroadcastAllData(ctx context.Context) {
 	logs.Info("📢 Broadcasting all local master data...")
 
@@ -43,7 +42,6 @@ func (s *masterService) BroadcastAllData(ctx context.Context) {
 }
 
 // --- Companies ---
-
 
 func (s *masterService) BroadcastAllLocalCompanies(ctx context.Context) error {
 	return utils.BatchSync(
@@ -68,7 +66,6 @@ func (s *masterService) BroadcastAllLocalCompanies(ctx context.Context) error {
 
 // --- Departments ---
 
-
 func (s *masterService) BroadcastAllLocalDepartments(ctx context.Context) error {
 	return utils.BatchSync(
 		ctx,
@@ -92,7 +89,6 @@ func (s *masterService) BroadcastAllLocalDepartments(ctx context.Context) error 
 
 // --- Sections ---
 
-
 func (s *masterService) BroadcastAllLocalSections(ctx context.Context) error {
 	return utils.BatchSync(
 		ctx,
@@ -115,7 +111,6 @@ func (s *masterService) BroadcastAllLocalSections(ctx context.Context) error {
 }
 
 // --- Positions ---
-
 
 func (s *masterService) BroadcastAllLocalPositions(ctx context.Context) error {
 	return utils.BatchSync(
@@ -150,8 +145,10 @@ func (s *masterService) SyncCompaniesFromEvent(ctx context.Context, companiesEve
 
 func (s *masterService) SyncDepartmentsFromEvent(ctx context.Context, departmentsEvent []events.DepartmentEvent) error {
 	var departments []models.Departments
+	// fmt.Printf("%d",len(departmentsEvent))
 	for _, d := range departmentsEvent {
 		dd := d
+		// fmt.Printf("%v",dd)
 		departments = append(departments, *utils.EventDepartmentToDepartments(&dd))
 	}
 	_, err := s.masterRepo.SyncDepartment(ctx, departments)

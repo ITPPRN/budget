@@ -45,7 +45,7 @@ func (r *repository) GetBudgetVsActualData(ctx context.Context, filter map[strin
 		Select(`
 			budget_fact_entities.entity,
 			budget_fact_entities.branch,
-			COALESCE(NULLIF(budget_fact_entities.department, ''), budget_fact_entities.nav_code) as department,
+			COALESCE(NULLIF(NULLIF(budget_fact_entities.department, ''), 'None'), NULLIF(budget_fact_entities.nav_code, ''), 'None') as department,
 			bs.group1 as "group",
 			bs.group2,
 			bs.group3,
@@ -72,7 +72,7 @@ func (r *repository) GetBudgetVsActualData(ctx context.Context, filter map[strin
 		Select(`
 			actual_fact_entities.entity,
 			actual_fact_entities.branch,
-			COALESCE(NULLIF(actual_fact_entities.department, ''), actual_fact_entities.nav_code) as department,
+			COALESCE(NULLIF(NULLIF(actual_fact_entities.department, ''), 'None'), NULLIF(actual_fact_entities.nav_code, ''), 'None') as department,
 			bs.group1 as "group",
 			bs.group2,
 			bs.group3,

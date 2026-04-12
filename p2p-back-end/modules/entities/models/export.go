@@ -33,6 +33,7 @@ type ActualExportDTO struct {
 	VendorName  string          `gorm:"column:vendor_name"`
 	Description string          `gorm:"column:description"`
 	PostingDate string          `gorm:"column:posting_date"`
+	Status      string          `gorm:"column:status"`
 }
 
 type DeptBudgetStatusDTO struct {

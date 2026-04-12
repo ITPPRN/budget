@@ -356,3 +356,203 @@ func (s *actualService) GetRawDate(ctx context.Context) (string, error) {
 func (s *actualService) RefreshDataInventory(ctx context.Context) error {
 	return s.repo.RefreshDataInventory(ctx)
 }
+
+
+
+
+// func (s *actualService) SyncActualsDebug(ctx context.Context, targetDocNo string) error {
+//     fmt.Printf("\n--- [🕵️ TARGETED DEBUG] Doc: %s ---\n", targetDocNo)
+
+//     groupings, _ := s.masterSrv.ListGLGroupings(ctx)
+//     mappingMap := make(map[string]models.GlGroupingEntity)
+    
+//     fmt.Printf("📦 [STEP 1: DB SCANNING]\n")
+//     for _, g := range groupings {
+//         if g.IsActive && strings.Contains(g.EntityGL, "51310010") {
+//             // เราจะ Normalize ทั้งสองฝั่งเพื่อดูความเพี้ยน
+//             normEntity := NormalizeEntityCode(g.Entity)
+//             key := fmt.Sprintf("%s_%s", normEntity, g.EntityGL)
+//             mappingMap[key] = g
+            
+//             fmt.Printf("   📌 DB Mapping -> Entity: [%s] | GL: [%s] | Norm: [%s] | Key: [%s]\n", 
+//                 g.Entity, g.EntityGL, normEntity, key)
+//         }
+//     }
+
+//     // 🎯 แก้จุดนี้: บิลใบใหม่คือ 2502-0010 (ปี 2025 เดือน FEB)
+//     year := "2026"
+//     months := []string{"FEB"}
+
+//     return s.repo.WithTrx(func(trxRepo models.ActualRepository) error {
+//         for _, mName := range months {
+//             hmwRows, _ := trxRepo.GetRawTransactionsHMW(ctx, year, []string{mName})
+//             allRows := hmwRows 
+
+//             for _, row := range allRows {
+//                 if row.DocNo != targetDocNo { continue }
+
+//                 fmt.Printf("\n⚡ [STEP 2: RUNTIME CHECK]\n")
+//                 fmt.Printf("   📑 Data ดิบ -> Company: [%s] | GL: [%s]\n", row.Company, row.EntityGL)
+                
+//                 company := NormalizeEntityCode(row.Company)
+//                 runtimeKey := fmt.Sprintf("%s_%s", company, row.EntityGL)
+                
+//                 fmt.Printf("   🎯 ระบบพยายามหา Key: [%s]\n", runtimeKey)
+
+//                 mapping, ok := mappingMap[runtimeKey]
+//                 if !ok {
+//                     fmt.Printf("   ❌ RESULT -> ไม่เจอ! เพราะ [%s] ไม่ตรงกับ Key ใน DB ด้านบน\n", runtimeKey)
+                    
+//                     // สแกนหาตัวใกล้เคียงเพื่อฟันธง
+//                     for k := range mappingMap {
+//                         if strings.Contains(k, row.EntityGL) {
+//                             fmt.Printf("      💡 ใน Memory มี Key นี้: [%s] แต่คุณหา [%s] มันเลยไม่เจอกัน!\n", k, runtimeKey)
+//                         }
+//                     }
+//                 } else {
+//                     fmt.Printf("   ✅ RESULT -> เจอแล้ว! ConsoGL: %s\n", mapping.ConsoGL)
+//                 }
+//             }
+//         }
+//         return nil
+//     })
+// }
+
+
+
+// func (s *actualService) SyncActualsDebug(ctx context.Context, targetDocNo string) error {
+//     fmt.Printf("\n--- [🕵️ TARGETED DEBUG] Doc: %s ---\n", targetDocNo)
+
+//     // ดึง Mapping ทั้งหมดมาก่อน
+//     groupings, _ := s.masterSrv.ListGLGroupings(ctx)
+//     mappingMap := make(map[string]models.GlGroupingEntity)
+    
+//     fmt.Printf("📦 [STEP 1: DB SCANNING]\n")
+//     for _, g := range groupings {
+//         // กรองเฉพาะ GL ที่เราสงสัยเพื่อลด noise ใน log (51310010)
+//         if g.IsActive && strings.Contains(g.EntityGL, "51310001") {
+//             normEntity := NormalizeEntityCode(g.Entity)
+//             key := fmt.Sprintf("%s_%s", normEntity, g.EntityGL)
+//             mappingMap[key] = g
+            
+//             fmt.Printf("   📌 DB Mapping -> Entity: [%s] | GL: [%s] | Norm: [%s] | Key: [%s]\n", 
+//                 g.Entity, g.EntityGL, normEntity, key)
+//         }
+//     }
+
+//     // 🎯 วิเคราะห์จากเลขบิล C00-PVL2602-0082: 26 คือปี 2026, 02 คือ FEB
+//     year := "2026"
+//     months := []string{"FEB"}
+
+//     return s.repo.WithTrx(func(trxRepo models.ActualRepository) error {
+//         for _, mName := range months {
+//             // 1. ดึงจากทั้งสอง Table (HMW และ CLIK)
+//             hmwRows, _ := trxRepo.GetRawTransactionsHMW(ctx, year, []string{mName})
+//             clikRows, _ := trxRepo.GetRawTransactionsCLIK(ctx, year, []string{mName})
+
+//             // รวมข้อมูลเข้าด้วยกัน
+//             allRows := append(hmwRows, clikRows...)
+
+//             foundAny := false
+//             for _, row := range allRows {
+//                 // เช็ค DocNo (ใช้ strings.Contains เผื่อมี Space หรือ Prefix ต่างกันเล็กน้อย)
+//                 if !strings.Contains(row.DocNo, targetDocNo) { 
+//                     continue 
+//                 }
+//                 foundAny = true
+
+//                 fmt.Printf("\n⚡ [STEP 2: RUNTIME CHECK] (Source Table: %s)\n", row.Source)
+//                 fmt.Printf("   📑 Data ดิบ -> Company: [%s] | GL: [%s] | Doc: [%s]\n", 
+//                     row.Company, row.EntityGL, row.DocNo)
+                
+//                 // กระบวนการเดียวกับใน Actual Service จริงๆ
+//                 company := NormalizeEntityCode(row.Company)
+//                 runtimeKey := fmt.Sprintf("%s_%s", company, row.EntityGL)
+                
+//                 fmt.Printf("   🎯 ระบบพยายามหา Key: [%s]\n", runtimeKey)
+
+//                 mapping, ok := mappingMap[runtimeKey]
+//                 if !ok {
+//                     fmt.Printf("   ❌ RESULT -> ไม่เจอใน Mapping! เพราะ Key [%s] ไม่ตรงกับใน DB\n", runtimeKey)
+                    
+//                     // ช่วยหาว่าในระบบมี GL นี้ภายใต้ชื่อบริษัทอื่นไหม
+//                     for k := range mappingMap {
+//                         if strings.Contains(k, row.EntityGL) {
+//                             fmt.Printf("      💡 คำแนะนำ: ใน DB มี Key [%s] ลองเช็คว่าบริษัทใน Data ดิบส่งมาผิดหรือเปล่า?\n", k)
+//                         }
+//                     }
+//                 } else {
+//                     fmt.Printf("   ✅ RESULT -> เจอคู่ Matching! รายการนี้จะถูกส่งไปที่ ConsoGL: [%s]\n", mapping.ConsoGL)
+//                 }
+//             }
+
+//             if !foundAny {
+//                 fmt.Printf("\n⚠️ [RESULT] ไม่พบเลขบิล [%s] ใน Table ของเดือน %s ปี %s เลย (ลองเช็ค Year/Month อีกครั้ง)\n", 
+//                     targetDocNo, mName, year)
+//             }
+//         }
+//         return nil
+//     })
+// }
+
+// func (s *actualService) SyncActualsDebug(ctx context.Context, targetDocNo string) error {
+//     fmt.Printf("\n--- [🕵️ TARGETED DEBUG] Doc: %s ---\n", targetDocNo)
+
+//     // 1. ดึง Mapping ทั้งหมดมาเก็บไว้ (เอาเงื่อนไข IF ออกเพื่อให้ Match ได้ทุก GL)
+//     groupings, _ := s.masterSrv.ListGLGroupings(ctx)
+//     mappingMap := make(map[string]models.GlGroupingEntity)
+    
+//     for _, g := range groupings {
+//         if g.IsActive {
+//             normEntity := NormalizeEntityCode(g.Entity)
+//             key := fmt.Sprintf("%s_%s", normEntity, g.EntityGL)
+//             mappingMap[key] = g
+//         }
+//     }
+
+//     year := "2026"
+//     months := []string{"JAN", "FEB", "MAR", "APR"}
+
+//     return s.repo.WithTrx(func(trxRepo models.ActualRepository) error {
+//         for _, mName := range months {
+//             hmwRows, _ := trxRepo.GetRawTransactionsHMW(ctx, year, []string{mName})
+//             clikRows, _ := trxRepo.GetRawTransactionsCLIK(ctx, year, []string{mName})
+//             allRows := append(hmwRows, clikRows...)
+
+//             foundAny := false
+//             fmt.Printf("📦 [STEP 2: SCANNING ALL ENTRIES IN THIS BILL]\n")
+
+//             for _, row := range allRows {
+//                 // กรองเฉพาะเลขบิลที่ต้องการ
+//                 if !strings.Contains(row.DocNo, targetDocNo) { 
+//                     continue 
+//                 }
+//                 foundAny = true
+
+//                 // --- ส่วนที่เพิ่ม/แก้ไขเพื่อให้เห็นข้อมูลชัดขึ้น ---
+//                 company := NormalizeEntityCode(row.Company)
+//                 runtimeKey := fmt.Sprintf("%s_%s", company, row.EntityGL)
+                
+//                 fmt.Printf("\n🔍 [ENTRY FOUND]")
+//                 fmt.Printf("\n   ├─ Source Table: %s", row.Source)
+//                 fmt.Printf("\n   ├─ GL Account:   [%s] <--- เช็คเลขนี้!", row.EntityGL)
+//                 fmt.Printf("\n   ├─ GL Name:      %s", row.GLAccountName)
+//                 fmt.Printf("\n   ├─ Description:  %s", row.Description)
+//                 fmt.Printf("\n   ├─ Amount:       %.2f", row.Amount)
+//                 fmt.Printf("\n   └─ Runtime Key:  [%s]", runtimeKey)
+
+//                 // ตรวจสอบว่า GL บรรทัดนี้ มีในระบบเราไหม
+//                 if mapping, ok := mappingMap[runtimeKey]; ok {
+//                     fmt.Printf("\n   ✅ STATUS: MATCHED! -> จะถูกเข้า Grouping: [%s]\n", mapping.AccountName)
+//                 } else {
+//                     fmt.Printf("\n   ❌ STATUS: NOT MAPPED! -> เลข GL นี้ไม่ได้ตั้งค่าไว้ในระบบ\n")
+//                 }
+//             }
+
+//             if !foundAny {
+//                 fmt.Printf("\n⚠️ [RESULT] ไม่พบเลขบิล [%s] ในฐานข้อมูลเลย\n", targetDocNo)
+//             }
+//         }
+//         return nil
+//     })
+// }

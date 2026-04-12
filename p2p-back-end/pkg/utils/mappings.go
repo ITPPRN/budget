@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 
 	"github.com/google/uuid"
+
 	"p2p-back-end/modules/entities/events"
 	"p2p-back-end/modules/entities/models"
 )
@@ -231,5 +232,20 @@ func EventPositionToPositions(src *events.PositionEvent) *models.Positions {
 		CentralID: src.ID,
 		Name:      src.Name,
 		Code:      src.Code,
+	}
+}
+
+func AuditRejectBasketReqToAuditRejectBasket(req *models.AuditRejectBasketReq) *models.AuditRejectBasket {
+	return &models.AuditRejectBasket{
+		TransactionID: req.TransactionID,
+		UserID:        req.UserID,
+	}
+}
+
+func AuditRejectBasketToAuditRejectBasketres(req *models.AuditRejectBasket) *models.AuditRejectBasketRes {
+	return &models.AuditRejectBasketRes{
+		ID:            req.ID,
+		TransactionID: req.TransactionID,
+		UserID:        req.UserID,
 	}
 }

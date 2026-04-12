@@ -73,8 +73,6 @@ func NewPostgresConnection(cfg *configs.Config, connType string) (*gorm.DB, erro
 			logs.Info("✅ [STARTUP] Admin account has been force-reactivated.")
 		}
 
-
-
 		// 3. Seed GL Mappings (Unified)
 		if err := seeders.SeedGLGrouping(db); err != nil {
 			logs.Error("Failed to seed GL grouping: ", zap.Error(err))
@@ -132,5 +130,7 @@ func getModelsToMigrate() []interface{} {
 		// Audit Logs (Owner Approval & Reporting)
 		&models.AuditLogEntity{},
 		&models.AuditLogRejectedItemEntity{},
+
+		&models.AuditRejectBasket{},
 	}
 }

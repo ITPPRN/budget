@@ -58,13 +58,20 @@ func (r *repository) GetActualExportDetails(ctx context.Context, user *models.Us
 			actual_transaction_entities.amount,
 			actual_transaction_entities.vendor_name,
 			actual_transaction_entities.description,
-			actual_transaction_entities.posting_date
+			actual_transaction_entities.posting_date,
+			CASE
+				WHEN alrie.id IS NOT NULL THEN 'Request Change'
+				WHEN al.status = 'CONFIRMED' THEN 'Approved'
+				ELSE 'None'
+			END as status
 		`).
 		Joins(`LEFT JOIN (
-			SELECT entity_gl, entity, group1, group2, group3 
-			FROM gl_grouping_entities 
+			SELECT entity_gl, entity, group1, group2, group3
+			FROM gl_grouping_entities
 			GROUP BY entity_gl, entity, group1, group2, group3
-		) bs ON actual_transaction_entities.entity_gl = bs.entity_gl AND actual_transaction_entities.entity = bs.entity`)
+		) bs ON actual_transaction_entities.entity_gl = bs.entity_gl AND actual_transaction_entities.entity = bs.entity`).
+		Joins("LEFT JOIN audit_log_rejected_item_entities alrie ON alrie.transaction_id = actual_transaction_entities.id").
+		Joins("LEFT JOIN audit_log_entities al ON (al.entity = actual_transaction_entities.entity OR al.entity = '' OR al.entity IS NULL) AND (al.branch = actual_transaction_entities.branch OR al.branch = '' OR al.branch IS NULL) AND al.department = actual_transaction_entities.department AND al.year = actual_transaction_entities.year AND al.month = UPPER(TO_CHAR(actual_transaction_entities.posting_date::DATE, 'MON')) AND al.status = 'CONFIRMED'")
 
 	// 1. Entities
 	if val, ok := filter["entities"]; ok {

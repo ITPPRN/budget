@@ -235,14 +235,14 @@ func (r *dashboardRepository) GetActualTransactions(ctx context.Context, filter 
 			actual_transaction_entities.department,
 			actual_transaction_entities.entity as company,
 			actual_transaction_entities.branch,
-			CASE 
+			CASE
 				WHEN alrie.id IS NOT NULL THEN 'Request Change'
 				WHEN al.status = 'CONFIRMED' THEN 'Approved'
 				ELSE 'None'
-			END as audit_status
+			END as status
 		`).
 		Joins("LEFT JOIN audit_log_rejected_item_entities alrie ON alrie.transaction_id = actual_transaction_entities.id").
-		Joins("LEFT JOIN audit_log_entities al ON al.entity = actual_transaction_entities.entity AND al.branch = actual_transaction_entities.branch AND al.department = actual_transaction_entities.department AND al.year = actual_transaction_entities.year AND al.month = UPPER(TO_CHAR(actual_transaction_entities.posting_date::DATE, 'MON')) AND al.status = 'CONFIRMED'").
+		Joins("LEFT JOIN audit_log_entities al ON (al.entity = actual_transaction_entities.entity OR al.entity = '' OR al.entity IS NULL) AND (al.branch = actual_transaction_entities.branch OR al.branch = '' OR al.branch IS NULL) AND al.department = actual_transaction_entities.department AND al.year = actual_transaction_entities.year AND al.month = UPPER(TO_CHAR(actual_transaction_entities.posting_date::DATE, 'MON')) AND al.status = 'CONFIRMED'").
 		Joins("LEFT JOIN gl_grouping_entities mapping ON actual_transaction_entities.entity_gl = mapping.entity_gl AND actual_transaction_entities.entity = mapping.entity")
 
 	// 2. Filters (Only apply if not empty)
@@ -472,8 +472,8 @@ func (r *dashboardRepository) GetDashboardAggregates(ctx context.Context, filter
 	}
 
 	// Determine Grouping Strategy (Drill-down vs Summary)
-	groupBy := "COALESCE(NULLIF(department, ''), nav_code)"
-	selectCol := "COALESCE(NULLIF(department, ''), nav_code) as department"
+	groupBy := "COALESCE(NULLIF(NULLIF(department, ''), 'None'), NULLIF(nav_code, ''), 'None')"
+	selectCol := "COALESCE(NULLIF(NULLIF(department, ''), 'None'), NULLIF(nav_code, ''), 'None') as department"
 
 	if val, ok := filter["departments"]; ok {
 		if strs := toStringSlice(val); len(strs) > 0 {
@@ -487,8 +487,8 @@ func (r *dashboardRepository) GetDashboardAggregates(ctx context.Context, filter
 			}
 
 			if shouldDrillDown {
-				groupBy = "nav_code"
-				selectCol = "nav_code as department"
+				groupBy = "COALESCE(NULLIF(nav_code, ''), 'None')"
+				selectCol = "COALESCE(NULLIF(nav_code, ''), 'None') as department"
 			}
 		}
 	}

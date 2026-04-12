@@ -65,6 +65,9 @@ func (s *ownerService) GetDashboardSummary(ctx context.Context, user *models.Use
 
 func (s *ownerService) GetActualTransactions(ctx context.Context, user *models.UserInfo, filter map[string]interface{}) (*models.PaginatedActualTransactionDTO, error) {
 	filter = s.InjectPermissions(ctx, user, filter)
+	if user != nil {
+		filter["user_id"] = user.ID
+	}
 	return s.repo.GetActualTransactions(ctx, filter)
 }
 

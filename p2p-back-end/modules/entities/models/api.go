@@ -1,5 +1,7 @@
 package models
 
+import "github.com/google/uuid"
+
 // request
 
 type UserRegisReq struct {
@@ -32,18 +34,18 @@ type AdminResetPasswordReq struct {
 
 // res/////////////////////////////////////////////////////////
 type UserInfo struct {
-	ID             string               `json:"id"`
-	Username       string               `json:"username"`
-	Name           string               `json:"name"`
-	NameTh         string               `json:"name_th"`
-	Email          string               `json:"email"`
-	Roles          []string             `json:"roles,omitempty"` // System-level roles (Keycloak)
-	Company        string               `json:"company,omitempty"`
-	Branch         string               `json:"branch,omitempty"`
-	Department     string               `json:"department,omitempty"`
-	DepartmentCode string               `json:"department_code,omitempty"`
-	MappedDepartment string             `json:"mapped_department,omitempty"`
-	Permissions    []UserPermissionInfo `json:"permissions,omitempty"` // Explicit Dept Permissions
+	ID               string               `json:"id"`
+	Username         string               `json:"username"`
+	Name             string               `json:"name"`
+	NameTh           string               `json:"name_th"`
+	Email            string               `json:"email"`
+	Roles            []string             `json:"roles,omitempty"` // System-level roles (Keycloak)
+	Company          string               `json:"company,omitempty"`
+	Branch           string               `json:"branch,omitempty"`
+	Department       string               `json:"department,omitempty"`
+	DepartmentCode   string               `json:"department_code,omitempty"`
+	MappedDepartment string               `json:"mapped_department,omitempty"`
+	Permissions      []UserPermissionInfo `json:"permissions,omitempty"` // Explicit Dept Permissions
 }
 
 type UserPermissionInfo struct {
@@ -71,4 +73,14 @@ type ResponseData struct {
 }
 
 type UserRes struct {
+}
+
+type AuditRejectBasketReq struct {
+	TransactionID uuid.UUID `json:"transaction_id"`
+	UserID        uuid.UUID `json:"user_id"`
+}
+type AuditRejectBasketRes struct {
+	ID            uuid.UUID `json:"id"`
+	TransactionID uuid.UUID `json:"transaction_id"`
+	UserID        uuid.UUID `json:"user_id"`
 }

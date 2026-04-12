@@ -206,13 +206,27 @@ func (r *userRepositoryDB) ReactivateUser(ctx context.Context, userID string) er
 }
 
 func (r *userRepositoryDB) GetUserContext(ctx context.Context, userID string) (*models.UserEntity, error) {
-	var user models.UserEntity
-	err := r.db.WithContext(ctx).Preload("Department").Where("id = ?", userID).First(&user).Error
-	if err != nil {
-		return nil, fmt.Errorf("userRepo.GetUserContext: %w", err)
-	}
-	return &user, nil
+    var user models.UserEntity
+    // ใช้ LOWER() เพื่อทำให้ทั้งข้อมูลใน DB และตัวแปรที่รับมาเป็นตัวพิมพ์เล็กทั้งหมด
+    err := r.db.WithContext(ctx).
+        Preload("Department").
+        Where("LOWER(username) = LOWER(?)", userID). 
+        First(&user).Error
+        
+    if err != nil {
+        return nil, fmt.Errorf("userRepo.GetUserContext: %w", err)
+    }
+    return &user, nil
 }
+
+// func (r *userRepositoryDB) GetUserContext(ctx context.Context, userID string) (*models.UserEntity, error) {
+// 	var user models.UserEntity
+// 	err := r.db.WithContext(ctx).Preload("Department").Where("username = ?", userID).First(&user).Error
+// 	if err != nil {
+// 		return nil, fmt.Errorf("userRepo.GetUserContext: %w", err)
+// 	}
+// 	return &user, nil
+// }
 
 func (r *userRepositoryDB) GetUserPermissions(ctx context.Context, userID string) ([]models.UserPermissionEntity, error) {
 	var perms []models.UserPermissionEntity
@@ -302,12 +316,26 @@ func (r *userRepositoryDB) GetDepartmentByNavCode(ctx context.Context, navCode s
 }
 
 func (r *userRepositoryDB) FindByUsername(ctx context.Context, username string) (*models.UserEntity, error) {
-	var user models.UserEntity
-	if err := r.db.WithContext(ctx).Where("username = ?", username).First(&user).Error; err != nil {
-		return nil, fmt.Errorf("userRepo.FindByUsername: %w", err)
-	}
-	return &user, nil
+    var user models.UserEntity
+    // ใช้ LOWER(username) เพื่อเปรียบเทียบข้อมูลแบบไม่สน Case
+    // และใช้ strings.ToLower(username) กับ input ที่รับเข้ามาด้วย
+    err := r.db.WithContext(ctx).
+        Where("LOWER(username) = LOWER(?)", username).
+        First(&user).Error
+
+    if err != nil {
+        return nil, fmt.Errorf("userRepo.FindByUsername: %w", err)
+    }
+    return &user, nil
 }
+
+// func (r *userRepositoryDB) FindByUsername(ctx context.Context, username string) (*models.UserEntity, error) {
+// 	var user models.UserEntity
+// 	if err := r.db.WithContext(ctx).Where("username = ?", username).First(&user).Error; err != nil {
+// 		return nil, fmt.Errorf("userRepo.FindByUsername: %w", err)
+// 	}
+// 	return &user, nil
+// }
 
 func (r *userRepositoryDB) SyncUsers(ctx context.Context, users []models.UserEntity) ([]models.UserEntity, error) {
 	if len(users) == 0 {
