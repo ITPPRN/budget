@@ -133,7 +133,7 @@ func TestExcelExport_BufferNotRetained_AfterReturn(t *testing.T) {
 
 	// Nil out the reference and force GC
 	_ = buf
-	buf = nil //nolint:ineffassign11
+	buf = nil //nolint:ineffassign
 	_ = rows
 	rows = nil //nolint:ineffassign
 	runtime.GC()
