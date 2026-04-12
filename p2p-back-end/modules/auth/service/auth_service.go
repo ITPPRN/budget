@@ -91,94 +91,105 @@ func (s *authService) Login(ctx context.Context, req *models.LoginReq) (*gocloak
 		return nil, errs.NewLoginFailedError()
 	}
 
+
+	user, err := s.authRepo.FindByUsername(ctx, req.Username)
+    if err != nil || user == nil {
+        logs.Warnf("[Login] User %s authenticated via Keycloak but not found in DB", req.Username)
+        return nil, errors.New("unauthorized: บัญชีนี้ไม่มีสิทธิ์เข้าใช้งานระบบ (ไม่มีข้อมูลในฐานข้อมูล)")
+    }
+
+	if !user.IsActive {
+        return nil, errors.New("account disabled: บัญชีของคุณถูกระงับการใช้งาน")
+    }
+
 	// 4. Case: Login Success
 	s.Redis.Del(ctx, redisKey)
 
 	// --- Sync User to Local DB ---
-	userInfo, err := s.keycloak.GetUserInfo(ctx, token.AccessToken, s.cfg.KeyCloak.RealmName)
-	if err == nil {
-		safeStr := func(s *string) string {
-			if s != nil {
-				return *s
-			}
-			return ""
-		}
+	// userInfo, err := s.keycloak.GetUserInfo(ctx, token.AccessToken, s.cfg.KeyCloak.RealmName)
+	// if err == nil {
+	// 	safeStr := func(s *string) string {
+	// 		if s != nil {
+	// 			return *s
+	// 		}
+	// 		return ""
+	// 	}
 
-		userID := safeStr(userInfo.Sub)
-		username := safeStr(userInfo.PreferredUsername)
-		email := safeStr(userInfo.Email)
-		firstName := safeStr(userInfo.GivenName)
-		lastName := safeStr(userInfo.FamilyName)
+	// 	userID := safeStr(userInfo.Sub)
+	// 	username := safeStr(userInfo.PreferredUsername)
+	// 	email := safeStr(userInfo.Email)
+	// 	firstName := safeStr(userInfo.GivenName)
+	// 	lastName := safeStr(userInfo.FamilyName)
 
-		if userID != "" {
-			// Fetch Roles from Keycloak for Sync
-			var rolesList []string
-			adminToken, err := s.keycloak.LoginAdmin(ctx, s.cfg.KeyCloak.AdminUsername, s.cfg.KeyCloak.AdminPassword, "master")
-			if err == nil {
-				keycloakRoles, err := s.keycloak.GetRealmRolesByUserID(ctx, adminToken.AccessToken, s.cfg.KeyCloak.RealmName, userID)
-				if err == nil {
-					for _, r := range keycloakRoles {
-						if r.Name != nil {
-							rolesList = append(rolesList, *r.Name)
-						}
-					}
-				}
-			}
+	// 	if userID != "" {
+	// 		// Fetch Roles from Keycloak for Sync
+	// 		var rolesList []string
+	// 		adminToken, err := s.keycloak.LoginAdmin(ctx, s.cfg.KeyCloak.AdminUsername, s.cfg.KeyCloak.AdminPassword, "master")
+	// 		if err == nil {
+	// 			keycloakRoles, err := s.keycloak.GetRealmRolesByUserID(ctx, adminToken.AccessToken, s.cfg.KeyCloak.RealmName, userID)
+	// 			if err == nil {
+	// 				for _, r := range keycloakRoles {
+	// 					if r.Name != nil {
+	// 						rolesList = append(rolesList, *r.Name)
+	// 					}
+	// 				}
+	// 			}
+	// 		}
 
-			existingUserPtr, _ := s.authRepo.GetUserContext(ctx, userID)
-			if existingUserPtr == nil {
-				// Fallback: Check if user exists by username (synced users have random UUID but correct username)
-				existingUserPtr, _ = s.authRepo.FindByUsername(ctx, username)
-			}
+	// 		existingUserPtr, _ := s.authRepo.GetUserContext(ctx, userID)
+	// 		if existingUserPtr == nil {
+	// 			// Fallback: Check if user exists by username (synced users have random UUID but correct username)
+	// 			existingUserPtr, _ = s.authRepo.FindByUsername(ctx, username)
+	// 		}
 
-			// Merge existing local roles (Admin/Owner/Delegate) with Keycloak roles
-			if existingUserPtr != nil {
-				var existingRoles []string
-				// json.Unmarshal(existingUserPtr.Roles, &existingRoles)
-				_ = json.Unmarshal(existingUserPtr.Roles, &existingRoles)
-				rolesList = append(rolesList, existingRoles...)
-			}
-			rolesJSON, _ := json.Marshal(filterRoles(rolesList))
+	// 		// Merge existing local roles (Admin/Owner/Delegate) with Keycloak roles
+	// 		if existingUserPtr != nil {
+	// 			var existingRoles []string
+	// 			// json.Unmarshal(existingUserPtr.Roles, &existingRoles)
+	// 			_ = json.Unmarshal(existingUserPtr.Roles, &existingRoles)
+	// 			rolesList = append(rolesList, existingRoles...)
+	// 		}
+	// 		rolesJSON, _ := json.Marshal(filterRoles(rolesList))
 
-			// Prepare update data
-			userData := &models.UserEntity{
-				ID:        userID, // Use Keycloak UUID as the source of truth
-				Username:  username,
-				Email:     email,
-				FirstName: firstName,
-				LastName:  lastName,
-				Roles:     datatypes.JSON(rolesJSON),
-				IsActive:  true,
-				Deleted:   false, // Reactivate if previously deleted
-				UpdatedAt: time.Now(),
-			}
+	// 		// Prepare update data
+	// 		userData := &models.UserEntity{
+	// 			ID:        userID, // Use Keycloak UUID as the source of truth
+	// 			Username:  username,
+	// 			Email:     email,
+	// 			FirstName: firstName,
+	// 			LastName:  lastName,
+	// 			Roles:     datatypes.JSON(rolesJSON),
+	// 			IsActive:  true,
+	// 			Deleted:   false, // Reactivate if previously deleted
+	// 			UpdatedAt: time.Now(),
+	// 		}
 
-			if existingUserPtr != nil {
-				// If ID was different, we need to handle the change (Unification)
-				if existingUserPtr.ID != userID {
-					logs.Infof("[Login] Unifying user: %s, Current ID: %s -> New ID: %s", username, existingUserPtr.ID, userID)
-					if err := s.authRepo.UpdateUserID(ctx, existingUserPtr.ID, userID); err != nil {
-						logs.Errorf("[Login] Failed to unify user ID: %v", err)
-						// Proceeding might cause key violation if we don't return, but let's try to be resilient
-					}
-				}
+	// 		if existingUserPtr != nil {
+	// 			// If ID was different, we need to handle the change (Unification)
+	// 			if existingUserPtr.ID != userID {
+	// 				logs.Infof("[Login] Unifying user: %s, Current ID: %s -> New ID: %s", username, existingUserPtr.ID, userID)
+	// 				if err := s.authRepo.UpdateUserID(ctx, existingUserPtr.ID, userID); err != nil {
+	// 					logs.Errorf("[Login] Failed to unify user ID: %v", err)
+	// 					// Proceeding might cause key violation if we don't return, but let's try to be resilient
+	// 				}
+	// 			}
 
-				// Preserve existing NameTh/NameEn and DeptID
-				userData.NameTh = existingUserPtr.NameTh
-				userData.NameEn = existingUserPtr.NameEn
-				userData.CentralID = existingUserPtr.CentralID
-				userData.DepartmentID = existingUserPtr.DepartmentID
-				userData.CompanyID = existingUserPtr.CompanyID
-				userData.SectionID = existingUserPtr.SectionID
-				userData.PositionID = existingUserPtr.PositionID
-				_=s.authRepo.UpdateUser(ctx, userData)
-				_=s.authRepo.ReactivateUser(ctx, userID) // Force reactivation
-			} else {
-				userData.CreatedAt = time.Now()
-				_= s.authRepo.CreateUser(ctx, userData)
-			}
-		}
-	}
+	// 			// Preserve existing NameTh/NameEn and DeptID
+	// 			userData.NameTh = existingUserPtr.NameTh
+	// 			userData.NameEn = existingUserPtr.NameEn
+	// 			userData.CentralID = existingUserPtr.CentralID
+	// 			userData.DepartmentID = existingUserPtr.DepartmentID
+	// 			userData.CompanyID = existingUserPtr.CompanyID
+	// 			userData.SectionID = existingUserPtr.SectionID
+	// 			userData.PositionID = existingUserPtr.PositionID
+	// 			_=s.authRepo.UpdateUser(ctx, userData)
+	// 			_=s.authRepo.ReactivateUser(ctx, userID) // Force reactivation
+	// 		} else {
+	// 			userData.CreatedAt = time.Now()
+	// 			_= s.authRepo.CreateUser(ctx, userData)
+	// 		}
+	// 	}
+	// }
 
 	return token, nil
 }
@@ -276,7 +287,7 @@ func (s *authService) GetUserProfile(ctx context.Context, userID string) (*model
 	}
 
 	// 2. Fetch Permissions
-	perms, err := s.authRepo.GetUserPermissions(ctx, userID)
+	perms, err := s.authRepo.GetUserPermissions(ctx, user.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch user permissions: %v", err)
 	}

@@ -127,15 +127,15 @@ func processAuthenticatedUser(c *fiber.Ctx, authSrv models.AuthService, user *mo
 	var profile *models.UserInfo
 	if authSrv != nil {
 		var err error
-		profile, err = authSrv.GetUserProfile(c.UserContext(), user.ID)
+		profile, err = authSrv.GetUserProfile(c.UserContext(), user.Username)
 		if err != nil {
 			// Auto-provision if missing
 			logs.Warnf("User profile not found for %s (%s). Attempting auto-provisioning...", user.Username, user.ID)
-			profile, err = authSrv.ProvisionUser(c.UserContext(), user)
-			if err != nil {
-				logs.Errorf("Auto-provisioning failed for %s: %v", user.Username, err)
-				profile = user // Fallback to basic info if provisioning fails
-			}
+			// profile, err = authSrv.ProvisionUser(c.UserContext(), user)
+			// if err != nil {
+			// 	logs.Errorf("Auto-provisioning failed for %s: %v", user.Username, err)
+			// 	profile = user // Fallback to basic info if provisioning fails
+			// }
 		}
 	} else {
 		profile = user

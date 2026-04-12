@@ -49,7 +49,10 @@ func (m *MockExternalSyncRepository) UpsertCLIKLocal(ctx context.Context, data [
 type MockActualService struct {
 	mock.Mock
 }
-
+func (m *MockActualService) SyncActualsDebug(ctx context.Context, targetDocNo string) error {
+	args := m.Called(ctx, targetDocNo)
+	return args.Error(0)
+}
 func (m *MockActualService) SyncActuals(ctx context.Context, year string, months []string) error {
 	args := m.Called(ctx, year, months)
 	return args.Error(0)

@@ -125,25 +125,25 @@ func (s *server) StartCronJob() {
 		go func() {
 			s.SyncMutex.Lock()
 			defer s.SyncMutex.Unlock()
-		
+
 			ctx := context.Background()
 			logs.Info("🚀 IMMEDIATE STARTUP SYNC: STARTING NOW (DW -> MAPPING)...")
-		
+
 			// 1. Sync from Data Warehouse (Raw CLIK/ACHHMW data)
-			// if err := s.Shd.ExternalSyncService.SyncFromDW(ctx); err != nil {
-			// 	logs.Errorf("🚀 Startup Sync: DW Failed: %v", err)
-			// }
-		
+			if err := s.Shd.ExternalSyncService.SyncFromDW(ctx); err != nil {
+				logs.Errorf("🚀 Startup Sync: DW Failed: %v", err)
+			}
+
 			// 2. Refresh Mapping & Facts
 			now := time.Now()
-			for y := now.Year() ; y <= now.Year(); y++ {
+			for y := now.Year(); y <= now.Year(); y++ {
 				yStr := fmt.Sprintf("%d", y)
 				logs.Infof("🚀 Startup Sync: Mapping Year %s...", yStr)
 				if err := s.Shd.ActualService.SyncActuals(ctx, yStr, []string{}); err != nil {
 					logs.Errorf("🚀 Startup Sync: Mapping %s Failed: %v", yStr, err)
 				}
 			}
-		
+
 			// 3. Finalize Metadata
 			if err := s.Shd.ActualService.RefreshDataInventory(ctx); err != nil {
 				logs.Errorf("🚀 Startup Sync: RefreshDataInventory Failed: %v", err)
@@ -157,3 +157,70 @@ func (s *server) StartCronJob() {
 	s.Cron.Start()
 	logs.Info("⏰ Cron Scheduler Started")
 }
+
+
+// func (s *server) StartCronJob() {
+//     logs.Info("⚠️  DEBUG MODE: Cron Jobs are DISABLED. Running Targeted Sync Debug...")
+
+//     // 1. รัน Debug ใน Goroutine แยก
+//     go func() {
+//         // ใช้เวลาหลับสัก 5 วินาที เพื่อรอให้ระบบอื่นๆ (เช่น RabbitMQ/DB) นิ่งก่อน
+//         time.Sleep(5 * time.Second)
+
+//         s.SyncMutex.Lock()
+//         defer s.SyncMutex.Unlock()
+
+//         ctx := context.Background()
+
+//         // 🎯 ระบุเลขบิลเป้าหมาย (เช็คปี 2026 เดือน APR ในฟังก์ชัน Debug ด้วยนะครับ!)
+//         targetDoc := "C00-PVL2602-0082"
+
+//         logs.Infof("🚀 [DEBUG-ONLY] STARTING: Checking Document No. %s...", targetDoc)
+
+//         // เรียกฟังก์ชันที่เราโคลนไว้
+//         if err := s.Shd.ActualService.SyncActualsDebug(ctx, targetDoc); err != nil {
+//             logs.Errorf("❌ [DEBUG-ONLY] FAILED: %v", err)
+//         }
+
+//         logs.Info("🏁 [DEBUG-ONLY] COMPLETED: ตรวจสอบ Log ด้านบนเพื่อหาจุดที่ 'continue' (ข้าม)")
+//     }()
+
+//     // 🛑 บรรทัด s.Cron.Start() ต้องถูกคอมเมนต์ไว้ "เท่านั้น" ในตอนดีบัก!
+//     logs.Warn("⏰ CRON SCHEDULER IS STOPPED: ระบบจะไม่รัน Sync ปกติจนกว่าจะเปิดบรรทัดนี้")
+//     // s.Cron.Start() // <--- ห้ามเปิดเด็ดขาดตอนดีบัก!
+// }
+
+
+
+
+
+// func (s *server) StartCronJob() {
+//     logs.Info("⚠️  DEBUG MODE: Cron Jobs are DISABLED. Running Targeted Sync Debug...")
+
+//     go func() {
+//         // รอให้ระบบ Network/DB Ready
+//         time.Sleep(5 * time.Second)
+
+//         // ล็อค Mutex เพื่อจำลองสภาวะการทำงานจริงของ Sync
+//         s.SyncMutex.Lock()
+//         defer s.SyncMutex.Unlock()
+
+//         ctx := context.Background()
+
+//         // 🎯 TARGET: บิลใบนี้คือปี 2026 เดือน 02 (FEB)
+//         targetDoc := "C00-PVL2602-0082"
+
+//         logs.Infof("🚀 [DEBUG-ONLY] STARTING: Checking Document No. %s...", targetDoc)
+//         logs.Info("📅 [DEBUG-INFO] ระบบจะค้นหาใน Year: 2026 | Month: FEB (อ้างอิงตามเลขบิล)")
+
+//         if err := s.Shd.ActualService.SyncActualsDebug(ctx, targetDoc); err != nil {
+//             logs.Errorf("❌ [DEBUG-ONLY] FAILED: %v", err)
+//         }
+
+//         logs.Info("🏁 [DEBUG-ONLY] COMPLETED: ตรวจสอบ Log ด้านบนเพื่อดูผลลัพธ์ STEP 1 และ STEP 2")
+//     }()
+
+//     // 🛑 ปิด Cron ปกติไว้เพื่อไม่ให้ Log ตีกัน
+//     logs.Warn("⏰ CRON SCHEDULER IS STOPPED: Running ONLY Targeted Debug Mode")
+//     // s.Cron.Start() 
+// }

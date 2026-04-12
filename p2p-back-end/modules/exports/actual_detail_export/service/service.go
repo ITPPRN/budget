@@ -36,7 +36,7 @@ func (s *service) ExportActualDetailExcel(ctx context.Context, user *models.User
 		"Entity", "Branch", "Department",
 		"GROUP1", "GROUP2", "GROUP3",
 		"GL Code", "GL Name",
-		"Document No.", "Amount", "Vendor", "Description", "Date",
+		"Document No.", "Amount", "Vendor", "Description", "Date", "Status",
 	}
 
 	if err := helper.SetHeaders(headers); err != nil {
@@ -59,6 +59,7 @@ func (s *service) ExportActualDetailExcel(ctx context.Context, user *models.User
 		_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("K%d", rowIdx), row.VendorName)
 		_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("L%d", rowIdx), row.Description)
 		_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("M%d", rowIdx), row.PostingDate)
+		_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("N%d", rowIdx), row.Status)
 		rowIdx++
 	}
 

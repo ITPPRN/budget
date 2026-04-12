@@ -125,19 +125,18 @@ func LogHttp(c *fiber.Ctx) error {
 	
 
 	// 🔥 Capture Request Body for POST/PUT (Great for debugging Frontend mismatches)
-	reqBody := ""
+	// reqBody := ""
 	method := c.Method()
-	contentType := string(c.Request().Header.ContentType())
-	if (method == "POST" || method == "PUT") && !strings.Contains(contentType, "multipart/form-data") {
-		reqBody = string(c.Body())
-	}
+	// contentType := string(c.Request().Header.ContentType())
+	// if (method == "POST" || method == "PUT") && !strings.Contains(contentType, "multipart/form-data") {
+	// 	reqBody = string(c.Body())
+	// }
 
 
-	Infof("HTTP response - status: %d, method: %s, path: %s, body: %s, ip: %s, duration: %s",
+	Infof("HTTP response - status: %d, method: %s, path: %s, ip: %s, duration: %s",
 		respStatus,
 		method,
 		c.Path(),
-		reqBody,
 		c.IP(),
 		duration,
 	)
