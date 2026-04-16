@@ -211,7 +211,7 @@ const UserManagePage = () => {
   const isDelegate = currentUserRole === 'DELEGATE';
 
   const getAllowedRoles = () => {
-    if (currentUserRole === 'ADMIN') return ['OWNER'];
+    if (currentUserRole === 'ADMIN') return ['OWNER', 'DELEGATE'];
     if (currentUserRole === 'OWNER') return ['DELEGATE'];
     return [];
   };
