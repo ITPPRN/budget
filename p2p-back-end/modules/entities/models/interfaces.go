@@ -202,6 +202,8 @@ type ActualRepository interface {
 	GetAggregatedCLIK(ctx context.Context, year string, months []string) ([]ActualAggregatedDTO, error)
 	GetRawTransactionsCLIK(ctx context.Context, year string, months []string) ([]ActualTransactionDTO, error)
 	CreateActualTransactions(ctx context.Context, txs []ActualTransactionEntity) error
+	GetNonPendingTransactionKeys(ctx context.Context, year string, months []string) (map[string]string, error)
+	RestoreTransactionStatuses(ctx context.Context, statusMap map[string]string) error
 	GetRawDate(ctx context.Context) (string, error)
 	RefreshDataInventory(ctx context.Context) error
 }

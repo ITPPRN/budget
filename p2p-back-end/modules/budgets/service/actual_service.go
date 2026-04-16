@@ -104,6 +104,15 @@ func (s *actualService) SyncActuals(ctx context.Context, year string, months []s
 
 	// 4. Persistence with Transaction & Batching
 	return s.repo.WithTrx(func(trxRepo models.ActualRepository) error {
+		// Preserve non-PENDING statuses (CONFIRMED, COMPLETE, REPORTED, etc.) before deleting
+		preservedStatuses, err := trxRepo.GetNonPendingTransactionKeys(ctx, year, targetMonths)
+		if err != nil {
+			fmt.Printf("[WARN] Failed to get preserved statuses: %v\n", err)
+			preservedStatuses = nil
+		} else if len(preservedStatuses) > 0 {
+			fmt.Printf("[Sync] Preserving %d non-PENDING transaction statuses\n", len(preservedStatuses))
+		}
+
 		if fullYearSync {
 			// Wipe whole year once
 			if err := trxRepo.DeleteActualFactsByYear(ctx, year); err != nil {
@@ -257,6 +266,15 @@ func (s *actualService) SyncActuals(ctx context.Context, year string, months []s
 			// }
 			// hmwRows = nil
 			// clikRows = nil
+		}
+
+		// 4.5 Restore preserved statuses for transactions that were previously confirmed/completed
+		if len(preservedStatuses) > 0 {
+			if err := trxRepo.RestoreTransactionStatuses(ctx, preservedStatuses); err != nil {
+				fmt.Printf("[WARN] Failed to restore transaction statuses: %v\n", err)
+			} else {
+				fmt.Printf("[Sync] Successfully restored preserved statuses\n")
+			}
 		}
 
 		// 5. Save Aggregated Facts (Re-build Headers)

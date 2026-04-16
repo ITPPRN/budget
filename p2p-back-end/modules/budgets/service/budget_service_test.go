@@ -106,6 +106,19 @@ func (m *MockActualRepository) CreateActualTransactions(ctx context.Context, txs
 	return args.Error(0)
 }
 
+func (m *MockActualRepository) GetNonPendingTransactionKeys(ctx context.Context, year string, months []string) (map[string]string, error) {
+	args := m.Called(ctx, year, months)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(map[string]string), args.Error(1)
+}
+
+func (m *MockActualRepository) RestoreTransactionStatuses(ctx context.Context, statusMap map[string]string) error {
+	args := m.Called(ctx, statusMap)
+	return args.Error(0)
+}
+
 func (m *MockActualRepository) GetRawDate(ctx context.Context) (string, error) {
 	args := m.Called(ctx)
 	return args.String(0), args.Error(1)
@@ -1625,6 +1638,574 @@ func TestGetReportableTransactions_WithDepartment(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, result, 1)
 	assert.Equal(t, "DOC001", result[0].DocNo)
+}
+
+// ============================================================
+// SYNC ACTUALS - STATUS PRESERVATION TESTS
+// ============================================================
+
+// TestSyncActuals_PreservesConfirmedStatuses verifies that when a sync runs
+// for specific months, transactions with non-PENDING statuses (e.g., CONFIRMED)
+// are preserved and restored after the new data is inserted.
+func TestSyncActuals_PreservesConfirmedStatuses(t *testing.T) {
+	repo := new(MockActualRepository)
+	masterSrv := new(MockMasterDataService)
+	dashSrv := new(MockDashboardService)
+	depSrv := new(MockDepartmentService)
+	svc := NewActualService(repo, masterSrv, dashSrv, depSrv)
+
+	// GL Mapping: HMW + 51000 -> C5100
+	groupings := []models.GlGroupingEntity{
+		{Entity: "HMW", EntityGL: "51000", ConsoGL: "C5100", AccountName: "Salary", Group1: "SGA", IsActive: true},
+	}
+	masterSrv.On("ListGLGroupings", mock.Anything).Return(groupings, nil)
+
+	// Preserved statuses: one transaction was previously CONFIRMED
+	preservedMap := map[string]string{
+		"HMW|51000|DOC001|2026-04-15": "CONFIRMED",
+	}
+
+	// Raw data from source tables
+	hmwRows := []models.ActualTransactionDTO{
+		{
+			Source: "HMW", Company: "HMW", EntityGL: "51000",
+			PostingDate: "2026-04-15", DocNo: "DOC001",
+			Description: "Salary payment", Amount: decimal.NewFromInt(50000),
+			Vendor: "Vendor A", Department: "ACC", Branch: "HEAD OFFICE",
+		},
+	}
+
+	// Mock expectations (in call order within transaction)
+	repo.On("WithTrx", mock.AnythingOfType("func(models.ActualRepository) error")).Return(nil)
+	repo.On("GetNonPendingTransactionKeys", mock.Anything, "2026", []string{"APR"}).Return(preservedMap, nil)
+	repo.On("DeleteActualFactsByMonth", mock.Anything, "2026", "APR").Return(nil)
+	repo.On("DeleteActualTransactionsByMonth", mock.Anything, "2026", "APR").Return(nil)
+	repo.On("GetRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}).Return(hmwRows, nil)
+	repo.On("GetRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}).Return([]models.ActualTransactionDTO{}, nil)
+	depSrv.On("GetMasterDepartment", mock.Anything, "ACC", "HMW").Return(&models.DepartmentEntity{Code: "ACC"}, nil)
+	repo.On("CreateActualTransactions", mock.Anything, mock.Anything).Return(nil)
+	repo.On("RestoreTransactionStatuses", mock.Anything, preservedMap).Return(nil)
+	repo.On("CreateActualFacts", mock.Anything, mock.Anything).Return(nil)
+	repo.On("RefreshDataInventory", mock.Anything).Return(nil)
+
+	err := svc.SyncActuals(context.Background(), "2026", []string{"APR"})
+
+	assert.NoError(t, err)
+	// Verify the status preservation flow was called
+	repo.AssertCalled(t, "GetNonPendingTransactionKeys", mock.Anything, "2026", []string{"APR"})
+	repo.AssertCalled(t, "RestoreTransactionStatuses", mock.Anything, preservedMap)
+}
+
+// TestSyncActuals_FullYearPreservesStatuses verifies full-year sync also preserves statuses.
+func TestSyncActuals_FullYearPreservesStatuses(t *testing.T) {
+	repo := new(MockActualRepository)
+	masterSrv := new(MockMasterDataService)
+	dashSrv := new(MockDashboardService)
+	depSrv := new(MockDepartmentService)
+	svc := NewActualService(repo, masterSrv, dashSrv, depSrv)
+
+	allMonths := []string{"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"}
+
+	masterSrv.On("ListGLGroupings", mock.Anything).Return([]models.GlGroupingEntity{}, nil)
+
+	preservedMap := map[string]string{
+		"HMW|51000|DOC001|2026-01-10": "COMPLETE",
+		"HMW|51000|DOC002|2026-03-20": "CONFIRMED",
+	}
+
+	repo.On("WithTrx", mock.AnythingOfType("func(models.ActualRepository) error")).Return(nil)
+	repo.On("GetNonPendingTransactionKeys", mock.Anything, "2026", allMonths).Return(preservedMap, nil)
+	repo.On("DeleteActualFactsByYear", mock.Anything, "2026").Return(nil)
+	repo.On("DeleteActualTransactionsByYear", mock.Anything, "2026").Return(nil)
+	for _, m := range allMonths {
+		repo.On("GetRawTransactionsHMW", mock.Anything, "2026", []string{m}).Return([]models.ActualTransactionDTO{}, nil)
+		repo.On("GetRawTransactionsCLIK", mock.Anything, "2026", []string{m}).Return([]models.ActualTransactionDTO{}, nil)
+	}
+	repo.On("RestoreTransactionStatuses", mock.Anything, preservedMap).Return(nil)
+	repo.On("RefreshDataInventory", mock.Anything).Return(nil)
+
+	err := svc.SyncActuals(context.Background(), "2026", []string{})
+
+	assert.NoError(t, err)
+	repo.AssertCalled(t, "GetNonPendingTransactionKeys", mock.Anything, "2026", allMonths)
+	repo.AssertCalled(t, "RestoreTransactionStatuses", mock.Anything, preservedMap)
+}
+
+// TestSyncActuals_NoPreservedStatuses verifies that when there are no non-PENDING
+// transactions, RestoreTransactionStatuses is NOT called (nothing to restore).
+func TestSyncActuals_NoPreservedStatuses(t *testing.T) {
+	repo := new(MockActualRepository)
+	masterSrv := new(MockMasterDataService)
+	dashSrv := new(MockDashboardService)
+	depSrv := new(MockDepartmentService)
+	svc := NewActualService(repo, masterSrv, dashSrv, depSrv)
+
+	masterSrv.On("ListGLGroupings", mock.Anything).Return([]models.GlGroupingEntity{}, nil)
+
+	// Empty map = no non-PENDING records exist
+	emptyMap := map[string]string{}
+
+	repo.On("WithTrx", mock.AnythingOfType("func(models.ActualRepository) error")).Return(nil)
+	repo.On("GetNonPendingTransactionKeys", mock.Anything, "2026", []string{"APR"}).Return(emptyMap, nil)
+	repo.On("DeleteActualFactsByMonth", mock.Anything, "2026", "APR").Return(nil)
+	repo.On("DeleteActualTransactionsByMonth", mock.Anything, "2026", "APR").Return(nil)
+	repo.On("GetRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}).Return([]models.ActualTransactionDTO{}, nil)
+	repo.On("GetRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}).Return([]models.ActualTransactionDTO{}, nil)
+	repo.On("RefreshDataInventory", mock.Anything).Return(nil)
+
+	err := svc.SyncActuals(context.Background(), "2026", []string{"APR"})
+
+	assert.NoError(t, err)
+	// RestoreTransactionStatuses should NOT be called when map is empty
+	repo.AssertNotCalled(t, "RestoreTransactionStatuses", mock.Anything, mock.Anything)
+}
+
+// TestSyncActuals_PreserveStatusesFetchError verifies that if fetching preserved
+// statuses fails, the sync still completes successfully (graceful degradation).
+func TestSyncActuals_PreserveStatusesFetchError(t *testing.T) {
+	repo := new(MockActualRepository)
+	masterSrv := new(MockMasterDataService)
+	dashSrv := new(MockDashboardService)
+	depSrv := new(MockDepartmentService)
+	svc := NewActualService(repo, masterSrv, dashSrv, depSrv)
+
+	masterSrv.On("ListGLGroupings", mock.Anything).Return([]models.GlGroupingEntity{}, nil)
+
+	// GetNonPendingTransactionKeys returns error
+	repo.On("WithTrx", mock.AnythingOfType("func(models.ActualRepository) error")).Return(nil)
+	repo.On("GetNonPendingTransactionKeys", mock.Anything, "2026", []string{"APR"}).Return(nil, errors.New("db error"))
+	repo.On("DeleteActualFactsByMonth", mock.Anything, "2026", "APR").Return(nil)
+	repo.On("DeleteActualTransactionsByMonth", mock.Anything, "2026", "APR").Return(nil)
+	repo.On("GetRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}).Return([]models.ActualTransactionDTO{}, nil)
+	repo.On("GetRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}).Return([]models.ActualTransactionDTO{}, nil)
+	repo.On("RefreshDataInventory", mock.Anything).Return(nil)
+
+	err := svc.SyncActuals(context.Background(), "2026", []string{"APR"})
+
+	// Sync should still succeed even if status preservation fails
+	assert.NoError(t, err)
+	// RestoreTransactionStatuses should NOT be called since preserved map is nil
+	repo.AssertNotCalled(t, "RestoreTransactionStatuses", mock.Anything, mock.Anything)
+}
+
+// TestSyncActuals_MultipleMonthsPreserveStatuses verifies that syncing multiple
+// specific months correctly preserves statuses across all of them.
+func TestSyncActuals_MultipleMonthsPreserveStatuses(t *testing.T) {
+	repo := new(MockActualRepository)
+	masterSrv := new(MockMasterDataService)
+	dashSrv := new(MockDashboardService)
+	depSrv := new(MockDepartmentService)
+	svc := NewActualService(repo, masterSrv, dashSrv, depSrv)
+
+	masterSrv.On("ListGLGroupings", mock.Anything).Return([]models.GlGroupingEntity{}, nil)
+
+	months := []string{"JAN", "FEB"}
+	preservedMap := map[string]string{
+		"HMW|51000|DOC001|2026-01-10": "CONFIRMED",
+		"HMW|52000|DOC005|2026-02-20": "COMPLETE",
+		"CLIK|61000|DOC010|2026-02-28": "REPORTED",
+	}
+
+	repo.On("WithTrx", mock.AnythingOfType("func(models.ActualRepository) error")).Return(nil)
+	repo.On("GetNonPendingTransactionKeys", mock.Anything, "2026", months).Return(preservedMap, nil)
+	for _, m := range months {
+		repo.On("DeleteActualFactsByMonth", mock.Anything, "2026", m).Return(nil)
+		repo.On("DeleteActualTransactionsByMonth", mock.Anything, "2026", m).Return(nil)
+		repo.On("GetRawTransactionsHMW", mock.Anything, "2026", []string{m}).Return([]models.ActualTransactionDTO{}, nil)
+		repo.On("GetRawTransactionsCLIK", mock.Anything, "2026", []string{m}).Return([]models.ActualTransactionDTO{}, nil)
+	}
+	repo.On("RestoreTransactionStatuses", mock.Anything, preservedMap).Return(nil)
+	repo.On("RefreshDataInventory", mock.Anything).Return(nil)
+
+	err := svc.SyncActuals(context.Background(), "2026", months)
+
+	assert.NoError(t, err)
+	repo.AssertCalled(t, "GetNonPendingTransactionKeys", mock.Anything, "2026", months)
+	repo.AssertCalled(t, "RestoreTransactionStatuses", mock.Anything, preservedMap)
+}
+
+// ============================================================
+// SYNC ACTUALS - DATA INTEGRITY & ROBUSTNESS TESTS
+// ============================================================
+
+// TestSyncActuals_RestoreError_SyncStillSucceeds verifies that if
+// RestoreTransactionStatuses itself fails, the sync still completes.
+func TestSyncActuals_RestoreError_SyncStillSucceeds(t *testing.T) {
+	repo := new(MockActualRepository)
+	masterSrv := new(MockMasterDataService)
+	dashSrv := new(MockDashboardService)
+	depSrv := new(MockDepartmentService)
+	svc := NewActualService(repo, masterSrv, dashSrv, depSrv)
+
+	masterSrv.On("ListGLGroupings", mock.Anything).Return([]models.GlGroupingEntity{}, nil)
+
+	preservedMap := map[string]string{"HMW|51000|DOC001|2026-04-15": "CONFIRMED"}
+
+	repo.On("WithTrx", mock.AnythingOfType("func(models.ActualRepository) error")).Return(nil)
+	repo.On("GetNonPendingTransactionKeys", mock.Anything, "2026", []string{"APR"}).Return(preservedMap, nil)
+	repo.On("DeleteActualFactsByMonth", mock.Anything, "2026", "APR").Return(nil)
+	repo.On("DeleteActualTransactionsByMonth", mock.Anything, "2026", "APR").Return(nil)
+	repo.On("GetRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}).Return([]models.ActualTransactionDTO{}, nil)
+	repo.On("GetRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}).Return([]models.ActualTransactionDTO{}, nil)
+	repo.On("RestoreTransactionStatuses", mock.Anything, preservedMap).Return(errors.New("restore failed"))
+	repo.On("RefreshDataInventory", mock.Anything).Return(nil)
+
+	err := svc.SyncActuals(context.Background(), "2026", []string{"APR"})
+
+	// Sync should still succeed even if restore fails
+	assert.NoError(t, err)
+	repo.AssertCalled(t, "RestoreTransactionStatuses", mock.Anything, preservedMap)
+}
+
+// TestSyncActuals_VerifyTransactionDataIntegrity verifies that the transaction
+// data created during sync has correct field mappings (entity normalization,
+// GL mapping, branch mapping, department mapping, etc.)
+func TestSyncActuals_VerifyTransactionDataIntegrity(t *testing.T) {
+	repo := new(MockActualRepository)
+	masterSrv := new(MockMasterDataService)
+	dashSrv := new(MockDashboardService)
+	depSrv := new(MockDepartmentService)
+	svc := NewActualService(repo, masterSrv, dashSrv, depSrv)
+
+	// GL Mapping
+	groupings := []models.GlGroupingEntity{
+		{Entity: "HMW", EntityGL: "51000", ConsoGL: "C5100", AccountName: "Salary", Group1: "SGA", IsActive: true},
+		{Entity: "CLIK", EntityGL: "61000", ConsoGL: "C6100", AccountName: "Software License", Group1: "COGS", IsActive: true},
+	}
+	masterSrv.On("ListGLGroupings", mock.Anything).Return(groupings, nil)
+
+	// Raw data: 2 transactions from different sources
+	hmwRows := []models.ActualTransactionDTO{
+		{
+			Source: "HMW", Company: "HONDA MALIWAN", EntityGL: "51000",
+			PostingDate: "2026-04-15", DocNo: "DOC001",
+			Description: "Salary Apr", Amount: decimal.NewFromInt(50000),
+			Vendor: "Vendor A", Department: "ACCOUNTING", Branch: "HEAD OFFICE",
+		},
+	}
+	clikRows := []models.ActualTransactionDTO{
+		{
+			Source: "CLIK", Company: "CLIK", EntityGL: "61000",
+			PostingDate: "2026-04-20", DocNo: "DOC002",
+			Description: "License Fee", Amount: decimal.NewFromInt(30000),
+			Vendor: "Vendor B", Department: "IT", Branch: "",
+		},
+	}
+
+	// Department mapping
+	depSrv.On("GetMasterDepartment", mock.Anything, "ACCOUNTING", "HMW").Return(&models.DepartmentEntity{Code: "ACC"}, nil)
+	depSrv.On("GetMasterDepartment", mock.Anything, "IT", "CLIK").Return(&models.DepartmentEntity{Code: "IT"}, nil)
+
+	// Capture the transactions passed to CreateActualTransactions
+	var capturedTxs []models.ActualTransactionEntity
+	repo.On("WithTrx", mock.AnythingOfType("func(models.ActualRepository) error")).Return(nil)
+	repo.On("GetNonPendingTransactionKeys", mock.Anything, "2026", []string{"APR"}).Return(map[string]string{}, nil)
+	repo.On("DeleteActualFactsByMonth", mock.Anything, "2026", "APR").Return(nil)
+	repo.On("DeleteActualTransactionsByMonth", mock.Anything, "2026", "APR").Return(nil)
+	repo.On("GetRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}).Return(hmwRows, nil)
+	repo.On("GetRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}).Return(clikRows, nil)
+	repo.On("CreateActualTransactions", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		txs := args.Get(1).([]models.ActualTransactionEntity)
+		capturedTxs = append(capturedTxs, txs...)
+	}).Return(nil)
+	repo.On("CreateActualFacts", mock.Anything, mock.Anything).Return(nil)
+	repo.On("RefreshDataInventory", mock.Anything).Return(nil)
+
+	err := svc.SyncActuals(context.Background(), "2026", []string{"APR"})
+	assert.NoError(t, err)
+
+	// Verify we got 2 transactions
+	assert.Len(t, capturedTxs, 2)
+
+	// Verify HMW transaction field mapping
+	hmwTx := capturedTxs[0]
+	assert.Equal(t, "HMW", hmwTx.Entity, "Company 'HONDA MALIWAN' should normalize to 'HMW'")
+	assert.Equal(t, "51000", hmwTx.EntityGL)
+	assert.Equal(t, "C5100", hmwTx.ConsoGL, "EntityGL 51000 should map to ConsoGL C5100")
+	assert.Equal(t, "Salary", hmwTx.GLAccountName, "GL name should come from mapping table")
+	assert.Equal(t, "DOC001", hmwTx.DocNo)
+	assert.Equal(t, "2026-04-15", hmwTx.PostingDate)
+	assert.True(t, hmwTx.Amount.Equal(decimal.NewFromInt(50000)))
+	assert.Equal(t, "Vendor A", hmwTx.VendorName)
+	assert.Equal(t, "ACC", hmwTx.Department, "Raw 'ACCOUNTING' should map to master dept code 'ACC'")
+	assert.Equal(t, "HOF", hmwTx.Branch, "Raw 'HEAD OFFICE' should map to code 'HOF'")
+	assert.Equal(t, "2026", hmwTx.Year)
+	assert.Equal(t, "HMW", hmwTx.Source)
+	assert.NotEqual(t, uuid.Nil, hmwTx.ID, "UUID should be generated")
+
+	// Verify CLIK transaction field mapping
+	clikTx := capturedTxs[1]
+	assert.Equal(t, "CLIK", clikTx.Entity)
+	assert.Equal(t, "C6100", clikTx.ConsoGL, "EntityGL 61000 should map to ConsoGL C6100")
+	assert.Equal(t, "Software License", clikTx.GLAccountName)
+	assert.Equal(t, "IT", clikTx.Department)
+	assert.Equal(t, "Branch00", clikTx.Branch, "Empty branch should map to 'Branch00'")
+}
+
+// TestSyncActuals_UnmappedGLsAreFiltered verifies that raw transactions
+// with GL accounts not in the mapping table are excluded from sync.
+func TestSyncActuals_UnmappedGLsAreFiltered(t *testing.T) {
+	repo := new(MockActualRepository)
+	masterSrv := new(MockMasterDataService)
+	dashSrv := new(MockDashboardService)
+	depSrv := new(MockDepartmentService)
+	svc := NewActualService(repo, masterSrv, dashSrv, depSrv)
+
+	// Only GL 51000 is mapped
+	groupings := []models.GlGroupingEntity{
+		{Entity: "HMW", EntityGL: "51000", ConsoGL: "C5100", AccountName: "Salary", Group1: "SGA", IsActive: true},
+	}
+	masterSrv.On("ListGLGroupings", mock.Anything).Return(groupings, nil)
+
+	// 3 raw rows: 1 mapped + 2 unmapped
+	hmwRows := []models.ActualTransactionDTO{
+		{Source: "HMW", Company: "HMW", EntityGL: "51000", PostingDate: "2026-04-10", DocNo: "DOC-MAPPED", Amount: decimal.NewFromInt(1000), Department: "ACC", Branch: "HEAD OFFICE"},
+		{Source: "HMW", Company: "HMW", EntityGL: "99999", PostingDate: "2026-04-11", DocNo: "DOC-UNMAPPED1", Amount: decimal.NewFromInt(2000), Department: "ACC", Branch: "HEAD OFFICE"},
+		{Source: "HMW", Company: "HMW", EntityGL: "88888", PostingDate: "2026-04-12", DocNo: "DOC-UNMAPPED2", Amount: decimal.NewFromInt(3000), Department: "ACC", Branch: "HEAD OFFICE"},
+	}
+
+	depSrv.On("GetMasterDepartment", mock.Anything, "ACC", "HMW").Return(&models.DepartmentEntity{Code: "ACC"}, nil)
+
+	var capturedTxs []models.ActualTransactionEntity
+	repo.On("WithTrx", mock.AnythingOfType("func(models.ActualRepository) error")).Return(nil)
+	repo.On("GetNonPendingTransactionKeys", mock.Anything, "2026", []string{"APR"}).Return(map[string]string{}, nil)
+	repo.On("DeleteActualFactsByMonth", mock.Anything, "2026", "APR").Return(nil)
+	repo.On("DeleteActualTransactionsByMonth", mock.Anything, "2026", "APR").Return(nil)
+	repo.On("GetRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}).Return(hmwRows, nil)
+	repo.On("GetRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}).Return([]models.ActualTransactionDTO{}, nil)
+	repo.On("CreateActualTransactions", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		txs := args.Get(1).([]models.ActualTransactionEntity)
+		capturedTxs = append(capturedTxs, txs...)
+	}).Return(nil)
+	repo.On("CreateActualFacts", mock.Anything, mock.Anything).Return(nil)
+	repo.On("RefreshDataInventory", mock.Anything).Return(nil)
+
+	err := svc.SyncActuals(context.Background(), "2026", []string{"APR"})
+	assert.NoError(t, err)
+
+	// Only 1 of 3 transactions should pass through (the mapped one)
+	assert.Len(t, capturedTxs, 1, "Only mapped GL should create transactions")
+	assert.Equal(t, "DOC-MAPPED", capturedTxs[0].DocNo)
+	assert.Equal(t, "C5100", capturedTxs[0].ConsoGL)
+}
+
+// TestSyncActuals_VerifyFactAggregation verifies that the fact table
+// correctly aggregates amounts from multiple transactions with the same key.
+func TestSyncActuals_VerifyFactAggregation(t *testing.T) {
+	repo := new(MockActualRepository)
+	masterSrv := new(MockMasterDataService)
+	dashSrv := new(MockDashboardService)
+	depSrv := new(MockDepartmentService)
+	svc := NewActualService(repo, masterSrv, dashSrv, depSrv)
+
+	groupings := []models.GlGroupingEntity{
+		{Entity: "HMW", EntityGL: "51000", ConsoGL: "C5100", AccountName: "Salary", Group1: "SGA", IsActive: true},
+	}
+	masterSrv.On("ListGLGroupings", mock.Anything).Return(groupings, nil)
+
+	// 3 transactions with same GL but different amounts → should aggregate
+	hmwRows := []models.ActualTransactionDTO{
+		{Source: "HMW", Company: "HMW", EntityGL: "51000", PostingDate: "2026-04-10", DocNo: "DOC-A", Amount: decimal.NewFromInt(10000), Vendor: "V1", Department: "ACC", Branch: "HEAD OFFICE"},
+		{Source: "HMW", Company: "HMW", EntityGL: "51000", PostingDate: "2026-04-15", DocNo: "DOC-B", Amount: decimal.NewFromInt(25000), Vendor: "V1", Department: "ACC", Branch: "HEAD OFFICE"},
+		{Source: "HMW", Company: "HMW", EntityGL: "51000", PostingDate: "2026-04-28", DocNo: "DOC-C", Amount: decimal.NewFromInt(15000), Vendor: "V1", Department: "ACC", Branch: "HEAD OFFICE"},
+	}
+
+	depSrv.On("GetMasterDepartment", mock.Anything, "ACC", "HMW").Return(&models.DepartmentEntity{Code: "ACC"}, nil)
+
+	var capturedTxs []models.ActualTransactionEntity
+	var capturedFacts []models.ActualFactEntity
+
+	repo.On("WithTrx", mock.AnythingOfType("func(models.ActualRepository) error")).Return(nil)
+	repo.On("GetNonPendingTransactionKeys", mock.Anything, "2026", []string{"APR"}).Return(map[string]string{}, nil)
+	repo.On("DeleteActualFactsByMonth", mock.Anything, "2026", "APR").Return(nil)
+	repo.On("DeleteActualTransactionsByMonth", mock.Anything, "2026", "APR").Return(nil)
+	repo.On("GetRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}).Return(hmwRows, nil)
+	repo.On("GetRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}).Return([]models.ActualTransactionDTO{}, nil)
+	repo.On("CreateActualTransactions", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		txs := args.Get(1).([]models.ActualTransactionEntity)
+		capturedTxs = append(capturedTxs, txs...)
+	}).Return(nil)
+	repo.On("CreateActualFacts", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		facts := args.Get(1).([]models.ActualFactEntity)
+		capturedFacts = append(capturedFacts, facts...)
+	}).Return(nil)
+	repo.On("RefreshDataInventory", mock.Anything).Return(nil)
+
+	err := svc.SyncActuals(context.Background(), "2026", []string{"APR"})
+	assert.NoError(t, err)
+
+	// All 3 raw transactions should be created individually
+	assert.Len(t, capturedTxs, 3, "Each raw row creates one transaction")
+
+	// Facts should be aggregated: same entity+branch+dept+GL+vendor+month = 1 fact header
+	assert.Len(t, capturedFacts, 1, "Same key should aggregate into one fact header")
+
+	fact := capturedFacts[0]
+	assert.Equal(t, "HMW", fact.Entity)
+	assert.Equal(t, "C5100", fact.ConsoGL)
+	assert.Equal(t, "SGA", fact.Group)
+	// YearTotal = 10000 + 25000 + 15000 = 50000
+	assert.True(t, fact.YearTotal.Equal(decimal.NewFromInt(50000)),
+		"YearTotal should be 50000, got %s", fact.YearTotal.String())
+	// Should have 1 month amount (APR)
+	assert.Len(t, fact.ActualAmounts, 1)
+	assert.Equal(t, "APR", fact.ActualAmounts[0].Month)
+	assert.True(t, fact.ActualAmounts[0].Amount.Equal(decimal.NewFromInt(50000)),
+		"APR amount should be 50000, got %s", fact.ActualAmounts[0].Amount.String())
+}
+
+// TestSyncActuals_InactiveGLMappingIgnored verifies that GL mappings
+// with IsActive=false are not used for matching.
+func TestSyncActuals_InactiveGLMappingIgnored(t *testing.T) {
+	repo := new(MockActualRepository)
+	masterSrv := new(MockMasterDataService)
+	dashSrv := new(MockDashboardService)
+	depSrv := new(MockDepartmentService)
+	svc := NewActualService(repo, masterSrv, dashSrv, depSrv)
+
+	groupings := []models.GlGroupingEntity{
+		{Entity: "HMW", EntityGL: "51000", ConsoGL: "C5100", AccountName: "Salary", Group1: "SGA", IsActive: false}, // INACTIVE
+	}
+	masterSrv.On("ListGLGroupings", mock.Anything).Return(groupings, nil)
+
+	hmwRows := []models.ActualTransactionDTO{
+		{Source: "HMW", Company: "HMW", EntityGL: "51000", PostingDate: "2026-04-10", DocNo: "DOC001", Amount: decimal.NewFromInt(1000), Department: "ACC", Branch: "HEAD OFFICE"},
+	}
+
+	repo.On("WithTrx", mock.AnythingOfType("func(models.ActualRepository) error")).Return(nil)
+	repo.On("GetNonPendingTransactionKeys", mock.Anything, "2026", []string{"APR"}).Return(map[string]string{}, nil)
+	repo.On("DeleteActualFactsByMonth", mock.Anything, "2026", "APR").Return(nil)
+	repo.On("DeleteActualTransactionsByMonth", mock.Anything, "2026", "APR").Return(nil)
+	repo.On("GetRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}).Return(hmwRows, nil)
+	repo.On("GetRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}).Return([]models.ActualTransactionDTO{}, nil)
+	repo.On("RefreshDataInventory", mock.Anything).Return(nil)
+
+	err := svc.SyncActuals(context.Background(), "2026", []string{"APR"})
+	assert.NoError(t, err)
+
+	// CreateActualTransactions should NOT be called since no rows matched
+	repo.AssertNotCalled(t, "CreateActualTransactions", mock.Anything, mock.Anything)
+}
+
+// TestSyncActuals_NegativeAmountsPreserved verifies that negative amounts
+// (credit entries, reversals) are correctly handled and not lost.
+func TestSyncActuals_NegativeAmountsPreserved(t *testing.T) {
+	repo := new(MockActualRepository)
+	masterSrv := new(MockMasterDataService)
+	dashSrv := new(MockDashboardService)
+	depSrv := new(MockDepartmentService)
+	svc := NewActualService(repo, masterSrv, dashSrv, depSrv)
+
+	groupings := []models.GlGroupingEntity{
+		{Entity: "HMW", EntityGL: "51000", ConsoGL: "C5100", AccountName: "Salary", Group1: "SGA", IsActive: true},
+	}
+	masterSrv.On("ListGLGroupings", mock.Anything).Return(groupings, nil)
+
+	hmwRows := []models.ActualTransactionDTO{
+		{Source: "HMW", Company: "HMW", EntityGL: "51000", PostingDate: "2026-04-10", DocNo: "DOC-POS", Amount: decimal.NewFromInt(100000), Vendor: "V1", Department: "ACC", Branch: "HEAD OFFICE"},
+		{Source: "HMW", Company: "HMW", EntityGL: "51000", PostingDate: "2026-04-15", DocNo: "DOC-NEG", Amount: decimal.NewFromInt(-30000), Vendor: "V1", Department: "ACC", Branch: "HEAD OFFICE"},
+	}
+
+	depSrv.On("GetMasterDepartment", mock.Anything, "ACC", "HMW").Return(&models.DepartmentEntity{Code: "ACC"}, nil)
+
+	var capturedTxs []models.ActualTransactionEntity
+	var capturedFacts []models.ActualFactEntity
+
+	repo.On("WithTrx", mock.AnythingOfType("func(models.ActualRepository) error")).Return(nil)
+	repo.On("GetNonPendingTransactionKeys", mock.Anything, "2026", []string{"APR"}).Return(map[string]string{}, nil)
+	repo.On("DeleteActualFactsByMonth", mock.Anything, "2026", "APR").Return(nil)
+	repo.On("DeleteActualTransactionsByMonth", mock.Anything, "2026", "APR").Return(nil)
+	repo.On("GetRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}).Return(hmwRows, nil)
+	repo.On("GetRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}).Return([]models.ActualTransactionDTO{}, nil)
+	repo.On("CreateActualTransactions", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		txs := args.Get(1).([]models.ActualTransactionEntity)
+		capturedTxs = append(capturedTxs, txs...)
+	}).Return(nil)
+	repo.On("CreateActualFacts", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		facts := args.Get(1).([]models.ActualFactEntity)
+		capturedFacts = append(capturedFacts, facts...)
+	}).Return(nil)
+	repo.On("RefreshDataInventory", mock.Anything).Return(nil)
+
+	err := svc.SyncActuals(context.Background(), "2026", []string{"APR"})
+	assert.NoError(t, err)
+
+	// Both positive and negative transactions should be created
+	assert.Len(t, capturedTxs, 2)
+	assert.True(t, capturedTxs[0].Amount.Equal(decimal.NewFromInt(100000)))
+	assert.True(t, capturedTxs[1].Amount.Equal(decimal.NewFromInt(-30000)),
+		"Negative amount should be preserved, got %s", capturedTxs[1].Amount.String())
+
+	// Fact aggregation: 100000 + (-30000) = 70000
+	assert.Len(t, capturedFacts, 1)
+	assert.True(t, capturedFacts[0].YearTotal.Equal(decimal.NewFromInt(70000)),
+		"Net total should be 70000, got %s", capturedFacts[0].YearTotal.String())
+}
+
+// TestSyncActuals_GLMappingError_ReturnsError verifies that if
+// fetching GL mappings fails, the entire sync fails immediately.
+func TestSyncActuals_GLMappingError_ReturnsError(t *testing.T) {
+	repo := new(MockActualRepository)
+	masterSrv := new(MockMasterDataService)
+	dashSrv := new(MockDashboardService)
+	depSrv := new(MockDepartmentService)
+	svc := NewActualService(repo, masterSrv, dashSrv, depSrv)
+
+	masterSrv.On("ListGLGroupings", mock.Anything).Return(nil, errors.New("GL mapping DB error"))
+
+	err := svc.SyncActuals(context.Background(), "2026", []string{"APR"})
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "GL mapping DB error")
+	// Should not proceed to any repo operations
+	repo.AssertNotCalled(t, "WithTrx", mock.Anything)
+}
+
+// TestSyncActuals_EntityNormalization verifies that different company name
+// formats are correctly normalized during sync.
+func TestSyncActuals_EntityNormalization(t *testing.T) {
+	repo := new(MockActualRepository)
+	masterSrv := new(MockMasterDataService)
+	dashSrv := new(MockDashboardService)
+	depSrv := new(MockDepartmentService)
+	svc := NewActualService(repo, masterSrv, dashSrv, depSrv)
+
+	groupings := []models.GlGroupingEntity{
+		{Entity: "HMW", EntityGL: "51000", ConsoGL: "C5100", AccountName: "Salary", Group1: "SGA", IsActive: true},
+		{Entity: "ACG", EntityGL: "52000", ConsoGL: "C5200", AccountName: "Rent", Group1: "SGA", IsActive: true},
+	}
+	masterSrv.On("ListGLGroupings", mock.Anything).Return(groupings, nil)
+
+	// Different name formats for the same entities
+	hmwRows := []models.ActualTransactionDTO{
+		{Source: "HMW", Company: "HONDA MALIWAN", EntityGL: "51000", PostingDate: "2026-04-10", DocNo: "DOC-A", Amount: decimal.NewFromInt(1000), Department: "ACC", Branch: "HEAD OFFICE"},
+		{Source: "HMW", Company: "AUTOCORP HOLDING", EntityGL: "52000", PostingDate: "2026-04-11", DocNo: "DOC-B", Amount: decimal.NewFromInt(2000), Department: "FIN", Branch: "AUTOCORP HEAD OFFICE"},
+	}
+
+	depSrv.On("GetMasterDepartment", mock.Anything, "ACC", "HMW").Return(&models.DepartmentEntity{Code: "ACC"}, nil)
+	depSrv.On("GetMasterDepartment", mock.Anything, "FIN", "ACG").Return(&models.DepartmentEntity{Code: "FIN"}, nil)
+
+	var capturedTxs []models.ActualTransactionEntity
+	repo.On("WithTrx", mock.AnythingOfType("func(models.ActualRepository) error")).Return(nil)
+	repo.On("GetNonPendingTransactionKeys", mock.Anything, "2026", []string{"APR"}).Return(map[string]string{}, nil)
+	repo.On("DeleteActualFactsByMonth", mock.Anything, "2026", "APR").Return(nil)
+	repo.On("DeleteActualTransactionsByMonth", mock.Anything, "2026", "APR").Return(nil)
+	repo.On("GetRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}).Return(hmwRows, nil)
+	repo.On("GetRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}).Return([]models.ActualTransactionDTO{}, nil)
+	repo.On("CreateActualTransactions", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		txs := args.Get(1).([]models.ActualTransactionEntity)
+		capturedTxs = append(capturedTxs, txs...)
+	}).Return(nil)
+	repo.On("CreateActualFacts", mock.Anything, mock.Anything).Return(nil)
+	repo.On("RefreshDataInventory", mock.Anything).Return(nil)
+
+	err := svc.SyncActuals(context.Background(), "2026", []string{"APR"})
+	assert.NoError(t, err)
+
+	assert.Len(t, capturedTxs, 2)
+	assert.Equal(t, "HMW", capturedTxs[0].Entity, "'HONDA MALIWAN' should normalize to 'HMW'")
+	assert.Equal(t, "ACG", capturedTxs[1].Entity, "'AUTOCORP HOLDING' should normalize to 'ACG'")
+	assert.Equal(t, "HQ", capturedTxs[1].Branch, "'AUTOCORP HEAD OFFICE' should map to 'HQ'")
 }
 
 func TestGetReportableTransactions_NoDepartment_UsesPermissions(t *testing.T) {

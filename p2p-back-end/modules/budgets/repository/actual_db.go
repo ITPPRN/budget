@@ -130,6 +130,128 @@ func (r *actualRepository) DeleteActualTransactionsByMonth(ctx context.Context, 
 	return nil
 }
 
+// GetNonPendingTransactionKeys returns a map of "entity|entity_gl|doc_no|posting_date" -> status
+// for all transactions that are NOT PENDING (i.e., CONFIRMED, COMPLETE, REPORTED, DRAFT).
+// This is used to preserve statuses across syncs.
+func (r *actualRepository) GetNonPendingTransactionKeys(ctx context.Context, year string, months []string) (map[string]string, error) {
+	type statusRow struct {
+		Entity      string
+		EntityGL    string `gorm:"column:entity_gl"`
+		DocNo       string
+		PostingDate string
+		Status      string
+	}
+	var rows []statusRow
+
+	query := r.db.WithContext(ctx).Table("actual_transaction_entities").
+		Select("entity, entity_gl, doc_no, posting_date, status").
+		Where("year = ? AND status != ?", year, models.TxStatusPending)
+
+	if len(months) > 0 {
+		monthMap := map[string]string{
+			"JAN": "01", "FEB": "02", "MAR": "03", "APR": "04", "MAY": "05", "JUN": "06",
+			"JUL": "07", "AUG": "08", "SEP": "09", "OCT": "10", "NOV": "11", "DEC": "12",
+		}
+		var conditions []string
+		for _, m := range months {
+			if code, ok := monthMap[m]; ok {
+				conditions = append(conditions, fmt.Sprintf("%s-%s-%%", year, code))
+			}
+		}
+		if len(conditions) > 0 {
+			q := r.db.WithContext(ctx)
+			for i, pattern := range conditions {
+				if i == 0 {
+					q = q.Where("posting_date LIKE ?", pattern)
+				} else {
+					q = q.Or("posting_date LIKE ?", pattern)
+				}
+			}
+			query = query.Where(q)
+		}
+	}
+
+	if err := query.Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("actualRepo.GetNonPendingTransactionKeys: %w", err)
+	}
+
+	result := make(map[string]string, len(rows))
+	for _, r := range rows {
+		key := fmt.Sprintf("%s|%s|%s|%s", r.Entity, r.EntityGL, r.DocNo, r.PostingDate)
+		result[key] = r.Status
+	}
+	return result, nil
+}
+
+// RestoreTransactionStatuses updates newly created PENDING transactions to their previous status
+// and removes old duplicate non-PENDING records.
+func (r *actualRepository) RestoreTransactionStatuses(ctx context.Context, statusMap map[string]string) error {
+	if len(statusMap) == 0 {
+		return nil
+	}
+
+	// Group keys by status for batch updates
+	byStatus := make(map[string][][4]string) // status -> list of [entity, entity_gl, doc_no, posting_date]
+	for key, status := range statusMap {
+		parts := splitKey(key)
+		if parts != nil {
+			byStatus[status] = append(byStatus[status], *parts)
+		}
+	}
+
+	for status, keys := range byStatus {
+		for _, k := range keys {
+			// Update new PENDING record to preserved status
+			if err := r.db.WithContext(ctx).Model(&models.ActualTransactionEntity{}).
+				Where("entity = ? AND entity_gl = ? AND doc_no = ? AND posting_date = ? AND status = ?",
+					k[0], k[1], k[2], k[3], models.TxStatusPending).
+				Update("status", status).Error; err != nil {
+				return fmt.Errorf("actualRepo.RestoreTransactionStatuses: %w", err)
+			}
+
+			// Delete old duplicate (the non-PENDING one that was preserved during delete)
+			// Now the new record has the correct status, so we can safely remove the old one.
+			// We delete by: same key + same old status + older created_at (keep the newer one)
+			r.db.WithContext(ctx).Exec(`
+				DELETE FROM actual_transaction_entities
+				WHERE id IN (
+					SELECT id FROM actual_transaction_entities
+					WHERE entity = ? AND entity_gl = ? AND doc_no = ? AND posting_date = ? AND status = ?
+					ORDER BY created_at ASC
+					LIMIT 1
+				)
+				AND (SELECT COUNT(*) FROM actual_transaction_entities
+					WHERE entity = ? AND entity_gl = ? AND doc_no = ? AND posting_date = ?
+				) > 1`,
+				k[0], k[1], k[2], k[3], status,
+				k[0], k[1], k[2], k[3])
+		}
+	}
+
+	return nil
+}
+
+func splitKey(key string) *[4]string {
+	parts := [4]string{}
+	idx := 0
+	start := 0
+	for i, c := range key {
+		if c == '|' {
+			if idx >= 3 {
+				return nil
+			}
+			parts[idx] = key[start:i]
+			idx++
+			start = i + 1
+		}
+	}
+	if idx != 3 {
+		return nil
+	}
+	parts[3] = key[start:]
+	return &parts
+}
+
 func (r *actualRepository) GetAllAchHmwGle(ctx context.Context) ([]models.AchHmwGleEntity, error) {
 	var results []models.AchHmwGleEntity
 	if err := r.db.WithContext(ctx).Find(&results).Error; err != nil {
