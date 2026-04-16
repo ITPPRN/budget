@@ -49,6 +49,21 @@ const OwnerDetailContent = () => {
         selectedCapexActual: ""
     });
 
+    // Helper: derive month filter override from actualDateFilter
+    const MONTH_ABBR = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+    const getMonthOverride = () => {
+        if (!actualDateFilter.startDate) return null;
+        const parts = actualDateFilter.startDate.split('-'); // "2026-04-01"
+        const monthIdx = parseInt(parts[1], 10) - 1;
+        const year = parseInt(parts[0], 10);
+        const lastDay = new Date(year, monthIdx + 1, 0).getDate();
+        return {
+            months: [MONTH_ABBR[monthIdx]],
+            start_date: `${parts[0]}-${parts[1]}-01`,
+            end_date: `${parts[0]}-${parts[1]}-${String(lastDay).padStart(2, '0')}`
+        };
+    };
+
 
 
     // Fetch Filter Options
@@ -143,16 +158,17 @@ const OwnerDetailContent = () => {
                 }
 
                 const actualYear = activeSync.actualYear || new Date().getFullYear();
+                const monthOvr = getMonthOverride();
 
                 const payload = {
                     conso_gls: idsToFetch,
-                    start_date: actualDateFilter.startDate,
-                    end_date: actualDateFilter.endDate,
+                    start_date: monthOvr ? monthOvr.start_date : actualDateFilter.startDate,
+                    end_date: monthOvr ? monthOvr.end_date : actualDateFilter.endDate,
                     entities: selectedEntity ? [selectedEntity] : [],
                     branches: selectedBranch ? [selectedBranch] : [],
                     departments: selectedDepartment ? [selectedDepartment] : availableDepartments,
                     year: String(actualYear),
-                    months: Array.isArray(activeSync.selectedMonths) ? activeSync.selectedMonths : [],
+                    months: monthOvr ? monthOvr.months : (Array.isArray(activeSync.selectedMonths) ? activeSync.selectedMonths : []),
                     page: actualPage + 1,
                     limit: actualRowsPerPage
                 };
@@ -237,19 +253,20 @@ const OwnerDetailContent = () => {
         const idsToFetch = selectedLeaves.size > 0
             ? Array.from(selectedLeaves).map(id => id.split('|')[0]).filter(code => code !== "")
             : [];
-            
+
         let syncConfig = JSON.parse(localStorage.getItem('dm_lastSyncedConfig') || '{}');
         const actualYear = syncConfig.actualYear || new Date().getFullYear();
+        const monthOvr = getMonthOverride();
 
         const payload = {
             conso_gls: idsToFetch,
-            start_date: actualDateFilter.startDate,
-            end_date: actualDateFilter.endDate,
+            start_date: monthOvr ? monthOvr.start_date : actualDateFilter.startDate,
+            end_date: monthOvr ? monthOvr.end_date : actualDateFilter.endDate,
             entities: selectedEntity ? [selectedEntity] : [],
             branches: selectedBranch ? [selectedBranch] : [],
             departments: selectedDepartment ? [selectedDepartment] : availableDepartments,
             year: String(actualYear),
-            months: Array.isArray(syncConfig.selectedMonths) ? syncConfig.selectedMonths : [],
+            months: monthOvr ? monthOvr.months : (Array.isArray(syncConfig.selectedMonths) ? syncConfig.selectedMonths : []),
             budget_file_id: syncConfig.selectedBudget,
             capex_file_id: syncConfig.selectedCapexBg,
             capex_actual_file_id: syncConfig.selectedCapexActual,
