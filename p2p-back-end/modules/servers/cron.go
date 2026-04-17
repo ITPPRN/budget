@@ -35,6 +35,7 @@ func (s *server) StartCronJob() {
 		logs.Infof("⏰ Tier 1 Job: Fast-Sync Current Month (%s %s) Started", mName, yearStr)
 		if err := s.Shd.ActualService.SyncActuals(context.Background(), yearStr, []string{mName}); err != nil {
 			logs.Errorf("Tier 1 Job: Fast-Sync Failed: %v", err)
+			return
 		}
 		logs.Info("⏰ Tier 1 Job: Fast-Sync Completed Successfully")
 	}); err != nil {
@@ -52,6 +53,7 @@ func (s *server) StartCronJob() {
 		currentYear := time.Now().Year()
 		startYear := currentYear - 1
 
+		var syncErr error
 		for year := startYear; year <= currentYear; year++ {
 			yearStr := fmt.Sprintf("%d", year)
 			logs.Infof("⏰ Tier 2 Job: Syncing Full Year %s...", yearStr)
@@ -59,7 +61,12 @@ func (s *server) StartCronJob() {
 			// SyncActuals handles months internally batch-by-batch if passed empty months
 			if err := s.Shd.ActualService.SyncActuals(context.Background(), yearStr, []string{}); err != nil {
 				logs.Errorf("Tier 2 Job: Failed to sync year %s: %v", yearStr, err)
+				syncErr = err
 			}
+		}
+		if syncErr != nil {
+			logs.Error("⏰ Tier 2 Job: Full Maintenance Sync Completed with Errors")
+			return
 		}
 		logs.Info("⏰ Tier 2 Job: Full Maintenance Sync Completed")
 	}); err != nil {
@@ -108,11 +115,13 @@ func (s *server) StartCronJob() {
 			logs.Info("⏰ Job: DW Auto-Sync Started (Daily @ Midnight)")
 			if err := s.Shd.ExternalSyncService.SyncFromDW(context.Background()); err != nil {
 				logs.Errorf("Job: DW Auto-Sync Failed: %v", err)
+				return
 			}
 
 			// Finalize: Refresh Data Inventory Metadata for Admin UI
 			if err := s.Shd.ActualService.RefreshDataInventory(context.Background()); err != nil {
 				logs.Errorf("Job: DW Auto-Sync Failed to refresh inventory: %v", err)
+				return
 			}
 			logs.Info("⏰ Job: DW Auto-Sync Completed")
 		}); err != nil {
@@ -132,6 +141,7 @@ func (s *server) StartCronJob() {
 			// 1. Sync from Data Warehouse (Raw CLIK/ACHHMW data)
 			if err := s.Shd.ExternalSyncService.SyncFromDW(ctx); err != nil {
 				logs.Errorf("🚀 Startup Sync: DW Failed: %v", err)
+				return
 			}
 
 			// 2. Refresh Mapping & Facts
@@ -141,12 +151,14 @@ func (s *server) StartCronJob() {
 				logs.Infof("🚀 Startup Sync: Mapping Year %s...", yStr)
 				if err := s.Shd.ActualService.SyncActuals(ctx, yStr, []string{}); err != nil {
 					logs.Errorf("🚀 Startup Sync: Mapping %s Failed: %v", yStr, err)
+					return
 				}
 			}
 
 			// 3. Finalize Metadata
 			if err := s.Shd.ActualService.RefreshDataInventory(ctx); err != nil {
 				logs.Errorf("🚀 Startup Sync: RefreshDataInventory Failed: %v", err)
+				return
 			}
 			logs.Info("🚀 IMMEDIATE STARTUP SYNC: COMPLETED SUCCESSFULLY")
 		}()

@@ -69,7 +69,7 @@ func getColSafe(row []string, idx int) string {
 // Import & Sync
 // ---------------------------------------------------------------------
 
-var expectedCapexHeaders = []string{"Entity", "Department", "CAPEX No.", "CAPEX Name", "CAPEX Category", "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC", "YEARTOTAL"}
+var expectedCapexHeaders = []string{"Entity", "Branch", "Department", "CAPEX No.", "CAPEX Name", "CAPEX Category", "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC", "YEARTOTAL"}
 
 func (s *capexService) ImportCapexBudget(ctx context.Context, fileHeader *multipart.FileHeader, userID string, versionName string) error {
 	rows, err := excel.ParseExcelToJSONStrict(fileHeader, expectedCapexHeaders)
@@ -133,6 +133,7 @@ func (s *capexService) processCapexBudgetFact(rows [][]string, fileID uuid.UUID,
 	}
 
 	idxEntity := colMap["ENTITY"]
+	idxBranch := colMap["BRANCH"]
 	idxDept := colMap["DEPARTMENT"]
 	idxCNo := colMap["CAPEX NO."]
 	idxCName := colMap["CAPEX NAME"]
@@ -149,6 +150,7 @@ func (s *capexService) processCapexBudgetFact(rows [][]string, fileID uuid.UUID,
 		}
 
 		entity := getColSafe(row, idxEntity)
+		branch := getColSafe(row, idxBranch)
 		dept := getColSafe(row, idxDept)
 		cNo := getColSafe(row, idxCNo)
 		cName := getColSafe(row, idxCName)
@@ -158,7 +160,7 @@ func (s *capexService) processCapexBudgetFact(rows [][]string, fileID uuid.UUID,
 		header := models.CapexBudgetFactEntity{
 			ID:                headerID,
 			FileCapexBudgetID: fileID,
-			Entity:            entity, Department: dept, CapexNo: cNo, CapexName: cName, CapexCategory: cCat,
+			Entity:            entity, Branch: branch, Department: dept, CapexNo: cNo, CapexName: cName, CapexCategory: cCat,
 			Year:               year,
 			YearTotal:          decimal.Zero,
 			CapexBudgetAmounts: []models.CapexBudgetAmountEntity{},
@@ -195,6 +197,7 @@ func (s *capexService) processCapexActualFact(rows [][]string, fileID uuid.UUID,
 	}
 
 	idxEntity := colMap["ENTITY"]
+	idxBranch := colMap["BRANCH"]
 	idxDept := colMap["DEPARTMENT"]
 	idxCNo := colMap["CAPEX NO."]
 	idxCName := colMap["CAPEX NAME"]
@@ -211,6 +214,7 @@ func (s *capexService) processCapexActualFact(rows [][]string, fileID uuid.UUID,
 		}
 
 		entity := getColSafe(row, idxEntity)
+		branch := getColSafe(row, idxBranch)
 		dept := getColSafe(row, idxDept)
 		cNo := getColSafe(row, idxCNo)
 		cName := getColSafe(row, idxCName)
@@ -220,7 +224,7 @@ func (s *capexService) processCapexActualFact(rows [][]string, fileID uuid.UUID,
 		header := models.CapexActualFactEntity{
 			ID:                headerID,
 			FileCapexActualID: fileID,
-			Entity:            entity, Department: dept, CapexNo: cNo, CapexName: cName, CapexCategory: cCat,
+			Entity:            entity, Branch: branch, Department: dept, CapexNo: cNo, CapexName: cName, CapexCategory: cCat,
 			Year:               year,
 			YearTotal:          decimal.Zero,
 			CapexActualAmounts: []models.CapexActualAmountEntity{},

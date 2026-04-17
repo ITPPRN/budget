@@ -70,6 +70,7 @@ type CapexDeptStatusDTO struct {
 
 type CapexVsActualExportDTO struct {
 	Entity        string                 `gorm:"column:entity"`
+	Branch        string                 `gorm:"column:branch"`
 	Department    string                 `gorm:"column:department"`
 	CapexNo       string                 `gorm:"column:capex_no"`
 	CapexName     string                 `gorm:"column:capex_name"`
@@ -95,6 +96,7 @@ type TopExpenseExportDTO struct {
 
 type OwnerCapexBudgetExportDTO struct {
 	Entity        string          `gorm:"column:entity"`
+	Branch        string          `gorm:"column:branch"`
 	Department    string          `gorm:"column:department"`
 	CapexNo       string          `gorm:"column:capex_no"`
 	CapexName     string          `gorm:"column:capex_name"`

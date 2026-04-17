@@ -31,6 +31,19 @@ const CapexSection = ({ globalEntity, orgStructure, thresholds, onSettings }) =>
     const [order, setOrder] = useState('desc');
     const [orderBy, setOrderBy] = useState('actual');
     const [selectedDepartment, setSelectedDepartment] = useState('');
+    const [selectedBranch, setSelectedBranch] = useState('');
+
+    // Derived branches from orgStructure based on selected entity
+    const availableBranches = React.useMemo(() => {
+        if (!Array.isArray(orgStructure)) return [];
+        if (!selectedEntity) {
+            const set = new Set();
+            orgStructure.forEach(o => (o.branches || []).forEach(b => b?.name && set.add(b.name)));
+            return Array.from(set).sort();
+        }
+        const entityObj = orgStructure.find(o => o.entity === selectedEntity);
+        return entityObj ? (entityObj.branches || []).map(b => b.name).filter(Boolean) : [];
+    }, [selectedEntity, orgStructure]);
 
     useEffect(() => {
         const fetchCapexData = async () => {
@@ -38,7 +51,7 @@ const CapexSection = ({ globalEntity, orgStructure, thresholds, onSettings }) =>
             try {
                 const payload = {
                     entities: selectedEntity ? [selectedEntity] : [],
-                    // Note: CAPEX ignores Branch filter as per requirement
+                    branches: selectedBranch ? [selectedBranch] : [],
                     departments: selectedDepartment ? [selectedDepartment] : [],
                     page: page + 1,
                     limit: rowsPerPage,
@@ -77,7 +90,7 @@ const CapexSection = ({ globalEntity, orgStructure, thresholds, onSettings }) =>
         };
 
         fetchCapexData();
-    }, [selectedEntity, selectedDepartment, page, rowsPerPage, orderBy, order, thresholds]);
+    }, [selectedEntity, selectedBranch, selectedDepartment, page, rowsPerPage, orderBy, order, thresholds]);
 
     const handleChangePage = (event, newPage) => {
         setPage(newPage);
@@ -104,22 +117,24 @@ const CapexSection = ({ globalEntity, orgStructure, thresholds, onSettings }) =>
     const handleCapexDeptStatusExport = async () => {
         const payload = {
             entities: selectedEntity ? [selectedEntity] : [],
+            branches: selectedBranch ? [selectedBranch] : [],
             departments: selectedDepartment ? [selectedDepartment] : [],
             sort_by: orderBy,
             sort_order: order
         };
-        
+
         await downloadExcelFile('/export-capex-department-status-admin', payload, `Capex_Dept_Status_Report.xlsx`);
     };
 
     const handleCapexVsActualExport = async () => {
         const payload = {
             entities: selectedEntity ? [selectedEntity] : [],
+            branches: selectedBranch ? [selectedBranch] : [],
             departments: selectedDepartment ? [selectedDepartment] : [],
             sort_by: orderBy,
             sort_order: order
         };
-        
+
         await downloadExcelFile('/export-capex-budget-vs-actual-admin', payload, `Capex_Vs_Actual_Report.xlsx`);
     };
 
@@ -136,25 +151,47 @@ const CapexSection = ({ globalEntity, orgStructure, thresholds, onSettings }) =>
                     </Typography>
                 </Box>
 
-                {/* Local Entity Filter */}
-                <FormControl size="small" sx={{ minWidth: 200, bgcolor: 'white', borderRadius: 1 }}>
-                    <InputLabel color="secondary">Entity (บริษัท)</InputLabel>
-                    <Select
-                        value={selectedEntity}
-                        label="Entity (บริษัท)"
-                        onChange={(e) => {
-                            setSelectedEntity(e.target.value);
-                            setSelectedDepartment('');
-                            setPage(0);
-                        }}
-                        color="secondary"
-                    >
-                        <MenuItem value=""><em>All Entities</em></MenuItem>
-                        {(orgStructure || []).map((org) => (
-                            <MenuItem key={org.entity} value={org.entity}>{org.entity}</MenuItem>
-                        ))}
-                    </Select>
-                </FormControl>
+                {/* Local Filters: Entity + Branch */}
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                    <FormControl size="small" sx={{ minWidth: 180, bgcolor: 'white', borderRadius: 1 }}>
+                        <InputLabel color="secondary">Entity (บริษัท)</InputLabel>
+                        <Select
+                            value={selectedEntity}
+                            label="Entity (บริษัท)"
+                            onChange={(e) => {
+                                setSelectedEntity(e.target.value);
+                                setSelectedBranch('');
+                                setSelectedDepartment('');
+                                setPage(0);
+                            }}
+                            color="secondary"
+                        >
+                            <MenuItem value=""><em>All Entities</em></MenuItem>
+                            {(orgStructure || []).map((org) => (
+                                <MenuItem key={org.entity} value={org.entity}>{org.entity}</MenuItem>
+                            ))}
+                        </Select>
+                    </FormControl>
+
+                    <FormControl size="small" sx={{ minWidth: 180, bgcolor: 'white', borderRadius: 1 }}>
+                        <InputLabel color="secondary">Branch (สาขา)</InputLabel>
+                        <Select
+                            value={selectedBranch}
+                            label="Branch (สาขา)"
+                            onChange={(e) => {
+                                setSelectedBranch(e.target.value);
+                                setSelectedDepartment('');
+                                setPage(0);
+                            }}
+                            color="secondary"
+                        >
+                            <MenuItem value=""><em>All Branches</em></MenuItem>
+                            {availableBranches.map((br) => (
+                                <MenuItem key={br} value={br}>{br}</MenuItem>
+                            ))}
+                        </Select>
+                    </FormControl>
+                </Stack>
             </Box>
 
             {/* Summary Cards */}
