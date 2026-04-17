@@ -23,6 +23,7 @@ func NewRepository(db *gorm.DB) OwnerCapexRepository {
 func (r *repository) GetOwnerCapexData(ctx context.Context, filter map[string]interface{}) ([]models.OwnerCapexBudgetExportDTO, error) {
 	type capexRow struct {
 		Entity        string
+		Branch        string
 		Department    string
 		CapexNo       string
 		CapexName     string
@@ -32,7 +33,7 @@ func (r *repository) GetOwnerCapexData(ctx context.Context, filter map[string]in
 
 	var budgetRows []capexRow
 	btx := r.db.Table("capex_budget_fact_entities").
-		Select("entity, TRIM(department) as department, capex_no, MAX(capex_name) as capex_name, MAX(capex_category) as capex_category, SUM(year_total) as total").
+		Select("entity, MAX(branch) as branch, TRIM(department) as department, capex_no, MAX(capex_name) as capex_name, MAX(capex_category) as capex_category, SUM(year_total) as total").
 		Group("entity, TRIM(department), capex_no")
 	btx = r.applyCommonFilters(btx, "capex_budget_fact_entities", filter)
 	if err := btx.Scan(&budgetRows).Error; err != nil {
@@ -41,7 +42,7 @@ func (r *repository) GetOwnerCapexData(ctx context.Context, filter map[string]in
 
 	var actualRows []capexRow
 	atx := r.db.Table("capex_actual_fact_entities").
-		Select("entity, TRIM(department) as department, capex_no, SUM(year_total) as total").
+		Select("entity, MAX(branch) as branch, TRIM(department) as department, capex_no, SUM(year_total) as total").
 		Group("entity, TRIM(department), capex_no")
 	atx = r.applyCommonFilters(atx, "capex_actual_fact_entities", filter)
 	if err := atx.Scan(&actualRows).Error; err != nil {
@@ -59,6 +60,7 @@ func (r *repository) GetOwnerCapexData(ctx context.Context, filter map[string]in
 		k := key{b.Entity, b.Department, b.CapexNo}
 		capexMap[k] = &models.OwnerCapexBudgetExportDTO{
 			Entity:        b.Entity,
+			Branch:        b.Branch,
 			Department:    b.Department,
 			CapexNo:       b.CapexNo,
 			CapexName:     b.CapexName,
@@ -97,6 +99,11 @@ func (r *repository) applyCommonFilters(tx *gorm.DB, tableName string, filter ma
 	if val, ok := filter["entities"]; ok {
 		if strs := utils.ToStringSlice(val); len(strs) > 0 {
 			tx = tx.Where(tableName+".entity IN ?", strs)
+		}
+	}
+	if val, ok := filter["branches"]; ok {
+		if strs := utils.ToStringSlice(val); len(strs) > 0 {
+			tx = tx.Where(tableName+".branch IN ?", strs)
 		}
 	}
 	if val, ok := filter["departments"]; ok {

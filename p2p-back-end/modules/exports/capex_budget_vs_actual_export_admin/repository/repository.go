@@ -45,6 +45,7 @@ func (r *repository) GetCapexVsActualData(ctx context.Context, filter map[string
 	}
 	type rawCapexRow struct {
 		Entity        string
+		Branch        string
 		Department    string
 		CapexNo       string
 		CapexName     string
@@ -57,6 +58,7 @@ func (r *repository) GetCapexVsActualData(ctx context.Context, filter map[string
 	btx := r.db.Table("capex_budget_fact_entities").
 		Select(`
 			capex_budget_fact_entities.entity,
+			capex_budget_fact_entities.branch,
 			capex_budget_fact_entities.department,
 			capex_budget_fact_entities.capex_no,
 			capex_budget_fact_entities.capex_name,
@@ -75,6 +77,7 @@ func (r *repository) GetCapexVsActualData(ctx context.Context, filter map[string
 	atx := r.db.Table("capex_actual_fact_entities").
 		Select(`
 			capex_actual_fact_entities.entity,
+			capex_actual_fact_entities.branch,
 			capex_actual_fact_entities.department,
 			capex_actual_fact_entities.capex_no,
 			capex_actual_fact_entities.capex_name,
@@ -114,6 +117,7 @@ func (r *repository) GetCapexVsActualData(ctx context.Context, filter map[string
 			} else {
 				targetMap[key] = models.CapexVsActualExportDTO{
 					Entity:        res.Entity,
+					Branch:        res.Branch,
 					Department:    res.Department,
 					CapexNo:       res.CapexNo,
 					CapexName:     res.CapexName,
@@ -172,6 +176,11 @@ func (r *repository) applyCommonFilters(tx *gorm.DB, tableName string, filter ma
 	if val, ok := filter["entities"]; ok {
 		if strs := utils.ToStringSlice(val); len(strs) > 0 {
 			tx = tx.Where(tableName+".entity IN ?", strs)
+		}
+	}
+	if val, ok := filter["branches"]; ok {
+		if strs := utils.ToStringSlice(val); len(strs) > 0 {
+			tx = tx.Where(tableName+".branch IN ?", strs)
 		}
 	}
 	if val, ok := filter["departments"]; ok {

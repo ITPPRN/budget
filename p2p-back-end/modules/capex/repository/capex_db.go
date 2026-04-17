@@ -223,6 +223,11 @@ func (r *capexRepositoryDB) GetCapexDashboardAggregates(ctx context.Context, fil
 				tx = tx.Where(tableName+".entity IN ?", strs)
 			}
 		}
+		if val, ok := filter["branches"]; ok {
+			if strs := toStringSlice(val); len(strs) > 0 {
+				tx = tx.Where(tableName+".branch IN ?", strs)
+			}
+		}
 		if val, ok := filter["departments"]; ok {
 			if strs := toStringSlice(val); len(strs) > 0 {
 				tx = tx.Where(tableName+".department IN ?", strs)

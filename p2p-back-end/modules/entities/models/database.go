@@ -243,6 +243,7 @@ type CapexBudgetFactEntity struct { // HEADER
 	// Dimensions
 	Year          string `gorm:"index" json:"year"`
 	Entity        string `gorm:"index" json:"entity"`
+	Branch        string `json:"branch"`
 	Department    string `json:"department"`
 	CapexNo       string `json:"capex_no"`
 	CapexName     string `json:"capex_name"`
@@ -277,6 +278,7 @@ type CapexActualFactEntity struct { // HEADER
 	// Dimensions
 	Year          string `gorm:"index" json:"year"`
 	Entity        string `gorm:"index" json:"entity"`
+	Branch        string `json:"branch"`
 	Department    string `json:"department"`
 	CapexNo       string `json:"capex_no"`
 	CapexName     string `json:"capex_name"`

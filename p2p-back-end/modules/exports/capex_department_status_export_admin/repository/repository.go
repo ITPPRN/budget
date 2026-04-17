@@ -90,6 +90,11 @@ func (r *repository) applyCommonFilters(tx *gorm.DB, tableName string, filter ma
 			tx = tx.Where(tableName+".entity IN ?", strs)
 		}
 	}
+	if val, ok := filter["branches"]; ok {
+		if strs := utils.ToStringSlice(val); len(strs) > 0 {
+			tx = tx.Where(tableName+".branch IN ?", strs)
+		}
+	}
 	if val, ok := filter["departments"]; ok {
 		if strs := utils.ToStringSlice(val); len(strs) > 0 {
 			tx = tx.Where(tableName+".department IN ?", strs)
