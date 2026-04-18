@@ -8,6 +8,7 @@ import (
 
 	"p2p-back-end/logs"
 	"p2p-back-end/modules/entities/models"
+	"p2p-back-end/pkg/middlewares"
 )
 
 type budgetController struct {
@@ -113,6 +114,10 @@ func (c *budgetController) getActualTransactions(ctx *fiber.Ctx) error {
 	if err := ctx.BodyParser(&req); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
+	if req == nil {
+		req = map[string]interface{}{}
+	}
+	middlewares.EnforceBranchScopeFromCtx(ctx, req)
 
 	details, err := c.dashSrv.GetActualTransactions(ctx.UserContext(), req)
 	if err != nil {
@@ -126,6 +131,10 @@ func (c *budgetController) getDashboardSummary(ctx *fiber.Ctx) error {
 	if err := ctx.BodyParser(&req); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
+	if req == nil {
+		req = map[string]interface{}{}
+	}
+	middlewares.EnforceBranchScopeFromCtx(ctx, req)
 
 	summary, err := c.dashSrv.GetDashboardSummary(ctx.UserContext(), req)
 	if err != nil {
@@ -176,6 +185,10 @@ func (c *budgetController) getBudgetDetails(ctx *fiber.Ctx) error {
 	if err := ctx.BodyParser(&req); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
+	if req == nil {
+		req = map[string]interface{}{}
+	}
+	middlewares.EnforceBranchScopeFromCtx(ctx, req)
 
 	details, err := c.dashSrv.GetBudgetDetails(ctx.UserContext(), req)
 	if err != nil {
@@ -189,6 +202,10 @@ func (c *budgetController) getActualDetails(ctx *fiber.Ctx) error {
 	if err := ctx.BodyParser(&req); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
+	if req == nil {
+		req = map[string]interface{}{}
+	}
+	middlewares.EnforceBranchScopeFromCtx(ctx, req)
 
 	details, err := c.dashSrv.GetActualDetails(ctx.UserContext(), req)
 	if err != nil {

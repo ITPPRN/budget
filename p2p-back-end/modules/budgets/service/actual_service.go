@@ -180,7 +180,13 @@ func (s *actualService) SyncActuals(ctx context.Context, year string, months []s
 					lookupDept := normalize(row.Department)
 					if masterDept, err := s.depSrv.GetMasterDepartment(ctx, lookupDept, company); err == nil && masterDept != nil {
 						deptCode = masterDept.Code
-					} 
+					}
+
+					if company == "CLIK" &&
+						(strings.EqualFold(strings.TrimSpace(deptCode), "SERVICE") ||
+							strings.EqualFold(strings.TrimSpace(row.Department), "SERVICE")) {
+						deptCode = "SERVICE_CLIK"
+					}
 
 					// 1. Transaction Table (Centralized Detail)
 					transactions = append(transactions, models.ActualTransactionEntity{

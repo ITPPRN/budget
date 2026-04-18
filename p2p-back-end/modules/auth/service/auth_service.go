@@ -19,10 +19,11 @@ import (
 )
 
 type authService struct {
-	keycloak *gocloak.GoCloak
-	cfg      *configs.Config
-	authRepo models.UserRepository
-	Redis    *redis.Client
+	keycloak         *gocloak.GoCloak
+	cfg              *configs.Config
+	authRepo         models.UserRepository
+	Redis            *redis.Client
+	branchCodeMapSrv models.CompanyBranchCodeMappingService
 }
 
 func filterRoles(roles []string) []string {
@@ -61,8 +62,15 @@ func NewAuthService(
 	cfg *configs.Config,
 	authRepo models.UserRepository,
 	Redis *redis.Client,
+	branchCodeMapSrv models.CompanyBranchCodeMappingService,
 ) models.AuthService {
-	return &authService{keycloak, cfg, authRepo, Redis}
+	return &authService{
+		keycloak:         keycloak,
+		cfg:              cfg,
+		authRepo:         authRepo,
+		Redis:            Redis,
+		branchCodeMapSrv: branchCodeMapSrv,
+	}
 }
 
 func (s *authService) Login(ctx context.Context, req *models.LoginReq) (*gocloak.JWT, error) {
@@ -319,6 +327,19 @@ func (s *authService) GetUserProfile(ctx context.Context, userID string) (*model
 		userInfo.DepartmentCode = user.Department.Code
 		if user.Department.CodeMap != nil && *user.Department.CodeMap != "None" {
 			userInfo.MappedDepartment = *user.Department.CodeMap
+		}
+	}
+
+	// Populate CompanyID + BranchCodes (drives BRANCH_DELEGATE scope).
+	// A single company can map to multiple codes (e.g. CLIK HQ = both "HOF" and "Branch00").
+	if user.CompanyID != nil {
+		userInfo.CompanyID = user.CompanyID
+		if s.branchCodeMapSrv != nil {
+			if codes, err := s.branchCodeMapSrv.ResolveBranchCodes(ctx, *user.CompanyID); err != nil {
+				logs.Errorf("[Service] Failed to resolve branch codes for user %s: %v", user.ID, err)
+			} else {
+				userInfo.BranchCodes = codes
+			}
 		}
 	}
 

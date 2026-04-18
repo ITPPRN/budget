@@ -92,7 +92,7 @@ func (s *server) Handlers() error {
 	s.StartCronJob()
 
 	// --- Controller Registration ---
-	_authCon.NewUserController(v1.Group("/auth"), s.Shd.AuthService, s.Shd.DepartmentService, s.Shd.UserService)
+	_authCon.NewUserController(v1.Group("/auth"), s.Shd.AuthService, s.Shd.DepartmentService, s.Shd.UserService, s.Shd.BranchCodeMapSrv)
 
 	budgetGroup := v1.Group("/budgets")
 	budgetGroup.Use(middlewares.JwtAuthentication(s.Shd.AuthService, nil))

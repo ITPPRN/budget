@@ -348,6 +348,40 @@ type DepartmentService interface {
 	GetMasterDepartment(ctx context.Context, navCode, entity string) (*DepartmentEntity, error)
 }
 
+// --- Company Branch Code Mapping (drives BRANCH_DELEGATE scope) ---
+
+type CompanyBranchCodeMappingRepository interface {
+	List(ctx context.Context) ([]CompanyBranchCodeMappingEntity, error)
+	ListByCompanyID(ctx context.Context, companyID uuid.UUID) ([]CompanyBranchCodeMappingEntity, error)
+	Upsert(ctx context.Context, m *CompanyBranchCodeMappingEntity) error
+	Delete(ctx context.Context, id uuid.UUID) error
+	ListCompanies(ctx context.Context) ([]Companies, error)
+	ListAvailableBranchCodes(ctx context.Context) ([]string, error)
+	FindCompanyByNameAndBranchNo(ctx context.Context, name, branchNo string) (*Companies, error)
+}
+
+type ImportBranchCodeMappingResult struct {
+	Imported int      `json:"imported"`
+	Updated  int      `json:"updated"`
+	Skipped  int      `json:"skipped"`
+	Errors   []string `json:"errors,omitempty"`
+}
+
+type CompanyBranchCodeMappingService interface {
+	List(ctx context.Context) ([]CompanyBranchCodeMappingEntity, error)
+	// ResolveBranchCodes returns ALL branch codes mapped to the given company.
+	// Returns an empty slice (not nil) when no mapping exists.
+	ResolveBranchCodes(ctx context.Context, companyID uuid.UUID) ([]string, error)
+	// Upsert is idempotent on (company_id, branch_code). Adding a new code for
+	// an already-mapped company appends a row; it does NOT replace existing codes.
+	Upsert(ctx context.Context, companyID uuid.UUID, branchCode string) (*CompanyBranchCodeMappingEntity, error)
+	Delete(ctx context.Context, id uuid.UUID) error
+	ListCompanies(ctx context.Context) ([]Companies, error)
+	ListAvailableBranchCodes(ctx context.Context) ([]string, error)
+	ImportFromExcel(ctx context.Context, file *multipart.FileHeader) (*ImportBranchCodeMappingResult, error)
+	GenerateImportTemplate(ctx context.Context) ([]byte, error)
+}
+
 // --- DTOs ---
 
 type FilterOptionDTO struct {

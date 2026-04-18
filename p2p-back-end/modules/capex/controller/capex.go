@@ -2,6 +2,7 @@ package controller
 
 import (
 	"p2p-back-end/modules/entities/models"
+	"p2p-back-end/pkg/middlewares"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -158,6 +159,10 @@ func (c *capexController) getCapexDashboardSummary(ctx *fiber.Ctx) error {
 	if err := ctx.BodyParser(&req); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
+	if req == nil {
+		req = map[string]interface{}{}
+	}
+	middlewares.EnforceBranchScopeFromCtx(ctx, req)
 
 	summary, err := c.capexSrv.GetCapexDashboardSummary(ctx.UserContext(), req)
 	if err != nil {

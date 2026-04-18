@@ -41,7 +41,9 @@ type UserInfo struct {
 	Email            string               `json:"email"`
 	Roles            []string             `json:"roles,omitempty"` // System-level roles (Keycloak)
 	Company          string               `json:"company,omitempty"`
+	CompanyID        *uuid.UUID           `json:"company_id,omitempty"` // Internal: drives BRANCH_DELEGATE scope
 	Branch           string               `json:"branch,omitempty"`
+	BranchCodes      []string             `json:"branch_codes,omitempty"` // Resolved via company_branch_code_mappings (1 company → many codes)
 	Department       string               `json:"department,omitempty"`
 	DepartmentCode   string               `json:"department_code,omitempty"`
 	MappedDepartment string               `json:"mapped_department,omitempty"`

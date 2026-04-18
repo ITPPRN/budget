@@ -2208,6 +2208,247 @@ func TestSyncActuals_EntityNormalization(t *testing.T) {
 	assert.Equal(t, "HQ", capturedTxs[1].Branch, "'AUTOCORP HEAD OFFICE' should map to 'HQ'")
 }
 
+// ============================================================
+// SYNC ACTUALS - CLIK SERVICE → SERVICE_CLIK RENAME RULE
+// ============================================================
+//
+// Rule: For CLIK entity only, any department resolving to "SERVICE"
+// (either from raw nav_code or from master mapping result) must be
+// rewritten to "SERVICE_CLIK". HMW/ACG entities are not affected.
+
+// TestSyncActuals_CLIKServiceRename_RawServiceNoMapping verifies that a CLIK
+// row with raw Department="SERVICE" and no master mapping becomes "SERVICE_CLIK".
+func TestSyncActuals_CLIKServiceRename_RawServiceNoMapping(t *testing.T) {
+	repo := new(MockActualRepository)
+	masterSrv := new(MockMasterDataService)
+	dashSrv := new(MockDashboardService)
+	depSrv := new(MockDepartmentService)
+	svc := NewActualService(repo, masterSrv, dashSrv, depSrv)
+
+	groupings := []models.GlGroupingEntity{
+		{Entity: "CLIK", EntityGL: "61000", ConsoGL: "C6100", AccountName: "Service Fee", Group1: "COGS", IsActive: true},
+	}
+	masterSrv.On("ListGLGroupings", mock.Anything).Return(groupings, nil)
+
+	clikRows := []models.ActualTransactionDTO{
+		{Source: "CLIK", Company: "CLIK", EntityGL: "61000", PostingDate: "2026-04-10", DocNo: "DOC-CLIK-1", Amount: decimal.NewFromInt(1000), Department: "SERVICE", Branch: ""},
+	}
+
+	// No mapping found → master returns nil
+	depSrv.On("GetMasterDepartment", mock.Anything, "SERVICE", "CLIK").Return(nil, nil)
+
+	var capturedTxs []models.ActualTransactionEntity
+	repo.On("WithTrx", mock.AnythingOfType("func(models.ActualRepository) error")).Return(nil)
+	repo.On("GetNonPendingTransactionKeys", mock.Anything, "2026", []string{"APR"}).Return(map[string]string{}, nil)
+	repo.On("DeleteActualFactsByMonth", mock.Anything, "2026", "APR").Return(nil)
+	repo.On("DeleteActualTransactionsByMonth", mock.Anything, "2026", "APR").Return(nil)
+	repo.On("GetRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}).Return([]models.ActualTransactionDTO{}, nil)
+	repo.On("GetRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}).Return(clikRows, nil)
+	repo.On("CreateActualTransactions", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		txs := args.Get(1).([]models.ActualTransactionEntity)
+		capturedTxs = append(capturedTxs, txs...)
+	}).Return(nil)
+	repo.On("CreateActualFacts", mock.Anything, mock.Anything).Return(nil)
+	repo.On("RefreshDataInventory", mock.Anything).Return(nil)
+
+	err := svc.SyncActuals(context.Background(), "2026", []string{"APR"})
+	assert.NoError(t, err)
+
+	assert.Len(t, capturedTxs, 1)
+	assert.Equal(t, "SERVICE_CLIK", capturedTxs[0].Department,
+		"CLIK + raw SERVICE (no mapping) must rename to SERVICE_CLIK")
+}
+
+// TestSyncActuals_CLIKServiceRename_MappedToService verifies a CLIK row whose
+// raw nav_code maps to master code "SERVICE" is also renamed to "SERVICE_CLIK".
+func TestSyncActuals_CLIKServiceRename_MappedToService(t *testing.T) {
+	repo := new(MockActualRepository)
+	masterSrv := new(MockMasterDataService)
+	dashSrv := new(MockDashboardService)
+	depSrv := new(MockDepartmentService)
+	svc := NewActualService(repo, masterSrv, dashSrv, depSrv)
+
+	groupings := []models.GlGroupingEntity{
+		{Entity: "CLIK", EntityGL: "61000", ConsoGL: "C6100", AccountName: "Service Fee", Group1: "COGS", IsActive: true},
+	}
+	masterSrv.On("ListGLGroupings", mock.Anything).Return(groupings, nil)
+
+	// raw "100-30" maps to master "SERVICE"
+	clikRows := []models.ActualTransactionDTO{
+		{Source: "CLIK", Company: "CLIK", EntityGL: "61000", PostingDate: "2026-04-10", DocNo: "DOC-CLIK-2", Amount: decimal.NewFromInt(2000), Department: "100-30", Branch: ""},
+	}
+	depSrv.On("GetMasterDepartment", mock.Anything, "100-30", "CLIK").Return(&models.DepartmentEntity{Code: "SERVICE"}, nil)
+
+	var capturedTxs []models.ActualTransactionEntity
+	repo.On("WithTrx", mock.AnythingOfType("func(models.ActualRepository) error")).Return(nil)
+	repo.On("GetNonPendingTransactionKeys", mock.Anything, "2026", []string{"APR"}).Return(map[string]string{}, nil)
+	repo.On("DeleteActualFactsByMonth", mock.Anything, "2026", "APR").Return(nil)
+	repo.On("DeleteActualTransactionsByMonth", mock.Anything, "2026", "APR").Return(nil)
+	repo.On("GetRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}).Return([]models.ActualTransactionDTO{}, nil)
+	repo.On("GetRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}).Return(clikRows, nil)
+	repo.On("CreateActualTransactions", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		txs := args.Get(1).([]models.ActualTransactionEntity)
+		capturedTxs = append(capturedTxs, txs...)
+	}).Return(nil)
+	repo.On("CreateActualFacts", mock.Anything, mock.Anything).Return(nil)
+	repo.On("RefreshDataInventory", mock.Anything).Return(nil)
+
+	err := svc.SyncActuals(context.Background(), "2026", []string{"APR"})
+	assert.NoError(t, err)
+
+	assert.Len(t, capturedTxs, 1)
+	assert.Equal(t, "SERVICE_CLIK", capturedTxs[0].Department,
+		"CLIK + master code SERVICE must rename to SERVICE_CLIK")
+}
+
+// TestSyncActuals_CLIKServiceRename_RawServiceMappedToOther verifies that even
+// when raw "SERVICE" gets remapped by the master to a non-SERVICE code, the
+// CLIK rule still catches the raw value and rewrites to SERVICE_CLIK.
+// This is the "raw-side guard" for the double-layer check.
+func TestSyncActuals_CLIKServiceRename_RawServiceMappedToOther(t *testing.T) {
+	repo := new(MockActualRepository)
+	masterSrv := new(MockMasterDataService)
+	dashSrv := new(MockDashboardService)
+	depSrv := new(MockDepartmentService)
+	svc := NewActualService(repo, masterSrv, dashSrv, depSrv)
+
+	groupings := []models.GlGroupingEntity{
+		{Entity: "CLIK", EntityGL: "61000", ConsoGL: "C6100", AccountName: "Service Fee", Group1: "COGS", IsActive: true},
+	}
+	masterSrv.On("ListGLGroupings", mock.Anything).Return(groupings, nil)
+
+	// raw "SERVICE" but mapping rewrites to "SVC" — raw-side guard must still trigger
+	clikRows := []models.ActualTransactionDTO{
+		{Source: "CLIK", Company: "CLIK", EntityGL: "61000", PostingDate: "2026-04-10", DocNo: "DOC-CLIK-3", Amount: decimal.NewFromInt(3000), Department: "SERVICE", Branch: ""},
+	}
+	depSrv.On("GetMasterDepartment", mock.Anything, "SERVICE", "CLIK").Return(&models.DepartmentEntity{Code: "SVC"}, nil)
+
+	var capturedTxs []models.ActualTransactionEntity
+	repo.On("WithTrx", mock.AnythingOfType("func(models.ActualRepository) error")).Return(nil)
+	repo.On("GetNonPendingTransactionKeys", mock.Anything, "2026", []string{"APR"}).Return(map[string]string{}, nil)
+	repo.On("DeleteActualFactsByMonth", mock.Anything, "2026", "APR").Return(nil)
+	repo.On("DeleteActualTransactionsByMonth", mock.Anything, "2026", "APR").Return(nil)
+	repo.On("GetRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}).Return([]models.ActualTransactionDTO{}, nil)
+	repo.On("GetRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}).Return(clikRows, nil)
+	repo.On("CreateActualTransactions", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		txs := args.Get(1).([]models.ActualTransactionEntity)
+		capturedTxs = append(capturedTxs, txs...)
+	}).Return(nil)
+	repo.On("CreateActualFacts", mock.Anything, mock.Anything).Return(nil)
+	repo.On("RefreshDataInventory", mock.Anything).Return(nil)
+
+	err := svc.SyncActuals(context.Background(), "2026", []string{"APR"})
+	assert.NoError(t, err)
+
+	assert.Len(t, capturedTxs, 1)
+	assert.Equal(t, "SERVICE_CLIK", capturedTxs[0].Department,
+		"CLIK + raw SERVICE must rename even if mapping changes the master code")
+}
+
+// TestSyncActuals_CLIKServiceRename_LowercaseRaw verifies case-insensitive
+// matching: raw "service" (lowercase) for CLIK must still rename to SERVICE_CLIK.
+func TestSyncActuals_CLIKServiceRename_LowercaseRaw(t *testing.T) {
+	repo := new(MockActualRepository)
+	masterSrv := new(MockMasterDataService)
+	dashSrv := new(MockDashboardService)
+	depSrv := new(MockDepartmentService)
+	svc := NewActualService(repo, masterSrv, dashSrv, depSrv)
+
+	groupings := []models.GlGroupingEntity{
+		{Entity: "CLIK", EntityGL: "61000", ConsoGL: "C6100", AccountName: "Service Fee", Group1: "COGS", IsActive: true},
+	}
+	masterSrv.On("ListGLGroupings", mock.Anything).Return(groupings, nil)
+
+	clikRows := []models.ActualTransactionDTO{
+		{Source: "CLIK", Company: "CLIK", EntityGL: "61000", PostingDate: "2026-04-10", DocNo: "DOC-CLIK-4", Amount: decimal.NewFromInt(4000), Department: "service", Branch: ""},
+	}
+	// normalize() upper-cases before lookup, so the mock arg is "SERVICE"
+	depSrv.On("GetMasterDepartment", mock.Anything, "SERVICE", "CLIK").Return(nil, nil)
+
+	var capturedTxs []models.ActualTransactionEntity
+	repo.On("WithTrx", mock.AnythingOfType("func(models.ActualRepository) error")).Return(nil)
+	repo.On("GetNonPendingTransactionKeys", mock.Anything, "2026", []string{"APR"}).Return(map[string]string{}, nil)
+	repo.On("DeleteActualFactsByMonth", mock.Anything, "2026", "APR").Return(nil)
+	repo.On("DeleteActualTransactionsByMonth", mock.Anything, "2026", "APR").Return(nil)
+	repo.On("GetRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}).Return([]models.ActualTransactionDTO{}, nil)
+	repo.On("GetRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}).Return(clikRows, nil)
+	repo.On("CreateActualTransactions", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		txs := args.Get(1).([]models.ActualTransactionEntity)
+		capturedTxs = append(capturedTxs, txs...)
+	}).Return(nil)
+	repo.On("CreateActualFacts", mock.Anything, mock.Anything).Return(nil)
+	repo.On("RefreshDataInventory", mock.Anything).Return(nil)
+
+	err := svc.SyncActuals(context.Background(), "2026", []string{"APR"})
+	assert.NoError(t, err)
+
+	assert.Len(t, capturedTxs, 1)
+	assert.Equal(t, "SERVICE_CLIK", capturedTxs[0].Department,
+		"Lowercase raw 'service' for CLIK must rename to SERVICE_CLIK (case-insensitive)")
+}
+
+// TestSyncActuals_CLIKServiceRename_HMWNotAffected verifies the rule applies
+// only to CLIK: HMW with SERVICE department keeps SERVICE (no rename).
+// Also verifies CLIK with non-SERVICE department is not affected.
+func TestSyncActuals_CLIKServiceRename_HMWNotAffected(t *testing.T) {
+	repo := new(MockActualRepository)
+	masterSrv := new(MockMasterDataService)
+	dashSrv := new(MockDashboardService)
+	depSrv := new(MockDepartmentService)
+	svc := NewActualService(repo, masterSrv, dashSrv, depSrv)
+
+	groupings := []models.GlGroupingEntity{
+		{Entity: "HMW", EntityGL: "51000", ConsoGL: "C5100", AccountName: "Service Fee", Group1: "COGS", IsActive: true},
+		{Entity: "CLIK", EntityGL: "61000", ConsoGL: "C6100", AccountName: "License", Group1: "COGS", IsActive: true},
+	}
+	masterSrv.On("ListGLGroupings", mock.Anything).Return(groupings, nil)
+
+	// HMW with SERVICE — should NOT be renamed
+	hmwRows := []models.ActualTransactionDTO{
+		{Source: "HMW", Company: "HMW", EntityGL: "51000", PostingDate: "2026-04-10", DocNo: "DOC-HMW-1", Amount: decimal.NewFromInt(5000), Department: "SERVICE", Branch: "HEAD OFFICE"},
+	}
+	// CLIK with non-SERVICE (IT) — should NOT be renamed
+	clikRows := []models.ActualTransactionDTO{
+		{Source: "CLIK", Company: "CLIK", EntityGL: "61000", PostingDate: "2026-04-10", DocNo: "DOC-CLIK-5", Amount: decimal.NewFromInt(6000), Department: "IT", Branch: ""},
+	}
+
+	depSrv.On("GetMasterDepartment", mock.Anything, "SERVICE", "HMW").Return(&models.DepartmentEntity{Code: "SERVICE"}, nil)
+	depSrv.On("GetMasterDepartment", mock.Anything, "IT", "CLIK").Return(&models.DepartmentEntity{Code: "IT"}, nil)
+
+	var capturedTxs []models.ActualTransactionEntity
+	repo.On("WithTrx", mock.AnythingOfType("func(models.ActualRepository) error")).Return(nil)
+	repo.On("GetNonPendingTransactionKeys", mock.Anything, "2026", []string{"APR"}).Return(map[string]string{}, nil)
+	repo.On("DeleteActualFactsByMonth", mock.Anything, "2026", "APR").Return(nil)
+	repo.On("DeleteActualTransactionsByMonth", mock.Anything, "2026", "APR").Return(nil)
+	repo.On("GetRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}).Return(hmwRows, nil)
+	repo.On("GetRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}).Return(clikRows, nil)
+	repo.On("CreateActualTransactions", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		txs := args.Get(1).([]models.ActualTransactionEntity)
+		capturedTxs = append(capturedTxs, txs...)
+	}).Return(nil)
+	repo.On("CreateActualFacts", mock.Anything, mock.Anything).Return(nil)
+	repo.On("RefreshDataInventory", mock.Anything).Return(nil)
+
+	err := svc.SyncActuals(context.Background(), "2026", []string{"APR"})
+	assert.NoError(t, err)
+
+	assert.Len(t, capturedTxs, 2)
+
+	// Index by entity (HMW row processed first)
+	var hmwTx, clikTx models.ActualTransactionEntity
+	for _, tx := range capturedTxs {
+		if tx.Entity == "HMW" {
+			hmwTx = tx
+		} else if tx.Entity == "CLIK" {
+			clikTx = tx
+		}
+	}
+	assert.Equal(t, "SERVICE", hmwTx.Department,
+		"HMW + SERVICE must NOT be renamed (rule is CLIK-only)")
+	assert.Equal(t, "IT", clikTx.Department,
+		"CLIK + non-SERVICE must NOT be renamed")
+}
+
 func TestGetReportableTransactions_NoDepartment_UsesPermissions(t *testing.T) {
 	auditRepo := new(MockAuditRepository)
 	dashRepo := new(MockDashboardRepository)
