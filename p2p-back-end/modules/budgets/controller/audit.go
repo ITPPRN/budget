@@ -6,6 +6,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 
 	"p2p-back-end/modules/entities/models"
+	"p2p-back-end/pkg/middlewares"
 )
 
 type auditController struct {
@@ -150,6 +151,7 @@ func (c *auditController) listLogs(ctx *fiber.Ctx) error {
 	if entity := ctx.Query("entity"); entity != "" {
 		filter["entity"] = entity
 	}
+	middlewares.EnforceBranchScopeFromCtx(ctx, filter)
 
 	logs, err := c.auditSrv.ListLogs(ctx.UserContext(), filter)
 	if err != nil {
@@ -169,6 +171,10 @@ func (c *auditController) getReportableTransactions(ctx *fiber.Ctx) error {
 	if err := ctx.BodyParser(&req); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
+	if req == nil {
+		req = map[string]interface{}{}
+	}
+	middlewares.EnforceBranchScopeFromCtx(ctx, req)
 
 	items, err := c.auditSrv.GetReportableTransactions(ctx.UserContext(), user, req)
 	if err != nil {

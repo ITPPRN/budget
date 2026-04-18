@@ -3,6 +3,8 @@ package controller
 import (
 	"p2p-back-end/modules/entities/models"
 	"p2p-back-end/modules/exports/budget_detail_export/service"
+	"p2p-back-end/pkg/middlewares"
+
 	"github.com/gofiber/fiber/v2"
 )
 
@@ -20,6 +22,10 @@ func (c *budgetExportController) exportBudgetDetail(ctx *fiber.Ctx) error {
 	if err := ctx.BodyParser(&req); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
+	if req == nil {
+		req = map[string]interface{}{}
+	}
+	middlewares.EnforceBranchScopeFromCtx(ctx, req)
 
 	user := ctx.Locals("user").(*models.UserInfo)
 	data, filename, err := c.srv.ExportBudgetDetailExcel(ctx.UserContext(), user, req)

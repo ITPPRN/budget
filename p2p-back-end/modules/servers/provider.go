@@ -38,6 +38,7 @@ type SharedDeps struct {
 	UserService         models.UsersService
 	ExternalSyncService models.ExternalSyncService
 	AuditService        models.AuditService
+	BranchCodeMapSrv    models.CompanyBranchCodeMappingService
 }
 
 func initSharedDeps(s *server) *SharedDeps {
@@ -56,13 +57,16 @@ func initSharedDeps(s *server) *SharedDeps {
 	deptRepo := _deptRe.NewDepartmentRepositoryDB(s.Db)
 	deptService := _deptSer.NewDepartmentService(deptRepo)
 
+	branchCodeMapRepo := _deptRe.NewCompanyBranchCodeMappingRepository(s.Db)
+	branchCodeMapService := _deptSer.NewCompanyBranchCodeMappingService(branchCodeMapRepo)
+
 	// --- Users Module ---
 	userRepo := _userReLo.NewUserRepositoryDB(s.Db)
 	userReSource := _userReSou.NewSourceUsersRepositoryDB(s.Db)
 	userService := _userSer.NewUsersService(userRepo, userReSource, producerService, masterRepo, deptService)
 
 	// --- Auth Module ---
-	authService := _authSer.NewAuthService(s.Keycloak, s.Cfg, userRepo, s.Redis)
+	authService := _authSer.NewAuthService(s.Keycloak, s.Cfg, userRepo, s.Redis, branchCodeMapService)
 
 	// --- Budget Module ---
 	plRepo := _budgetRe.NewPLBudgetRepository(s.Db)
@@ -114,6 +118,7 @@ func initSharedDeps(s *server) *SharedDeps {
 		ConsumerController: consumerController,
 		UserService:        userService,
 		ExternalSyncService: externalSyncService,
-		AuditService:       auditService,
+		AuditService:        auditService,
+		BranchCodeMapSrv:    branchCodeMapService,
 	}
 }

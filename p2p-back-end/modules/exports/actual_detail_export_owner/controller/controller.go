@@ -3,6 +3,8 @@ package controller
 import (
 	"p2p-back-end/modules/entities/models"
 	"p2p-back-end/modules/exports/actual_detail_export_owner/service"
+	"p2p-back-end/pkg/middlewares"
+
 	"github.com/gofiber/fiber/v2"
 )
 
@@ -20,6 +22,10 @@ func (c *ownerActualExportController) exportOwnerActualDetail(ctx *fiber.Ctx) er
 	if err := ctx.BodyParser(&req); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
+	if req == nil {
+		req = map[string]interface{}{}
+	}
+	middlewares.EnforceBranchScopeFromCtx(ctx, req)
 
 	user := ctx.Locals("user").(*models.UserInfo)
 	data, filename, err := c.srv.ExportOwnerActualDetailExcel(ctx.UserContext(), user, req)

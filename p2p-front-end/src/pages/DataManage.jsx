@@ -21,7 +21,9 @@ import api from '../utils/api/axiosInstance';
 import { toast } from 'react-toastify';
 import StorageIcon from '@mui/icons-material/Storage';
 import GLGroupingModal from '../components/Budget/GLGroupingModal';
+import BranchCodeMappingModal from '../components/Budget/BranchCodeMappingModal';
 import { BudgetVersionModal, CapexPlanModal, CapexActualModal } from '../components/Budget/VersionModals';
+import StoreIcon from '@mui/icons-material/Store';
 
 
 const DataManagePage = () => {
@@ -652,6 +654,58 @@ const DataManagePage = () => {
             </Button>
           </Paper>
         </Box>
+
+        {/* Card 4: Branch Code Mapping (drives BRANCH_DELEGATE scope) */}
+        <Box sx={{ gridColumn: { sm: '1 / span 2' } }}>
+          <Paper elevation={0}
+            sx={{
+              p: 4,
+              borderRadius: '20px',
+              border: '1px solid #e3e6f0',
+              bgcolor: 'white',
+              boxShadow: '0 10px 30px rgba(0,0,0,0.03)',
+              display: 'flex',
+              flexDirection: { xs: 'column', md: 'row' },
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 3
+            }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2.5 }}>
+              <Avatar sx={{ bgcolor: '#e8eaf6', width: 48, height: 48 }}>
+                <StoreIcon sx={{ color: '#043478', fontSize: 28 }} />
+              </Avatar>
+              <Box>
+                <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#043478' }}>
+                  Branch Code Mapping
+                </Typography>
+                <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                  จับคู่ Company → Branch Code (ใช้กำหนดขอบเขตข้อมูลของ BRANCH_DELEGATE)
+                </Typography>
+              </Box>
+            </Box>
+
+            <Button
+              variant="contained"
+              onClick={() => handleOpenModal('BRANCH_CODE', 'MANAGE BRANCH CODE MAPPING')}
+              sx={{
+                height: '50px',
+                px: 4,
+                borderRadius: '12px',
+                textTransform: 'none',
+                fontWeight: 'bold',
+                bgcolor: '#043478',
+                boxShadow: '0 4px 14px rgba(4, 52, 120, 0.3)',
+                '&:hover': {
+                  bgcolor: '#03285a',
+                  boxShadow: '0 6px 20px rgba(4, 52, 120, 0.4)'
+                }
+              }}
+              startIcon={<EditIcon />}
+            >
+              จัดการ Branch Mapping
+            </Button>
+          </Paper>
+        </Box>
       </Box>
 
       {/* --- Specialized Management Modals --- */}
@@ -681,6 +735,9 @@ const DataManagePage = () => {
 
       {/* --- GL Grouping Modal (Unified) --- */}
       <GLGroupingModal open={modalType === 'GL_GROUPING' && open} onClose={handleClose} />
+
+      {/* --- Branch Code Mapping Modal --- */}
+      <BranchCodeMappingModal open={modalType === 'BRANCH_CODE' && open} onClose={handleClose} />
 
     </Box>
   );

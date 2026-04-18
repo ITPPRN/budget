@@ -14,16 +14,18 @@ import (
 )
 
 type authController struct {
-	authSrv models.AuthService
-	deptSrv models.DepartmentService
-	userSrv models.UsersService
+	authSrv          models.AuthService
+	deptSrv          models.DepartmentService
+	userSrv          models.UsersService
+	branchCodeMapSrv models.CompanyBranchCodeMappingService
 }
 
-func NewUserController(router fiber.Router, authSrv models.AuthService, deptSrv models.DepartmentService, userSrv models.UsersService) {
+func NewUserController(router fiber.Router, authSrv models.AuthService, deptSrv models.DepartmentService, userSrv models.UsersService, branchCodeMapSrv models.CompanyBranchCodeMappingService) {
 	controller := &authController{
-		authSrv: authSrv,
-		deptSrv: deptSrv,
-		userSrv: userSrv,
+		authSrv:          authSrv,
+		deptSrv:          deptSrv,
+		userSrv:          userSrv,
+		branchCodeMapSrv: branchCodeMapSrv,
 	}
 	router.Post("/login", controller.login)
 	router.Post("/login-dev-test", controller.loginDevTest)
@@ -37,11 +39,20 @@ func NewUserController(router fiber.Router, authSrv models.AuthService, deptSrv 
 
 	// --- MANAGE Group (Shared Visibility Management for Admin, Owner, Delegate) ---
 	manage := router.Group("/manage")
-	manage.Get("/users", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(controller.manageListUsers, models.RoleAdmin, models.RoleOwner, models.RoleDelegate)))
+	manage.Get("/users", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(controller.manageListUsers, models.RoleAdmin, models.RoleOwner, models.RoleDelegate, models.RoleBranchDelegate)))
 	manage.Get("/users/:id/permissions", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(controller.getUserPermissions, models.RoleAdmin, models.RoleOwner)))
 	manage.Put("/users/:id/permissions", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(controller.setUserPermissions, models.RoleAdmin, models.RoleOwner)))
-	manage.Get("/departments", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(controller.listDepartments, models.RoleAdmin, models.RoleOwner, models.RoleDelegate)))
+	manage.Get("/departments", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(controller.listDepartments, models.RoleAdmin, models.RoleOwner, models.RoleDelegate, models.RoleBranchDelegate)))
 	manage.Post("/sync-users", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(controller.syncUsers, models.RoleAdmin, models.RoleOwner)))
+
+	// --- Company Branch Code Mappings (Admin only) — drives BRANCH_DELEGATE scope ---
+	manage.Get("/branch-code-mappings", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(controller.listBranchCodeMappings, models.RoleAdmin)))
+	manage.Put("/branch-code-mappings", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(controller.upsertBranchCodeMapping, models.RoleAdmin)))
+	manage.Delete("/branch-code-mappings/:id", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(controller.deleteBranchCodeMapping, models.RoleAdmin)))
+	manage.Post("/branch-code-mappings/import", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(controller.importBranchCodeMappings, models.RoleAdmin)))
+	manage.Get("/branch-code-mappings/template", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(controller.downloadBranchCodeMappingTemplate, models.RoleAdmin)))
+	manage.Get("/companies", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(controller.listCompaniesForMapping, models.RoleAdmin)))
+	manage.Get("/branch-codes", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(controller.listAvailableBranchCodes, models.RoleAdmin)))
 
 	router.Post("/logout", middlewares.JwtAuthentication(authSrv, controller.logout))
 	router.Get("/profile", middlewares.JwtAuthentication(authSrv, controller.getProfile))
@@ -259,7 +270,7 @@ func (h authController) manageListUsers(ctx *fiber.Ctx, user *models.UserInfo) e
 	for _, r := range user.Roles {
 		if strings.EqualFold(r, models.RoleOwner) {
 			isOwner = true
-		} else if strings.EqualFold(r, models.RoleDelegate) {
+		} else if strings.EqualFold(r, models.RoleDelegate) || strings.EqualFold(r, models.RoleBranchDelegate) {
 			isDelegate = true
 		}
 	}
@@ -290,7 +301,7 @@ func (h authController) manageListUsers(ctx *fiber.Ctx, user *models.UserInfo) e
 
 	var allowedDepts []string
 	for _, p := range user.Permissions {
-		if p.IsActive && (strings.EqualFold(p.Role, models.RoleOwner) || strings.EqualFold(p.Role, models.RoleDelegate)) {
+		if p.IsActive && (strings.EqualFold(p.Role, models.RoleOwner) || strings.EqualFold(p.Role, models.RoleDelegate) || strings.EqualFold(p.Role, models.RoleBranchDelegate)) {
 			allowedDepts = append(allowedDepts, p.DepartmentCode)
 		}
 	}

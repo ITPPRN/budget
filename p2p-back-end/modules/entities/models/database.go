@@ -110,6 +110,27 @@ type UserPermissionEntity struct {
 
 func (UserPermissionEntity) TableName() string { return "user_permission_entities" }
 
+// CompanyBranchCodeMappingEntity maps a Company to one or more branch codes
+// used in actual_transactions.Branch (e.g. "HOF", "Branch00").
+// A single Company can map to multiple codes when the upstream ERP emits
+// the same logical branch under several code variants (e.g. CLIK HQ shows
+// up as BOTH "HOF" and "Branch00" in actual data).
+//
+// Uniqueness: composite (company_id, branch_code) — same company can have
+// many rows, but each (company, code) pair appears at most once.
+type CompanyBranchCodeMappingEntity struct {
+	ID         uuid.UUID  `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
+	CompanyID  uuid.UUID  `gorm:"type:uuid;not null;uniqueIndex:idx_branch_map_company_code,priority:1;index" json:"company_id"`
+	Company    *Companies `gorm:"foreignKey:CompanyID" json:"company,omitempty"`
+	BranchCode string     `gorm:"type:varchar(64);not null;uniqueIndex:idx_branch_map_company_code,priority:2;index" json:"branch_code"`
+	CreatedAt  time.Time  `json:"created_at"`
+	UpdatedAt  time.Time  `json:"updated_at"`
+}
+
+func (CompanyBranchCodeMappingEntity) TableName() string {
+	return "company_branch_code_mappings"
+}
+
 // --- Department Master & Mapping ---
 
 // DepartmentEntity now represents MASTER Departments only (e.g., "ACC", "IT")
