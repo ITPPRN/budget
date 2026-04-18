@@ -2437,9 +2437,10 @@ func TestSyncActuals_CLIKServiceRename_HMWNotAffected(t *testing.T) {
 	// Index by entity (HMW row processed first)
 	var hmwTx, clikTx models.ActualTransactionEntity
 	for _, tx := range capturedTxs {
-		if tx.Entity == "HMW" {
+		switch tx.Entity {
+		case "HMW":
 			hmwTx = tx
-		} else if tx.Entity == "CLIK" {
+		case "CLIK":
 			clikTx = tx
 		}
 	}
