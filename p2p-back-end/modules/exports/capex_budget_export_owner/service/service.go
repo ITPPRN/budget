@@ -43,7 +43,7 @@ func (s *service) ExportOwnerCapexExcel(ctx context.Context, user *models.UserIn
 	helper := utils.NewExcelHelper("Capex Budget Status")
 
 	// Define Headers
-	headers := []string{"Entity", "Department", "CAPEX NO.", "CAPEX Name", "CAPEX Category", "Budget", "Actual", "Remaining", "(%)"}
+	headers := []string{"Entity", "Branch", "Department", "CAPEX NO.", "CAPEX Name", "CAPEX Category", "Budget", "Actual", "Remaining", "(%)"}
 	if err := helper.SetHeaders(headers); err != nil {
 		return nil, "", err
 	}
@@ -52,14 +52,15 @@ func (s *service) ExportOwnerCapexExcel(ctx context.Context, user *models.UserIn
 	rowIdx := 2
 	for _, row := range data {
 		_ = helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("A%d", rowIdx), row.Entity)
-		_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("B%d", rowIdx), row.Department)
-		_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("C%d", rowIdx), row.CapexNo)
-		_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("D%d", rowIdx), row.CapexName)
-		_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("E%d", rowIdx), row.CapexCategory)
-		_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("F%d", rowIdx), row.Budget.InexactFloat64())
-		_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("G%d", rowIdx), row.Actual.InexactFloat64())
-		_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("H%d", rowIdx), row.Remaining.InexactFloat64())
-		_ =helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("I%d", rowIdx), row.Percentage)
+		_ = helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("B%d", rowIdx), row.Branch)
+		_ = helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("C%d", rowIdx), row.Department)
+		_ = helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("D%d", rowIdx), row.CapexNo)
+		_ = helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("E%d", rowIdx), row.CapexName)
+		_ = helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("F%d", rowIdx), row.CapexCategory)
+		_ = helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("G%d", rowIdx), row.Budget.InexactFloat64())
+		_ = helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("H%d", rowIdx), row.Actual.InexactFloat64())
+		_ = helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("I%d", rowIdx), row.Remaining.InexactFloat64())
+		_ = helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("J%d", rowIdx), row.Percentage)
 		rowIdx++
 	}
 
