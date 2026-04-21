@@ -23,7 +23,7 @@ export const AuthProvider = ({ children }) => {
 
       // ✅ Strict Role Check: Only set user state if they have a privileged role
       const roles = userData.roles || [];
-      const hasAccess = roles.some(r => ['ADMIN', 'OWNER', 'DELEGATE'].includes(r.toUpperCase()));
+      const hasAccess = roles.some(r => ['ADMIN', 'SUPER_ADMIN', 'OWNER', 'DELEGATE', 'BRANCH_DELEGATE'].includes(r.toUpperCase()));
 
       if (hasAccess) {
         setUser(userData);

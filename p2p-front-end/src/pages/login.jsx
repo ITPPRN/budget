@@ -67,7 +67,7 @@ function Login() {
 
       const isAdmin = roles.some(r => r.toUpperCase() === 'ADMIN' || r.toUpperCase() === 'SUPER_ADMIN');
       const isOwner = roles.some(r => r.toUpperCase() === 'OWNER');
-      const isDelegate = roles.some(r => r.toUpperCase() === 'DELEGATE');
+      const isDelegate = roles.some(r => r.toUpperCase() === 'DELEGATE' || r.toUpperCase() === 'BRANCH_DELEGATE');
 
       if (isAdmin) {
         console.log("Role Admin detected. Redirecting to Home...");
