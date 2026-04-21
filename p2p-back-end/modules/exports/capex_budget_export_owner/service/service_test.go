@@ -119,6 +119,7 @@ func TestExport_Success_WithData(t *testing.T) {
 	rows := []models.OwnerCapexBudgetExportDTO{
 		{
 			Entity:        "ACG",
+			Branch:        "HQ",
 			Department:    "IT",
 			CapexNo:       "CX001",
 			CapexName:     "Server Upgrade",
@@ -130,6 +131,7 @@ func TestExport_Success_WithData(t *testing.T) {
 		},
 		{
 			Entity:        "ACG",
+			Branch:        "HQ",
 			Department:    "HR",
 			CapexNo:       "CX002",
 			CapexName:     "Office Renovation",
@@ -157,44 +159,50 @@ func TestExport_Success_WithData(t *testing.T) {
 
 	sheet := f.GetSheetName(0)
 
-	// Verify headers (9 columns)
+	// Verify headers (10 columns)
 	h1, _ := f.GetCellValue(sheet, "A1")
 	assert.Equal(t, "Entity", h1)
 	h2, _ := f.GetCellValue(sheet, "B1")
-	assert.Equal(t, "Department", h2)
+	assert.Equal(t, "Branch", h2)
 	h3, _ := f.GetCellValue(sheet, "C1")
-	assert.Equal(t, "CAPEX NO.", h3)
+	assert.Equal(t, "Department", h3)
 	h4, _ := f.GetCellValue(sheet, "D1")
-	assert.Equal(t, "CAPEX Name", h4)
+	assert.Equal(t, "CAPEX NO.", h4)
 	h5, _ := f.GetCellValue(sheet, "E1")
-	assert.Equal(t, "CAPEX Category", h5)
+	assert.Equal(t, "CAPEX Name", h5)
 	h6, _ := f.GetCellValue(sheet, "F1")
-	assert.Equal(t, "Budget", h6)
+	assert.Equal(t, "CAPEX Category", h6)
 	h7, _ := f.GetCellValue(sheet, "G1")
-	assert.Equal(t, "Actual", h7)
+	assert.Equal(t, "Budget", h7)
 	h8, _ := f.GetCellValue(sheet, "H1")
-	assert.Equal(t, "Remaining", h8)
+	assert.Equal(t, "Actual", h8)
 	h9, _ := f.GetCellValue(sheet, "I1")
-	assert.Equal(t, "(%)", h9)
+	assert.Equal(t, "Remaining", h9)
+	h10, _ := f.GetCellValue(sheet, "J1")
+	assert.Equal(t, "(%)", h10)
 
 	// Verify row 2 (first data row)
 	v, _ := f.GetCellValue(sheet, "A2")
 	assert.Equal(t, "ACG", v)
 	v, _ = f.GetCellValue(sheet, "B2")
-	assert.Equal(t, "IT", v)
+	assert.Equal(t, "HQ", v)
 	v, _ = f.GetCellValue(sheet, "C2")
-	assert.Equal(t, "CX001", v)
+	assert.Equal(t, "IT", v)
 	v, _ = f.GetCellValue(sheet, "D2")
-	assert.Equal(t, "Server Upgrade", v)
+	assert.Equal(t, "CX001", v)
 	v, _ = f.GetCellValue(sheet, "E2")
+	assert.Equal(t, "Server Upgrade", v)
+	v, _ = f.GetCellValue(sheet, "F2")
 	assert.Equal(t, "Hardware", v)
 
 	// Verify row 3 (second data row)
 	v, _ = f.GetCellValue(sheet, "A3")
 	assert.Equal(t, "ACG", v)
 	v, _ = f.GetCellValue(sheet, "B3")
-	assert.Equal(t, "HR", v)
+	assert.Equal(t, "HQ", v)
 	v, _ = f.GetCellValue(sheet, "C3")
+	assert.Equal(t, "HR", v)
+	v, _ = f.GetCellValue(sheet, "D3")
 	assert.Equal(t, "CX002", v)
 
 	// Verify no row 4

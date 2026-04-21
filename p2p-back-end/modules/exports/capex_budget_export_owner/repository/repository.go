@@ -5,6 +5,8 @@ import (
 	"p2p-back-end/modules/entities/models"
 	"p2p-back-end/pkg/utils"
 
+	_service "p2p-back-end/modules/budgets/service"
+
 	"gorm.io/gorm"
 )
 
@@ -21,6 +23,24 @@ func NewRepository(db *gorm.DB) OwnerCapexRepository {
 }
 
 func (r *repository) GetOwnerCapexData(ctx context.Context, filter map[string]interface{}) ([]models.OwnerCapexBudgetExportDTO, error) {
+	// Inject Global Settings if missing — respects the actively selected capex files
+	globalConfigs := _service.FetchGlobalSettings(r.db)
+	if filter["year"] == nil || filter["year"] == "" {
+		if val, ok := globalConfigs["actualYear"]; ok && val != "" {
+			filter["year"] = val
+		}
+	}
+	if filter["capex_file_id"] == nil || filter["capex_file_id"] == "" {
+		if val, ok := globalConfigs["selectedCapexBg"]; ok && val != "" {
+			filter["capex_file_id"] = val
+		}
+	}
+	if filter["capex_actual_file_id"] == nil || filter["capex_actual_file_id"] == "" {
+		if val, ok := globalConfigs["selectedCapexActual"]; ok && val != "" {
+			filter["capex_actual_file_id"] = val
+		}
+	}
+
 	type capexRow struct {
 		Entity        string
 		Branch        string
@@ -33,8 +53,9 @@ func (r *repository) GetOwnerCapexData(ctx context.Context, filter map[string]in
 
 	var budgetRows []capexRow
 	btx := r.db.Table("capex_budget_fact_entities").
-		Select("entity, MAX(branch) as branch, TRIM(department) as department, capex_no, MAX(capex_name) as capex_name, MAX(capex_category) as capex_category, SUM(year_total) as total").
-		Group("entity, TRIM(department), capex_no")
+		Select("entity, branch, TRIM(department) as department, capex_no, MAX(capex_name) as capex_name, MAX(capex_category) as capex_category, SUM(year_total) as total").
+		Where("COALESCE(capex_no, '') <> ''").
+		Group("entity, branch, TRIM(department), capex_no")
 	btx = r.applyCommonFilters(btx, "capex_budget_fact_entities", filter)
 	if err := btx.Scan(&budgetRows).Error; err != nil {
 		return nil, err
@@ -42,8 +63,9 @@ func (r *repository) GetOwnerCapexData(ctx context.Context, filter map[string]in
 
 	var actualRows []capexRow
 	atx := r.db.Table("capex_actual_fact_entities").
-		Select("entity, MAX(branch) as branch, TRIM(department) as department, capex_no, SUM(year_total) as total").
-		Group("entity, TRIM(department), capex_no")
+		Select("entity, branch, TRIM(department) as department, capex_no, SUM(year_total) as total").
+		Where("COALESCE(capex_no, '') <> ''").
+		Group("entity, branch, TRIM(department), capex_no")
 	atx = r.applyCommonFilters(atx, "capex_actual_fact_entities", filter)
 	if err := atx.Scan(&actualRows).Error; err != nil {
 		return nil, err
@@ -51,13 +73,14 @@ func (r *repository) GetOwnerCapexData(ctx context.Context, filter map[string]in
 
 	type key struct {
 		Entity     string
+		Branch     string
 		Department string
 		CapexNo    string
 	}
 	capexMap := make(map[key]*models.OwnerCapexBudgetExportDTO)
 
 	for _, b := range budgetRows {
-		k := key{b.Entity, b.Department, b.CapexNo}
+		k := key{b.Entity, b.Branch, b.Department, b.CapexNo}
 		capexMap[k] = &models.OwnerCapexBudgetExportDTO{
 			Entity:        b.Entity,
 			Branch:        b.Branch,
@@ -69,10 +92,11 @@ func (r *repository) GetOwnerCapexData(ctx context.Context, filter map[string]in
 		}
 	}
 	for _, a := range actualRows {
-		k := key{a.Entity, a.Department, a.CapexNo}
+		k := key{a.Entity, a.Branch, a.Department, a.CapexNo}
 		if _, ok := capexMap[k]; !ok {
 			capexMap[k] = &models.OwnerCapexBudgetExportDTO{
 				Entity:     a.Entity,
+				Branch:     a.Branch,
 				Department: a.Department,
 				CapexNo:    a.CapexNo,
 				CapexName:  a.CapexName,
@@ -121,8 +145,7 @@ func (r *repository) applyCommonFilters(tx *gorm.DB, tableName string, filter ma
 			tx = tx.Where(tableName+".file_capex_budget_id = ?", val)
 		} else {
 			var latestFid string
-			r.db.Model(&models.CapexBudgetFactEntity{}).Order("created_at desc").Select("file_capex_budget_id").Limit(1).Take(&latestFid)
-			if latestFid != "" {
+			if err := r.db.Model(&models.CapexBudgetFactEntity{}).Order("created_at desc").Limit(1).Pluck("file_capex_budget_id", &latestFid).Error; err == nil && latestFid != "" {
 				tx = tx.Where(tableName+".file_capex_budget_id = ?", latestFid)
 			}
 		}
@@ -132,8 +155,7 @@ func (r *repository) applyCommonFilters(tx *gorm.DB, tableName string, filter ma
 			tx = tx.Where(tableName+".file_capex_actual_id = ?", val)
 		} else {
 			var latestFid string
-			r.db.Model(&models.CapexActualFactEntity{}).Order("created_at desc").Select("file_capex_actual_id").Limit(1).Take(&latestFid)
-			if latestFid != "" {
+			if err := r.db.Model(&models.CapexActualFactEntity{}).Order("created_at desc").Limit(1).Pluck("file_capex_actual_id", &latestFid).Error; err == nil && latestFid != "" {
 				tx = tx.Where(tableName+".file_capex_actual_id = ?", latestFid)
 			}
 		}
