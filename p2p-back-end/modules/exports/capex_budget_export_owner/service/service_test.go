@@ -124,10 +124,11 @@ func TestExport_Success_WithData(t *testing.T) {
 			CapexNo:       "CX001",
 			CapexName:     "Server Upgrade",
 			CapexCategory: "Hardware",
-			Budget:        decimal.NewFromFloat(500000),
-			Actual:        decimal.NewFromFloat(200000),
-			Remaining:     decimal.NewFromFloat(300000),
-			Percentage:    40.0,
+			Type:          "Budget",
+			MonthsAmounts: map[string]interface{}{
+				"JAN": decimal.NewFromFloat(500000),
+			},
+			YearTotal: decimal.NewFromFloat(500000),
 		},
 		{
 			Entity:        "ACG",
@@ -136,10 +137,11 @@ func TestExport_Success_WithData(t *testing.T) {
 			CapexNo:       "CX002",
 			CapexName:     "Office Renovation",
 			CapexCategory: "Facility",
-			Budget:        decimal.NewFromFloat(100000),
-			Actual:        decimal.NewFromFloat(120000),
-			Remaining:     decimal.NewFromFloat(-20000),
-			Percentage:    120.0,
+			Type:          "Actual",
+			MonthsAmounts: map[string]interface{}{
+				"JAN": decimal.NewFromFloat(120000),
+			},
+			YearTotal: decimal.NewFromFloat(120000),
 		},
 	}
 
@@ -159,7 +161,7 @@ func TestExport_Success_WithData(t *testing.T) {
 
 	sheet := f.GetSheetName(0)
 
-	// Verify headers (10 columns)
+	// Verify headers (20 columns: Entity, Branch, Dept, CAPEX NO., CAPEX Name, CAPEX Category, Type, JAN..DEC, YEARTOTAL)
 	h1, _ := f.GetCellValue(sheet, "A1")
 	assert.Equal(t, "Entity", h1)
 	h2, _ := f.GetCellValue(sheet, "B1")
@@ -173,13 +175,11 @@ func TestExport_Success_WithData(t *testing.T) {
 	h6, _ := f.GetCellValue(sheet, "F1")
 	assert.Equal(t, "CAPEX Category", h6)
 	h7, _ := f.GetCellValue(sheet, "G1")
-	assert.Equal(t, "Budget", h7)
+	assert.Equal(t, "Type", h7)
 	h8, _ := f.GetCellValue(sheet, "H1")
-	assert.Equal(t, "Actual", h8)
-	h9, _ := f.GetCellValue(sheet, "I1")
-	assert.Equal(t, "Remaining", h9)
-	h10, _ := f.GetCellValue(sheet, "J1")
-	assert.Equal(t, "(%)", h10)
+	assert.Equal(t, "JAN", h8)
+	h20, _ := f.GetCellValue(sheet, "T1")
+	assert.Equal(t, "YEARTOTAL", h20)
 
 	// Verify row 2 (first data row)
 	v, _ := f.GetCellValue(sheet, "A2")
@@ -194,16 +194,16 @@ func TestExport_Success_WithData(t *testing.T) {
 	assert.Equal(t, "Server Upgrade", v)
 	v, _ = f.GetCellValue(sheet, "F2")
 	assert.Equal(t, "Hardware", v)
+	v, _ = f.GetCellValue(sheet, "G2")
+	assert.Equal(t, "Budget", v)
 
 	// Verify row 3 (second data row)
 	v, _ = f.GetCellValue(sheet, "A3")
 	assert.Equal(t, "ACG", v)
-	v, _ = f.GetCellValue(sheet, "B3")
-	assert.Equal(t, "HQ", v)
-	v, _ = f.GetCellValue(sheet, "C3")
-	assert.Equal(t, "HR", v)
 	v, _ = f.GetCellValue(sheet, "D3")
 	assert.Equal(t, "CX002", v)
+	v, _ = f.GetCellValue(sheet, "G3")
+	assert.Equal(t, "Actual", v)
 
 	// Verify no row 4
 	v, _ = f.GetCellValue(sheet, "A4")
