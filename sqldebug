@@ -58,3 +58,7 @@ WHERE m.entity_gl IS NULL
 ORDER BY c.comp, c.gl;
 
 ดึงทุกตารางรวมกันรายการที่ข้าม
+
+
+
+docker compose -f docker-compose.test.yml up --build

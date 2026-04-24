@@ -27,14 +27,16 @@ func NewUserController(router fiber.Router, authSrv models.AuthService, deptSrv 
 		userSrv:          userSrv,
 		branchCodeMapSrv: branchCodeMapSrv,
 	}
-	router.Post("/login", controller.login)
-	router.Post("/login-dev-test", controller.loginDevTest)
-	router.Post("/refresh-token", controller.refreshToken)
-	router.Post("/change-password", middlewares.JwtAuthentication(authSrv, controller.changePassword))
+	// --- Keycloak-dependent routes DISABLED (gateway handles auth flow) ---
+	// router.Post("/login", middlewares.RequireGatewaySecret(), controller.login)
+	// router.Post("/login-dev-test", middlewares.RequireGatewaySecret(), controller.loginDevTest)
+	// router.Post("/refresh-token", middlewares.RequireGatewaySecret(), controller.refreshToken)
+	// router.Post("/change-password", middlewares.JwtAuthentication(authSrv, controller.changePassword))
 
 	// --- ADMIN Group (Strictly System Admin) ---
 	admin := router.Group("/admin")
-	admin.Post("/users/:id/reset-password", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(controller.adminResetUserPassword, models.RoleAdmin)))
+	// Keycloak-dependent (admin reset password) DISABLED
+	// admin.Post("/users/:id/reset-password", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(controller.adminResetUserPassword, models.RoleAdmin)))
 	admin.Get("/users", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(controller.adminListUsers, models.RoleAdmin)))
 
 	// --- MANAGE Group (Shared Visibility Management for Admin, Owner, Delegate) ---
@@ -43,7 +45,8 @@ func NewUserController(router fiber.Router, authSrv models.AuthService, deptSrv 
 	manage.Get("/users/:id/permissions", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(controller.getUserPermissions, models.RoleAdmin, models.RoleOwner)))
 	manage.Put("/users/:id/permissions", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(controller.setUserPermissions, models.RoleAdmin, models.RoleOwner)))
 	manage.Get("/departments", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(controller.listDepartments, models.RoleAdmin, models.RoleOwner, models.RoleDelegate, models.RoleBranchDelegate)))
-	manage.Post("/sync-users", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(controller.syncUsers, models.RoleAdmin, models.RoleOwner)))
+	// Keycloak-dependent (user sync from Keycloak) DISABLED
+	// manage.Post("/sync-users", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(controller.syncUsers, models.RoleAdmin, models.RoleOwner)))
 
 	// --- Company Branch Code Mappings (Admin only) — drives BRANCH_DELEGATE scope ---
 	manage.Get("/branch-code-mappings", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(controller.listBranchCodeMappings, models.RoleAdmin)))
@@ -54,7 +57,8 @@ func NewUserController(router fiber.Router, authSrv models.AuthService, deptSrv 
 	manage.Get("/companies", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(controller.listCompaniesForMapping, models.RoleAdmin)))
 	manage.Get("/branch-codes", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(controller.listAvailableBranchCodes, models.RoleAdmin)))
 
-	router.Post("/logout", middlewares.JwtAuthentication(authSrv, controller.logout))
+	// Logout: keeps only cookie-clear behavior; gateway handles Keycloak session termination
+	router.Post("/logout", middlewares.RequireGatewaySecret(), middlewares.JwtAuthentication(authSrv, controller.logout))
 	router.Get("/profile", middlewares.JwtAuthentication(authSrv, controller.getProfile))
 	router.Get("/tcf", controller.test11)
 }

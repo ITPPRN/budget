@@ -11,11 +11,19 @@ import (
 	// Export Modules (Admin
 	// Export Modules (Admin
 	// Export Modules (Admin
+	// Export Modules (Admin
+	// Export Modules (Admin
+	// Export Modules (Admin
+	// Export Modules (Admin
+	// Export Modules (Admin
+	// Export Modules (Admin
+	// Export Modules (Admin
+	// Export Modules (Admin
+	// Export Modules (Admin
 
 	"github.com/gofiber/contrib/fiberzap/v2"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/recover"
-	"github.com/gofiber/swagger"
 
 	_ "p2p-back-end/docs"
 	"p2p-back-end/logs"
@@ -23,6 +31,7 @@ import (
 	_budgetCon "p2p-back-end/modules/budgets/controller"
 	_capexCon "p2p-back-end/modules/capex/controller"
 	_ownerCon "p2p-back-end/modules/owner/controller"
+
 	"p2p-back-end/pkg/middlewares"
 	// Export Modules (Admin)
 	_bdEC "p2p-back-end/modules/exports/budget_detail_export/controller"
@@ -71,11 +80,11 @@ func (s *server) Handlers() error {
 	s.App.Use(recover.New())
 
 	v1 := s.App.Group("/v1")
-	v1.Use(middlewares.NewCorsOriginMiddleWare())
+	// v1.Use(middlewares.NewCorsOriginMiddleWare())
 
 	v1.Use(logs.LogHttp)
 
-	v1.Get("/swagger/*", swagger.HandlerDefault)
+	// v1.Get("/swagger/*", swagger.HandlerDefault)
 
 	if s.Cfg.App.Mode == "release" {
 		s.App.Use(fiberzap.New(fiberzap.Config{Logger: logs.Logger}))
@@ -99,7 +108,9 @@ func (s *server) Handlers() error {
 	_budgetCon.NewBudgetController(budgetGroup, s.Shd.PLBudgetService, s.Shd.CapexService, s.Shd.ActualService, s.Shd.MasterDataService, s.Shd.DashboardService)
 	_budgetCon.NewAuditController(budgetGroup, s.Shd.AuditService)
 
-	_capexCon.NewCapexController(v1, s.Shd.CapexService)
+	capexGroup := v1.Group("/capex")
+	capexGroup.Use(middlewares.JwtAuthentication(s.Shd.AuthService, nil))
+	_capexCon.NewCapexController(capexGroup, s.Shd.CapexService)
 
 	ownerGroup := v1.Group("/owner")
 	ownerGroup.Use(middlewares.JwtAuthentication(s.Shd.AuthService, nil))
@@ -110,10 +121,10 @@ func (s *server) Handlers() error {
 	exportGroup.Use(middlewares.JwtAuthentication(s.Shd.AuthService, nil))
 	_bdEC.NewExportController(exportGroup, _bdES.NewService(_bdER.NewRepository(s.Db)))
 	_adEC.NewExportController(exportGroup, _adES.NewService(_adER.NewRepository(s.Db)))
-	_dbsEC.NewExportController(v1, _dbsES.NewService(_dbsER.NewRepository(s.Db)))
-	_bvaEC.NewExportController(v1, _bvaES.NewService(_bvaER.NewRepository(s.Db)))
-	_cdsEC.NewExportController(v1, _cdsES.NewService(_cdsER.NewRepository(s.Db)))
-	_cvaEC.NewExportController(v1, _cvaES.NewService(_cvaER.NewRepository(s.Db)))
+	_dbsEC.NewExportController(exportGroup, _dbsES.NewService(_dbsER.NewRepository(s.Db)))
+	_bvaEC.NewExportController(exportGroup, _bvaES.NewService(_bvaER.NewRepository(s.Db)))
+	_cdsEC.NewExportController(exportGroup, _cdsES.NewService(_cdsER.NewRepository(s.Db)))
+	_cvaEC.NewExportController(exportGroup, _cvaES.NewService(_cvaER.NewRepository(s.Db)))
 
 	_bvaoEC.NewExportController(ownerGroup, _bvaoES.NewService(_bvaoER.NewRepository(s.Db), s.Shd.OwnerService))
 	_cbeEC.NewExportController(ownerGroup, _cbeES.NewService(_cbeER.NewRepository(s.Db), s.Shd.OwnerService))

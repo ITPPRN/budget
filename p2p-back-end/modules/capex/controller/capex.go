@@ -14,31 +14,28 @@ type capexController struct {
 func NewCapexController(router fiber.Router, capexSrv models.CapexService) {
 	controller := &capexController{capexSrv: capexSrv}
 
-	// Group: /api/capex
-	api := router.Group("/capex")
-
 	// Import
-	api.Post("/import-budget", controller.importCapexBudget)
-	api.Post("/import-actual", controller.importCapexActual)
+	router.Post("/import-budget", controller.importCapexBudget)
+	router.Post("/import-actual", controller.importCapexActual)
 
 	// List
-	api.Get("/files-budget", controller.listCapexBudgetFiles)
-	api.Get("/files-actual", controller.listCapexActualFiles)
+	router.Get("/files-budget", controller.listCapexBudgetFiles)
+	router.Get("/files-actual", controller.listCapexActualFiles)
 
 	// Sync
-	api.Post("/files-budget/:id/sync", controller.syncCapexBudget)
-	api.Post("/files-actual/:id/sync", controller.syncCapexActual)
+	router.Post("/files-budget/:id/sync", controller.syncCapexBudget)
+	router.Post("/files-actual/:id/sync", controller.syncCapexActual)
 
 	// Delete
-	api.Delete("/files-budget/:id", controller.deleteCapexBudgetFile)
-	api.Delete("/files-actual/:id", controller.deleteCapexActualFile)
+	router.Delete("/files-budget/:id", controller.deleteCapexBudgetFile)
+	router.Delete("/files-actual/:id", controller.deleteCapexActualFile)
 
 	// Rename
-	api.Patch("/files-budget/:id", controller.renameCapexBudgetFile)
-	api.Patch("/files-actual/:id", controller.renameCapexActualFile)
+	router.Patch("/files-budget/:id", controller.renameCapexBudgetFile)
+	router.Patch("/files-actual/:id", controller.renameCapexActualFile)
 
 	// Dashboard
-	api.Post("/dashboard-summary", controller.getCapexDashboardSummary)
+	router.Post("/dashboard-summary", controller.getCapexDashboardSummary)
 }
 
 // ---------------------------------------------------------------------

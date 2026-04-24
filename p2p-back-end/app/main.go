@@ -48,15 +48,16 @@ func main() {
 	logs.Info("✅ Internal & Gateway Security initialized.")
 	_ = logs.Sync()
 
-	// Keycloak Validator Setup (Deprecated but kept for compatibility)
-	middlewares.InitKeycloakValidator(
-		cfg.KeyCloak.Host,
-		cfg.KeyCloak.Port,
-		cfg.KeyCloak.RealmName,
-		cfg.KeyCloak.ClientID,
-	)
-	logs.Info("✅ Keycloak Validator initialized.")
-	_ = logs.Sync() // Force flush logs
+	// Keycloak Validator Setup — DISABLED (gateway handles all auth)
+	// middlewares.InitKeycloakValidator(
+	// 	cfg.KeyCloak.Host,
+	// 	cfg.KeyCloak.Port,
+	// 	cfg.KeyCloak.RealmName,
+	// 	cfg.KeyCloak.ClientID,
+	// )
+	// logs.Info("✅ Keycloak Validator initialized.")
+	// _ = logs.Sync() // Force flush logs
+	logs.Info("ℹ️  Keycloak integration disabled; gateway handles authentication.")
 
 	// Local Database Setup
 	logs.Info("🐘 Starting Local Database Setup...")

@@ -1,10 +1,19 @@
-import { lazy } from "react";
-import { Navigate, Outlet } from "react-router-dom";
+import { lazy, useEffect } from "react";
+import { Navigate } from "react-router-dom";
 import Loadable from "../utils/loadable";
 import Layout from "../layouts";
 
+// --- Redirect unauthenticated users straight to APISIX OIDC login ---
+function RedirectToGatewayLogin() {
+  useEffect(() => {
+    const returnTo = window.location.pathname + window.location.search;
+    sessionStorage.setItem('oidc_return_to', returnTo);
+    window.location.href = "/budget-dash/v1/login";
+  }, []);
+  return null;
+}
+
 // --- Import Pages (ใช้ Lazy Load) ---
-const Login = Loadable(lazy(() => import("../pages/login")));
 const HomePage = Loadable(lazy(() => import("../pages/HomePage")));
 const DetailPage = Loadable(lazy(() => import("../pages/Detail")));
 const UserManagePage = Loadable(lazy(() => import("../pages/UserManage")));
@@ -21,9 +30,9 @@ const OwnerUserManage = Loadable(lazy(() => import("../pages/Owner/OwnerUserMana
 const Routes = (isLoggedIn, user) => [
   {
     path: "/",
-    // ถ้า Login แล้ว -> ให้ใช้ Layout (มี Sidebar)
-    // ถ้ายัง -> ดีดไปหน้า Login
-    element: isLoggedIn ? <Layout /> : <Navigate to="/login" />,
+    // ถ้า Login แล้ว -> ใช้ Layout (มี Sidebar)
+    // ถ้ายัง -> เด้งออกไปที่ OIDC login ของ APISIX gateway
+    element: isLoggedIn ? <Layout /> : <RedirectToGatewayLogin />,
     children: [
       {
         path: "/",
@@ -49,16 +58,6 @@ const Routes = (isLoggedIn, user) => [
       { path: "owner/dashboard", element: <OwnerDashboard /> },
       { path: "owner/detail", element: <OwnerDetailReport /> },
       { path: "owner/user", element: <OwnerUserManage /> },
-    ],
-  },
-  {
-    path: "/",
-    // ถ้ายังไม่ Login -> ให้แสดงหน้า Login
-    // ถ้า Login แล้ว -> ดีดกลับไป Home (กันคนกด Back มาหน้า Login)
-    element: !isLoggedIn ? <Outlet /> : <Navigate to="/" />,
-    children: [
-      { path: "login", element: <Login /> },
-      // { path: "register", element: <Register /> },
     ],
   },
   {
