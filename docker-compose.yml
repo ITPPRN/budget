@@ -1,10 +1,10 @@
 services:
   go_backend:
-    build:
-      context: ./p2p-back-end
-      dockerfile: Dockerfile
-    # image: ${CI_REGISTRY_IMAGE}/backend:latest
-    container_name: bud_backend
+    # build:
+    #   context: ./p2p-back-end
+    #   dockerfile: Dockerfile
+    image: ${CI_REGISTRY_IMAGE}/backend:latest
+    container_name: budget_backend
     restart: unless-stopped
     environment:
       - INFISICAL_PROJECT_ID=${INFISICAL_PROJECT_ID}
@@ -30,11 +30,11 @@ services:
           memory: 128M
 
   frontend:
-    build:
-      context: ./p2p-front-end
-      dockerfile: Dockerfile
-    # image: ${CI_REGISTRY_IMAGE}/frontend:latest
-    container_name: p2p_frontend
+    # build:
+    #   context: ./p2p-front-end
+    #   dockerfile: Dockerfile
+    image: ${CI_REGISTRY_IMAGE}/frontend:latest
+    container_name: budget_frontend
     restart: unless-stopped
     ports:
       - "13002:80"
