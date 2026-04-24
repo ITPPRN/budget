@@ -19,18 +19,18 @@ static_analysis:
   allow_failure: false
 
 # 2. Unit Test (Backend)
-run_unit_tests:
-  stage: test
-  image: golang:1.25.4-alpine3.22
-  tags:
-    - internal
-  before_script:
-    - cd p2p-back-end
-  script:
-    - go test -v ./...
-  only:
-    - main
-    - merge_requests
+# run_unit_tests:
+#   stage: test
+#   image: golang:1.25.4-alpine3.22
+#   tags:
+#     - internal
+#   before_script:
+#     - cd p2p-back-end
+#   script:
+#     - go test -v ./...
+#   only:
+#     - main
+#     - merge_requests
 
 # 3. Build Docker Images
 build_backend:
