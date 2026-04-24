@@ -10,7 +10,6 @@ import (
 	"p2p-back-end/logs"
 	"p2p-back-end/modules/entities/models"
 	"p2p-back-end/pkg/middlewares"
-	"p2p-back-end/pkg/utils"
 )
 
 type authController struct {
@@ -68,140 +67,8 @@ func (h authController) test11(c *fiber.Ctx) error {
 	return responseSuccess(c, m)
 }
 
-
-func (h authController) login(c *fiber.Ctx) error {
-	var req models.LoginReq
-	if err := c.BodyParser(&req); err != nil {
-		logs.Info("Invalid request: " + err.Error())
-		return badReqErrResponse(c, "Invalid request format")
-	}
-
-	if err := utils.ValidateStruct(req); err != nil {
-		return badReqErrResponse(c, err.Error())
-	}
-	token, err := h.authSrv.Login(c.Context(), &req)
-	if err != nil {
-		return responseWithError(c, err)
-	}
-
-	accessCookie := new(fiber.Cookie)
-	accessCookie.Name = "access_token"
-	accessCookie.Value = token.AccessToken
-	accessCookie.HTTPOnly = true
-	accessCookie.Expires = time.Now().Add(time.Duration(token.ExpiresIn) * time.Second)
-	accessCookie.SameSite = "Lax"
-	c.Cookie(accessCookie)
-
-	refreshCookie := new(fiber.Cookie)
-	refreshCookie.Name = "refresh_token"
-	refreshCookie.Value = token.RefreshToken
-	refreshCookie.HTTPOnly = true
-	refreshCookie.Path = "/v1/auth"
-	refreshCookie.Expires = time.Now().Add(time.Duration(token.RefreshExpiresIn) * time.Second)
-	refreshCookie.SameSite = "Lax"
-	c.Cookie(refreshCookie)
-
-	return responseSuccess(c, "Login successful")
-}
-
-func (h *authController) refreshToken(c *fiber.Ctx) error {
-	refreshToken := c.Cookies("refresh_token")
-	if refreshToken == "" {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "No refresh token found"})
-	}
-
-	newToken, err := h.authSrv.RefreshToken(c.Context(), refreshToken)
-	if err != nil {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Invalid refresh token", "detail": err.Error()})
-	}
-
-	accessCookie := new(fiber.Cookie)
-	accessCookie.Name = "access_token"
-	accessCookie.Value = newToken.AccessToken
-	accessCookie.HTTPOnly = true
-	accessCookie.Expires = time.Now().Add(time.Duration(newToken.ExpiresIn) * time.Second)
-	accessCookie.SameSite = "Lax"
-	c.Cookie(accessCookie)
-
-	refreshCookie := new(fiber.Cookie)
-	refreshCookie.Name = "refresh_token"
-	refreshCookie.Value = newToken.RefreshToken
-	refreshCookie.HTTPOnly = true
-	refreshCookie.Path = "/v1/auth"
-	refreshCookie.Expires = time.Now().Add(time.Duration(newToken.RefreshExpiresIn) * time.Second)
-	refreshCookie.SameSite = "Lax"
-	c.Cookie(refreshCookie)
-
-	return responseSuccess(c, "Token refreshed")
-}
-
-func (h authController) loginDevTest(c *fiber.Ctx) error {
-	var req models.LoginReq
-	if err := c.BodyParser(&req); err != nil {
-		logs.Info("Invalid request: " + err.Error())
-		return badReqErrResponse(c, "Invalid request format")
-	}
-
-	if err := utils.ValidateStruct(req); err != nil {
-		return badReqErrResponse(c, err.Error())
-	}
-	m, err := h.authSrv.Login(c.Context(), &req)
-	if err != nil {
-		return responseWithError(c, err)
-	}
-
-	return responseSuccess(c, m)
-}
-
 func (h authController) getProfile(c *fiber.Ctx, userInfo *models.UserInfo) error {
 	return responseSuccess(c, userInfo)
-}
-
-func (h *authController) changePassword(c *fiber.Ctx, userInfo *models.UserInfo) error {
-	req := new(models.ChangePasswordReq)
-	if err := c.BodyParser(req); err != nil {
-		return badReqErrResponse(c, "Invalid request format")
-	}
-
-	if err := utils.ValidateStruct(req); err != nil {
-		return badReqErrResponse(c, err.Error())
-	}
-	if req.NewPassword != req.ConfirmPassword {
-		return badReqErrResponse(c, "รหัสผ่านใหม่และการยืนยันไม่ตรงกัน")
-	}
-
-	err := h.authSrv.ChangePassword(c.Context(), req.OldPassword, req.NewPassword, userInfo)
-	if err != nil {
-		if err.Error() == "รหัสผ่านเดิมไม่ถูกต้อง" {
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
-		}
-		return responseWithError(c, err)
-	}
-
-	return responseSuccess(c, "เปลี่ยนรหัสผ่านสำเร็จ")
-}
-
-func (h *authController) adminResetUserPassword(c *fiber.Ctx, userInfo *models.UserInfo) error {
-	targetUserID := c.Params("id")
-	if targetUserID == "" {
-		return badReqErrResponse(c, "User ID is required")
-	}
-
-	req := new(models.AdminResetPasswordReq)
-	if err := c.BodyParser(req); err != nil {
-		return badReqErrResponse(c, "Invalid request format")
-	}
-
-	if err := utils.ValidateStruct(req); err != nil {
-		return badReqErrResponse(c, err.Error())
-	}
-
-	err := h.authSrv.AdminResetUserPassword(c.Context(), targetUserID, req.NewPassword)
-	if err != nil {
-		return responseWithError(c, err)
-	}
-
-	return responseSuccess(c, "รีเซ็ตรหัสผ่านสำเร็จ ผู้ใช้ต้องเปลี่ยนรหัสใหม่ในการเข้าสู่ระบบครั้งถัดไป")
 }
 
 func (h authController) logout(c *fiber.Ctx, userInfo *models.UserInfo) error {
@@ -414,9 +281,3 @@ func (h *authController) listDepartments(ctx *fiber.Ctx, user *models.UserInfo) 
 	return responseSuccess(ctx, depts)
 }
 
-func (h *authController) syncUsers(ctx *fiber.Ctx, user *models.UserInfo) error {
-	if err := h.userSrv.SyncAllUsersData(ctx.Context()); err != nil {
-		return responseWithError(ctx, err)
-	}
-	return responseSuccess(ctx, "Users sync started successfully. Departments should be restored shortly.")
-}
