@@ -327,6 +327,7 @@ type AuditRepository interface {
 	ValidateBasketScope(ctx context.Context, ids []uuid.UUID, year string, month string) (bool, error)
 	ConfirmMonthTransactions(ctx context.Context, department, year, month string, excludedIDs []uuid.UUID) error
 	CountPendingByDepartments(ctx context.Context, year, month string, departments []string) (int64, error)
+	CountTotalByDepartments(ctx context.Context, year, month string, departments []string) (int64, error)
 }
 
 type AuditService interface {

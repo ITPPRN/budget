@@ -425,6 +425,11 @@ func (m *MockAuditRepository) CountPendingByDepartments(ctx context.Context, yea
 	return args.Get(0).(int64), args.Error(1)
 }
 
+func (m *MockAuditRepository) CountTotalByDepartments(ctx context.Context, year, month string, departments []string) (int64, error) {
+	args := m.Called(ctx, year, month, departments)
+	return args.Get(0).(int64), args.Error(1)
+}
+
 // --- MockDashboardService ---
 
 type MockDashboardService struct {

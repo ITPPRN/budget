@@ -478,10 +478,11 @@ const DetailContent = () => {
     }
   }, [selectedBranch, availableBranches, orgStructure]);
 
-  // Selection States
+  // Selection States — default selectedMonths เป็นเดือนปัจจุบัน
+  // (ถ้า user เปลี่ยนเดือนผ่าน UI, handleSetFilters จะอัพเดต syncConfig ให้)
   const [syncConfig, setSyncConfig] = useState({
     actualYear: new Date().getFullYear(),
-    selectedMonths: [],
+    selectedMonths: [String(new Date().getMonth() + 1).padStart(2, "0")],
     selectedBudget: "",
     selectedCapexBg: "",
     selectedCapexActual: "",
@@ -544,10 +545,13 @@ const DetailContent = () => {
               configs.actual_year ||
               syncConfig.actualYear ||
               new Date().getFullYear(),
+            // เดือน: ให้ in-memory syncConfig (user's current selection) สำคัญกว่า backend config
+            // เพื่อให้ default เป็นเดือนปัจจุบันตอน mount ไม่โดน stale config จาก backend ทับ
             selectedMonths:
-              parseMonths(configs.selectedMonths || configs.selected_months) ||
-              syncConfig.selectedMonths ||
-              [],
+              (syncConfig.selectedMonths && syncConfig.selectedMonths.length > 0
+                ? syncConfig.selectedMonths
+                : parseMonths(configs.selectedMonths || configs.selected_months)) ||
+              [String(new Date().getMonth() + 1).padStart(2, "0")],
             selectedBudget:
               configs.selectedBudget ||
               configs.selected_budget ||

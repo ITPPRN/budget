@@ -475,6 +475,11 @@ const ActualTable = React.memo(
 
     const [approveDialogOpen, setApproveDialogOpen] = useState(false);
     const [auditComplete, setAuditComplete] = useState(false);
+    const [auditStats, setAuditStats] = useState({
+      total: 0,
+      reviewed: 0,
+      remaining: 0,
+    });
 
     // 🌟 1. ฟังก์ชันดึงข้อมูลตะกร้า (แยกออกมาเพื่อให้เรียกใช้ซ้ำได้)
     const fetchBasket = async () => {
@@ -502,20 +507,20 @@ const ActualTable = React.memo(
     });
 
     const getApproveTarget = () => {
-      // กรณีที่ 1: User เลือกวันที่ผ่าน Popover (tempDateFilter)
-      if (tempDateFilter.startDate) {
-        const dateParts = tempDateFilter.startDate.split("-"); // "2026-04-15" -> ["2026", "04", "15"]
+      // 1. User กด filter ตรงหัวตาราง Actual แล้ว Apply → ใช้ตามนั้น
+      if (dateFilter?.startDate) {
+        const dateParts = dateFilter.startDate.split("-"); // "2026-04-15" -> ["2026", "04", "15"]
         return {
           year: dateParts[0],
           month: dateParts[1],
         };
       }
 
-      // กรณีที่ 2: ไม่ได้กรอกอะไรมาเลย (ใช้เดือนปัจจุบัน)
+      // 2. ยังไม่ได้เลือก → ใช้เดือนปัจจุบัน
       const now = new Date();
       return {
         year: String(now.getFullYear()),
-        month: String(now.getMonth() + 1).padStart(2, "0"), // เติม 0 ให้เป็น "04"
+        month: String(now.getMonth() + 1).padStart(2, "0"),
       };
     };
 
@@ -523,10 +528,17 @@ const ActualTable = React.memo(
     const checkAuditComplete = async (year, month) => {
       try {
         const res = await api.get(`/budgets/audit/check-complete?year=${year}&month=${month}`);
-        setAuditComplete(res.data?.is_complete || false);
+        const d = res.data || {};
+        setAuditComplete(d.is_complete || false);
+        setAuditStats({
+          total: d.total_count || 0,
+          reviewed: d.reviewed_count || 0,
+          remaining: d.pending_count || 0,
+        });
       } catch (err) {
         console.error("Failed to check audit complete", err);
         setAuditComplete(false);
+        setAuditStats({ total: 0, reviewed: 0, remaining: 0 });
       }
     };
 
@@ -536,7 +548,7 @@ const ActualTable = React.memo(
         checkAuditComplete(target.year, target.month);
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isOwner, tempDateFilter.startDate]);
+    }, [isOwner, dateFilter?.startDate]);
 
     const handleFilterClick = (event) => {
       setTempDateFilter(dateFilter || { startDate: "", endDate: "" });
@@ -903,6 +915,60 @@ const ActualTable = React.memo(
           }}
         >
           <Box sx={{ pl: 1, display: "flex", gap: 1, alignItems: "center" }}>
+            {isOwner && (
+              <Box
+                sx={{
+                  display: "flex",
+                  gap: 1.5,
+                  alignItems: "center",
+                  px: 1.5,
+                  py: 0.5,
+                  bgcolor: "#f5f5f5",
+                  borderRadius: 1,
+                  border: "1px solid #e0e0e0",
+                  mr: 0.5,
+                }}
+              >
+                {auditComplete ? (
+                  <Typography
+                    variant="caption"
+                    sx={{ fontWeight: 600, color: "#2e7d32" }}
+                  >
+                    ✓ ตรวจสอบครบแล้ว
+                  </Typography>
+                ) : (
+                  <>
+                    <Typography
+                      variant="caption"
+                      sx={{ fontWeight: 600, color: "#555" }}
+                    >
+                      ทั้งหมด:{" "}
+                      <span style={{ color: "#1976d2" }}>
+                        {auditStats.total}
+                      </span>
+                    </Typography>
+                    <Typography
+                      variant="caption"
+                      sx={{ fontWeight: 600, color: "#555" }}
+                    >
+                      ตรวจสอบแล้ว:{" "}
+                      <span style={{ color: "#2e7d32" }}>
+                        {auditStats.reviewed}
+                      </span>
+                    </Typography>
+                    <Typography
+                      variant="caption"
+                      sx={{ fontWeight: 600, color: "#555" }}
+                    >
+                      คงเหลือ:{" "}
+                      <span style={{ color: "#ed6c02" }}>
+                        {auditStats.remaining}
+                      </span>
+                    </Typography>
+                  </>
+                )}
+              </Box>
+            )}
             {isOwner && data.length > 0 && (
               <>
                 <Button
@@ -1216,6 +1282,7 @@ const ActualTable = React.memo(
           filters={filters}
           onSubmit={handleReportSubmit}
           loading={auditLoading}
+          basketItems={rejectedBasket}
         />
         {/* 🌟 เรียกใช้ BasketModal และโยน state ลงไปให้ */}
         <BasketModal

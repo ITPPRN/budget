@@ -134,14 +134,8 @@ func (r *repository) GetActualExportDetails(ctx context.Context, user *models.Us
 		query = query.Where("actual_transaction_entities.year = ?", strings.ReplaceAll(val, "FY", ""))
 	}
 
-	// 7. Months
-	if val, ok := filter["months"]; ok {
-		mstrs := toStringSlice(val)
-		if len(mstrs) > 0 {
-			// Extract month from posting_date for comparison
-			query = query.Where("UPPER(TO_CHAR(actual_transaction_entities.posting_date::DATE, 'MON')) IN ?", mstrs)
-		}
-	}
+	// 7. Months — ไม่ filter เพื่อให้ export ได้ทุกรายการในปีที่ user มีสิทธิ์เข้าถึง
+	// (scope ยังถูกจำกัดด้วย departments/entities/branches ตามสิทธิ์อยู่)
 
 	err := query.Order("actual_transaction_entities.posting_date DESC, actual_transaction_entities.entity").
 		Scan(&results).Error

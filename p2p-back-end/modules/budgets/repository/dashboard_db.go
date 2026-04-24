@@ -108,16 +108,10 @@ func (r *dashboardRepository) GetBudgetDetails(ctx context.Context, filter map[s
 		Amount  decimal.Decimal
 	}
 
-	if val, ok := filter["months"]; ok {
-		mstrs := toStringSlice(val)
-		if len(mstrs) > 0 {
-			query = query.Joins("JOIN budget_amount_entities ba2 ON ba2.budget_fact_id = budget_fact_entities.id").
-				Where("ba2.month IN ?", mstrs)
-		} else {
-			// Strict Month Filter: If months list is empty, return no data
-			query = query.Where("1 = 0")
-		}
-	}
+	// Months filter intentionally disabled — Budget Detail must show full-year parity
+	// with the downloaded export (see budget_detail_export/repository.go §5). The previous
+	// ba2 JOIN caused row fanout: SUM(ba.amount) was multiplied by the number of months
+	// matching the filter.
 
 	if val, ok := filter["budget_file_id"]; ok && val != "" {
 		query = query.Where("budget_fact_entities.file_budget_id = ?", val)

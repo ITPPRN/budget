@@ -90,6 +90,10 @@ func (r *auditRepository) GetTransactionsByFilter(ctx context.Context, filter ma
 	var txs []models.ActualTransactionEntity
 	query := r.db.WithContext(ctx)
 
+	// รายการที่ Approve แล้ว (COMPLETE/REPORTED) ต้องไม่โผล่ในผลค้นหา
+	// เพื่อป้องกัน user เพิ่มรายการที่ถูกตรวจสอบไปแล้วเข้าตะกร้าซ้ำ
+	query = query.Where("status IN ?", []string{models.TxStatusPending, models.TxStatusDraft})
+
 	if depts, ok := filter["departments"].([]string); ok && len(depts) > 0 {
 		query = query.Where("department IN ?", depts)
 	}
@@ -334,6 +338,34 @@ func (r *auditRepository) CountPendingByDepartments(ctx context.Context, year, m
 
 	if err := query.Count(&count).Error; err != nil {
 		return 0, fmt.Errorf("auditRepo.CountPendingByDepartments: %w", err)
+	}
+	return count, nil
+}
+
+// CountTotalByDepartments นับจำนวน transaction ทุก status สำหรับ departments ในเดือน/ปีที่ระบุ
+// ใช้แสดง "ทั้งหมด" ใน audit progress widget
+func (r *auditRepository) CountTotalByDepartments(ctx context.Context, year, month string, departments []string) (int64, error) {
+	if len(departments) == 0 {
+		return 0, nil
+	}
+
+	datePattern := fmt.Sprintf("%s-%s-%%", year, month)
+
+	var deptConds []string
+	var deptVals []interface{}
+	for _, dept := range departments {
+		deptUpper := strings.ToUpper(strings.TrimSpace(dept))
+		deptConds = append(deptConds, "(UPPER(TRIM(department)) = ? OR UPPER(TRIM(department)) LIKE ?)")
+		deptVals = append(deptVals, deptUpper, deptUpper+" - %")
+	}
+
+	var count int64
+	query := r.db.WithContext(ctx).Model(&models.ActualTransactionEntity{}).
+		Where("year = ? AND posting_date LIKE ?", year, datePattern).
+		Where(strings.Join(deptConds, " OR "), deptVals...)
+
+	if err := query.Count(&count).Error; err != nil {
+		return 0, fmt.Errorf("auditRepo.CountTotalByDepartments: %w", err)
 	}
 	return count, nil
 }

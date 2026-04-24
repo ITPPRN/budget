@@ -15,7 +15,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import api from '../../utils/api/axiosInstance';
 
 // 🌟 เอา initialItems ออกจาก Props
-const AuditReportModal = ({ open, onClose, filters, onSubmit, loading: submitting }) => {
+const AuditReportModal = ({ open, onClose, filters, onSubmit, loading: submitting, basketItems = [] }) => {
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState([]); 
     const [searching, setSearching] = useState(false);
@@ -96,11 +96,18 @@ const AuditReportModal = ({ open, onClose, filters, onSubmit, loading: submittin
         onSubmit(addedItems); 
     };
 
+    const basketIds = useMemo(
+        () => new Set((basketItems || []).map(item => item.id)),
+        [basketItems]
+    );
+
     const displayResults = useMemo(() => {
         const addedIds = new Set(addedItems.map(item => item.id));
+        // ของที่เลือกในรอบนี้แล้ว → ซ่อน (ไปโผล่ในตารางล่างอยู่แล้ว)
+        // ของที่อยู่ในตะกร้าอยู่แล้ว → แสดง พร้อม chip "เพิ่มเข้าตะกร้าแล้ว"
         return searchResults
             .filter(result => !addedIds.has(result.id))
-            .slice(0, 50); 
+            .slice(0, 50);
     }, [searchResults, addedItems]);
 
     return (
@@ -148,32 +155,46 @@ const AuditReportModal = ({ open, onClose, filters, onSubmit, loading: submittin
                     {displayResults.length > 0 && (
                         <Paper elevation={3} sx={{ mt: 1, maxHeight: 300, overflow: 'auto', borderRadius: 2 }}>
                             <List dense>
-                                {displayResults.map((item) => (
-                                    <React.Fragment key={item.id}>
-                                        <ListItem 
-                                            button 
-                                            onClick={() => handleAddItem(item)}
-                                            secondaryAction={
-                                                <IconButton edge="end" color="primary">
-                                                    <AddCircleIcon />
-                                                </IconButton>
-                                            }
-                                        >
-                                            <ListItemText 
-                                                primary={<Typography variant="subtitle2"><b>Doc No: {item.doc_no || item.document_no}</b> | {item.gl_account_name}</Typography>}
-                                                secondary={`Amount: ${parseFloat(item.amount).toLocaleString()} | Dept: ${item.department} | ${item.description}`}
-                                            />
-                                        </ListItem>
-                                        <Divider />
-                                    </React.Fragment>
-                                ))}
+                                {displayResults.map((item) => {
+                                    const inBasket = basketIds.has(item.id);
+                                    return (
+                                        <React.Fragment key={item.id}>
+                                            <ListItem
+                                                button
+                                                disabled={inBasket}
+                                                onClick={() => !inBasket && handleAddItem(item)}
+                                                secondaryAction={
+                                                    inBasket ? (
+                                                        <Chip
+                                                            label="เพิ่มเข้าตะกร้าแล้ว"
+                                                            size="small"
+                                                            color="success"
+                                                            variant="outlined"
+                                                        />
+                                                    ) : (
+                                                        <IconButton edge="end" color="primary">
+                                                            <AddCircleIcon />
+                                                        </IconButton>
+                                                    )
+                                                }
+                                                sx={inBasket ? { opacity: 0.6, bgcolor: '#f5f5f5' } : undefined}
+                                            >
+                                                <ListItemText
+                                                    primary={<Typography variant="subtitle2"><b>Doc No: {item.doc_no || item.document_no}</b> | {item.gl_account_name}</Typography>}
+                                                    secondary={`Amount: ${parseFloat(item.amount).toLocaleString()} | Dept: ${item.department} | ${item.description}`}
+                                                />
+                                            </ListItem>
+                                            <Divider />
+                                        </React.Fragment>
+                                    );
+                                })}
                             </List>
                         </Paper>
                     )}
                     
                     {searchQuery.length >= 2 && !searching && displayResults.length === 0 && !errorMsg && (
                         <Typography variant="caption" color="textSecondary" sx={{ mt: 1, display: 'block' }}>
-                            ไม่พบรายการที่ตรงกับ "{searchQuery}" หรือรายการถูกเพิ่มไปแล้ว
+                            ไม่พบรายการที่ตรงกับ "{searchQuery}" หรือรายการถูกเลือกในรอบนี้แล้ว
                         </Typography>
                     )}
                 </Box>

@@ -424,19 +424,50 @@ func (s *auditService) AddToBasket(ctx context.Context, user *models.UserInfo, t
 		return fmt.Errorf("invalid user ID format: %w", err)
 	}
 
-	var basketItems []models.AuditRejectBasket
+	var parsedIDs []uuid.UUID
 	for _, txIDStr := range transactionIDs {
-		txID, err := uuid.Parse(txIDStr)
-		if err == nil { // ถ้า Parse ผ่าน ค่อยเอาใส่ตะกร้า
+		if txID, err := uuid.Parse(txIDStr); err == nil {
+			parsedIDs = append(parsedIDs, txID)
+		}
+	}
+
+	if len(parsedIDs) == 0 {
+		return errors.New("no valid transaction IDs provided")
+	}
+
+	// Validate: ต้อง status เป็น PENDING/DRAFT เท่านั้น
+	// กัน user เพิ่มรายการที่ตรวจสอบไปแล้ว (COMPLETE/REPORTED) เข้าตะกร้าซ้ำ
+	existing, err := s.auditRepo.GetTransactionsByIDs(ctx, parsedIDs)
+	if err != nil {
+		logs.Error(err)
+		return errs.NewUnexpectedError()
+	}
+
+	auditableIDs := make(map[uuid.UUID]struct{}, len(existing))
+	for _, tx := range existing {
+		if tx.Status == models.TxStatusPending || tx.Status == models.TxStatusDraft {
+			auditableIDs[tx.ID] = struct{}{}
+		}
+	}
+
+	var basketItems []models.AuditRejectBasket
+	var alreadyAudited int
+	for _, txID := range parsedIDs {
+		if _, ok := auditableIDs[txID]; ok {
 			basketItems = append(basketItems, models.AuditRejectBasket{
 				TransactionID: txID,
 				UserID:        uid,
 			})
+		} else {
+			alreadyAudited++
 		}
 	}
 
 	if len(basketItems) == 0 {
-		return errors.New("no valid transaction IDs provided")
+		return fmt.Errorf("รายการทั้งหมดถูกตรวจสอบไปแล้ว ไม่สามารถเพิ่มเข้าตะกร้าได้")
+	}
+	if alreadyAudited > 0 {
+		return fmt.Errorf("มี %d รายการที่ถูกตรวจสอบไปแล้ว ไม่สามารถเพิ่มเข้าตะกร้าได้", alreadyAudited)
 	}
 
 	err = s.auditRepo.AddToBasket(ctx, basketItems)
@@ -475,6 +506,8 @@ func (s *auditService) CheckAuditComplete(ctx context.Context, user *models.User
 		return map[string]interface{}{
 			"is_complete":    true,
 			"pending_count":  0,
+			"total_count":    0,
+			"reviewed_count": 0,
 			"departments":    []string{},
 		}, nil
 	}
@@ -485,9 +518,22 @@ func (s *auditService) CheckAuditComplete(ctx context.Context, user *models.User
 		return nil, fmt.Errorf("failed to count pending transactions: %w", err)
 	}
 
+	// 3. นับจำนวน transaction ทั้งหมด (ทุก status) เพื่อใช้ใน progress widget
+	totalCount, err := s.auditRepo.CountTotalByDepartments(ctx, year, month, ownerDepts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count total transactions: %w", err)
+	}
+
+	reviewedCount := totalCount - pendingCount
+	if reviewedCount < 0 {
+		reviewedCount = 0
+	}
+
 	return map[string]interface{}{
 		"is_complete":    pendingCount == 0,
 		"pending_count":  pendingCount,
+		"total_count":    totalCount,
+		"reviewed_count": reviewedCount,
 		"departments":    ownerDepts,
 	}, nil
 }
