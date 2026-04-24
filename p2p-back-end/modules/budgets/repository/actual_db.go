@@ -354,7 +354,7 @@ func (r *actualRepository) GetRawTransactionsCLIK(ctx context.Context, year stri
 		Select(`
 			'CLIK' as source,
 			TO_CHAR("Posting_Date"::DATE, 'YYYY-MM-DD') as posting_date,
-			"Document_No" as doc_no, 
+			"Document_No" as doc_no,
 			"Description" as description,
 			"G_L_Account_No" as entity_gl,
 			"G_L_Account_Name" as gl_account_name,
@@ -374,6 +374,89 @@ func (r *actualRepository) GetRawTransactionsCLIK(ctx context.Context, year stri
 		return nil, fmt.Errorf("actualRepo.GetRawTransactionsCLIK: %w", err)
 	}
 	return results, nil
+}
+
+// StreamRawTransactionsHMW — streaming version ของ GetRawTransactionsHMW
+// ใช้ FindInBatches ดึงข้อมูลทีละ batchSize rows แทนโหลดทั้งเดือนเข้า memory
+// handler จะถูกเรียกต่อ batch → sync สามารถ flush ลง DB ทันทีลดความเสี่ยง OOM
+func (r *actualRepository) StreamRawTransactionsHMW(
+	ctx context.Context, year string, months []string,
+	batchSize int, handler func([]models.ActualTransactionDTO) error,
+) error {
+	var results []models.ActualTransactionDTO
+	query := r.db.WithContext(ctx).Table("achhmw_gle_api").
+		Select(`
+			'HMW' as source,
+			TO_CHAR("Posting_Date"::DATE, 'YYYY-MM-DD') as posting_date,
+			"Document_No" as doc_no,
+			"Description" as description,
+			"G_L_Account_No" as entity_gl,
+			"G_L_Account_Name" as gl_account_name,
+			"Global_Dimension_1_Code" as department,
+			"Amount" as amount,
+			"Vendor_Name" as vendor,
+			company,
+			branch
+		`).
+		Where("TO_CHAR(\"Posting_Date\"::DATE, 'YYYY') = ?", year)
+
+	if len(months) > 0 {
+		query = query.Where("UPPER(TO_CHAR(\"Posting_Date\"::DATE, 'MON')) IN ?", months)
+	}
+
+	if err := query.Order("id").FindInBatches(&results, batchSize, func(tx *gorm.DB, batchCount int) error {
+		if err := handler(results); err != nil {
+			return err
+		}
+		// Ensure context cancellation propagates mid-stream
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return nil
+	}).Error; err != nil {
+		return fmt.Errorf("actualRepo.StreamRawTransactionsHMW: %w", err)
+	}
+	return nil
+}
+
+// StreamRawTransactionsCLIK — streaming variant สำหรับ CLIK table
+func (r *actualRepository) StreamRawTransactionsCLIK(
+	ctx context.Context, year string, months []string,
+	batchSize int, handler func([]models.ActualTransactionDTO) error,
+) error {
+	var results []models.ActualTransactionDTO
+	query := r.db.WithContext(ctx).Table("general_ledger_entries_clik").
+		Select(`
+			'CLIK' as source,
+			TO_CHAR("Posting_Date"::DATE, 'YYYY-MM-DD') as posting_date,
+			"Document_No" as doc_no,
+			"Description" as description,
+			"G_L_Account_No" as entity_gl,
+			"G_L_Account_Name" as gl_account_name,
+			"Global_Dimension_1_Code" as department,
+			"Amount" as amount,
+			"Vendor_Name" as vendor,
+			company,
+			"Global_Dimension_2_Code" as branch
+		`).
+		Where("TO_CHAR(\"Posting_Date\"::DATE, 'YYYY') = ?", year)
+
+	if len(months) > 0 {
+		query = query.Where("UPPER(TO_CHAR(\"Posting_Date\"::DATE, 'MON')) IN ?", months)
+	}
+
+	if err := query.Order("id").FindInBatches(&results, batchSize, func(tx *gorm.DB, batchCount int) error {
+		if err := handler(results); err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return nil
+	}).Error; err != nil {
+		return fmt.Errorf("actualRepo.StreamRawTransactionsCLIK: %w", err)
+	}
+	return nil
 }
 
 func (r *actualRepository) CreateActualTransactions(ctx context.Context, txs []models.ActualTransactionEntity) error {

@@ -46,6 +46,16 @@ func (m *MockExternalSyncRepository) UpsertCLIKLocal(ctx context.Context, data [
 	return args.Error(0)
 }
 
+func (m *MockExternalSyncRepository) DeleteHMWByYearMonth(ctx context.Context, year int, month int) error {
+	args := m.Called(ctx, year, month)
+	return args.Error(0)
+}
+
+func (m *MockExternalSyncRepository) DeleteCLIKByYearMonth(ctx context.Context, year int, month int) error {
+	args := m.Called(ctx, year, month)
+	return args.Error(0)
+}
+
 type MockActualService struct {
 	mock.Mock
 }
@@ -79,7 +89,7 @@ func TestNewExternalSyncService(t *testing.T) {
 	repo := new(MockExternalSyncRepository)
 	actualSrv := new(MockActualService)
 
-	svc := NewExternalSyncService(repo, actualSrv)
+	svc := NewExternalSyncService(repo, actualSrv, nil)
 
 	assert.NotNil(t, svc)
 }
@@ -87,7 +97,7 @@ func TestNewExternalSyncService(t *testing.T) {
 func TestSyncFromDW_Success(t *testing.T) {
 	repo := new(MockExternalSyncRepository)
 	actualSrv := new(MockActualService)
-	svc := NewExternalSyncService(repo, actualSrv)
+	svc := NewExternalSyncService(repo, actualSrv, nil)
 
 	now := time.Now()
 	currentYear := now.Year()
@@ -100,7 +110,9 @@ func TestSyncFromDW_Success(t *testing.T) {
 			endMonth = currentMonth
 		}
 		for month := 1; month <= endMonth; month++ {
+			repo.On("DeleteHMWByYearMonth", mock.Anything, year, month).Return(nil)
 			repo.On("FetchHMWInBatches", mock.Anything, year, month, 2000, mock.AnythingOfType("func([]models.AchHmwGleEntity) error")).Return(nil)
+			repo.On("DeleteCLIKByYearMonth", mock.Anything, year, month).Return(nil)
 			repo.On("FetchCLIKInBatches", mock.Anything, year, month, 2000, mock.AnythingOfType("func([]models.ClikGleEntity) error")).Return(nil)
 		}
 		yearStr := fmt.Sprintf("%d", year)
@@ -118,7 +130,7 @@ func TestSyncFromDW_Success(t *testing.T) {
 func TestSyncFromDW_HMWFetchError_ContinuesProcessing(t *testing.T) {
 	repo := new(MockExternalSyncRepository)
 	actualSrv := new(MockActualService)
-	svc := NewExternalSyncService(repo, actualSrv)
+	svc := NewExternalSyncService(repo, actualSrv, nil)
 
 	now := time.Now()
 	currentYear := now.Year()
@@ -130,9 +142,11 @@ func TestSyncFromDW_HMWFetchError_ContinuesProcessing(t *testing.T) {
 			endMonth = currentMonth
 		}
 		for month := 1; month <= endMonth; month++ {
+			repo.On("DeleteHMWByYearMonth", mock.Anything, year, month).Return(nil)
 			// HMW fails for all months
 			repo.On("FetchHMWInBatches", mock.Anything, year, month, 2000, mock.AnythingOfType("func([]models.AchHmwGleEntity) error")).
 				Return(errors.New("connection timeout"))
+			repo.On("DeleteCLIKByYearMonth", mock.Anything, year, month).Return(nil)
 			// CLIK succeeds
 			repo.On("FetchCLIKInBatches", mock.Anything, year, month, 2000, mock.AnythingOfType("func([]models.ClikGleEntity) error")).
 				Return(nil)
@@ -152,7 +166,7 @@ func TestSyncFromDW_HMWFetchError_ContinuesProcessing(t *testing.T) {
 func TestSyncFromDW_CLIKFetchError_ContinuesProcessing(t *testing.T) {
 	repo := new(MockExternalSyncRepository)
 	actualSrv := new(MockActualService)
-	svc := NewExternalSyncService(repo, actualSrv)
+	svc := NewExternalSyncService(repo, actualSrv, nil)
 
 	now := time.Now()
 	currentYear := now.Year()
@@ -164,7 +178,9 @@ func TestSyncFromDW_CLIKFetchError_ContinuesProcessing(t *testing.T) {
 			endMonth = currentMonth
 		}
 		for month := 1; month <= endMonth; month++ {
+			repo.On("DeleteHMWByYearMonth", mock.Anything, year, month).Return(nil)
 			repo.On("FetchHMWInBatches", mock.Anything, year, month, 2000, mock.AnythingOfType("func([]models.AchHmwGleEntity) error")).Return(nil)
+			repo.On("DeleteCLIKByYearMonth", mock.Anything, year, month).Return(nil)
 			repo.On("FetchCLIKInBatches", mock.Anything, year, month, 2000, mock.AnythingOfType("func([]models.ClikGleEntity) error")).
 				Return(errors.New("db error"))
 		}
@@ -181,7 +197,7 @@ func TestSyncFromDW_CLIKFetchError_ContinuesProcessing(t *testing.T) {
 func TestSyncFromDW_SyncActualsError_ContinuesProcessing(t *testing.T) {
 	repo := new(MockExternalSyncRepository)
 	actualSrv := new(MockActualService)
-	svc := NewExternalSyncService(repo, actualSrv)
+	svc := NewExternalSyncService(repo, actualSrv, nil)
 
 	now := time.Now()
 	currentYear := now.Year()
@@ -193,7 +209,9 @@ func TestSyncFromDW_SyncActualsError_ContinuesProcessing(t *testing.T) {
 			endMonth = currentMonth
 		}
 		for month := 1; month <= endMonth; month++ {
+			repo.On("DeleteHMWByYearMonth", mock.Anything, year, month).Return(nil)
 			repo.On("FetchHMWInBatches", mock.Anything, year, month, 2000, mock.AnythingOfType("func([]models.AchHmwGleEntity) error")).Return(nil)
+			repo.On("DeleteCLIKByYearMonth", mock.Anything, year, month).Return(nil)
 			repo.On("FetchCLIKInBatches", mock.Anything, year, month, 2000, mock.AnythingOfType("func([]models.ClikGleEntity) error")).Return(nil)
 		}
 		yearStr := fmt.Sprintf("%d", year)
@@ -209,7 +227,7 @@ func TestSyncFromDW_SyncActualsError_ContinuesProcessing(t *testing.T) {
 func TestSyncFromDW_AllErrors_StillReturnsNil(t *testing.T) {
 	repo := new(MockExternalSyncRepository)
 	actualSrv := new(MockActualService)
-	svc := NewExternalSyncService(repo, actualSrv)
+	svc := NewExternalSyncService(repo, actualSrv, nil)
 
 	now := time.Now()
 	currentYear := now.Year()
@@ -221,8 +239,10 @@ func TestSyncFromDW_AllErrors_StillReturnsNil(t *testing.T) {
 			endMonth = currentMonth
 		}
 		for month := 1; month <= endMonth; month++ {
+			repo.On("DeleteHMWByYearMonth", mock.Anything, year, month).Return(nil)
 			repo.On("FetchHMWInBatches", mock.Anything, year, month, 2000, mock.AnythingOfType("func([]models.AchHmwGleEntity) error")).
 				Return(errors.New("hmw error"))
+			repo.On("DeleteCLIKByYearMonth", mock.Anything, year, month).Return(nil)
 			repo.On("FetchCLIKInBatches", mock.Anything, year, month, 2000, mock.AnythingOfType("func([]models.ClikGleEntity) error")).
 				Return(errors.New("clik error"))
 		}
@@ -240,7 +260,7 @@ func TestSyncFromDW_AllErrors_StillReturnsNil(t *testing.T) {
 func TestSyncFromDW_FetchHMW_CallsUpsertViaHandler(t *testing.T) {
 	repo := new(MockExternalSyncRepository)
 	actualSrv := new(MockActualService)
-	svc := NewExternalSyncService(repo, actualSrv)
+	svc := NewExternalSyncService(repo, actualSrv, nil)
 
 	now := time.Now()
 	currentYear := now.Year()
@@ -257,12 +277,14 @@ func TestSyncFromDW_FetchHMW_CallsUpsertViaHandler(t *testing.T) {
 			endMonth = currentMonth
 		}
 		for month := 1; month <= endMonth; month++ {
+			repo.On("DeleteHMWByYearMonth", mock.Anything, year, month).Return(nil)
 			// Capture and invoke the handler to verify UpsertHMWLocal is called
 			repo.On("FetchHMWInBatches", mock.Anything, year, month, 2000, mock.AnythingOfType("func([]models.AchHmwGleEntity) error")).
 				Run(func(args mock.Arguments) {
 					handler := args.Get(4).(func([]models.AchHmwGleEntity) error)
 					_ =handler(testData)
 				}).Return(nil)
+			repo.On("DeleteCLIKByYearMonth", mock.Anything, year, month).Return(nil)
 			repo.On("FetchCLIKInBatches", mock.Anything, year, month, 2000, mock.AnythingOfType("func([]models.ClikGleEntity) error")).Return(nil)
 		}
 		yearStr := fmt.Sprintf("%d", year)
@@ -281,7 +303,7 @@ func TestSyncFromDW_FetchHMW_CallsUpsertViaHandler(t *testing.T) {
 func TestSyncFromDW_FetchCLIK_CallsUpsertViaHandler(t *testing.T) {
 	repo := new(MockExternalSyncRepository)
 	actualSrv := new(MockActualService)
-	svc := NewExternalSyncService(repo, actualSrv)
+	svc := NewExternalSyncService(repo, actualSrv, nil)
 
 	now := time.Now()
 	currentYear := now.Year()
@@ -297,7 +319,9 @@ func TestSyncFromDW_FetchCLIK_CallsUpsertViaHandler(t *testing.T) {
 			endMonth = currentMonth
 		}
 		for month := 1; month <= endMonth; month++ {
+			repo.On("DeleteHMWByYearMonth", mock.Anything, year, month).Return(nil)
 			repo.On("FetchHMWInBatches", mock.Anything, year, month, 2000, mock.AnythingOfType("func([]models.AchHmwGleEntity) error")).Return(nil)
+			repo.On("DeleteCLIKByYearMonth", mock.Anything, year, month).Return(nil)
 			repo.On("FetchCLIKInBatches", mock.Anything, year, month, 2000, mock.AnythingOfType("func([]models.ClikGleEntity) error")).
 				Run(func(args mock.Arguments) {
 					handler := args.Get(4).(func([]models.ClikGleEntity) error)

@@ -479,10 +479,14 @@ const DetailContent = () => {
   }, [selectedBranch, availableBranches, orgStructure]);
 
   // Selection States — default selectedMonths เป็นเดือนปัจจุบัน
-  // (ถ้า user เปลี่ยนเดือนผ่าน UI, handleSetFilters จะอัพเดต syncConfig ให้)
+  // Format: "APR" (3-letter uppercase) เพื่อ match กับ backend ที่ใช้ TO_CHAR(date, 'MON')
+  // และ convention ใน DataManage.jsx (MONTHS = ['JAN', 'FEB', ..., 'DEC'])
+  const currentMonthAbbr = new Date()
+    .toLocaleString("en-US", { month: "short" })
+    .toUpperCase();
   const [syncConfig, setSyncConfig] = useState({
     actualYear: new Date().getFullYear(),
-    selectedMonths: [String(new Date().getMonth() + 1).padStart(2, "0")],
+    selectedMonths: [currentMonthAbbr],
     selectedBudget: "",
     selectedCapexBg: "",
     selectedCapexActual: "",
@@ -523,6 +527,10 @@ const DetailContent = () => {
           //   return [];
           // };
 
+          const MONTH_ABBR = [
+            "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+            "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
+          ];
           const parseMonths = (val) => {
             let months = [];
             if (Array.isArray(val)) months = val;
@@ -531,12 +539,20 @@ const DetailContent = () => {
                 const parsed = JSON.parse(val);
                 months = Array.isArray(parsed) ? parsed : [parsed];
               } catch (e) {
-                // ถ้าไม่ใช่ JSON string แต่เป็น string ธรรมดา เช่น "04"
                 if (val) months = [val];
               }
             }
-            // 🌟 แปลงทุกอย่างให้เป็น String 2 หลักเสมอ (เช่น "1" -> "01")
-            return months.map((m) => String(m).padStart(2, "0"));
+            // Normalize ทุก input เป็น "APR" format (3-letter uppercase)
+            // เพื่อ match กับ backend query TO_CHAR(date, 'MON')
+            return months
+              .map((m) => {
+                const s = String(m).trim();
+                if (/^[a-zA-Z]{3}$/.test(s)) return s.toUpperCase();
+                const n = parseInt(s, 10);
+                if (!isNaN(n) && n >= 1 && n <= 12) return MONTH_ABBR[n - 1];
+                return null;
+              })
+              .filter(Boolean);
           };
 
           currentSync = {
@@ -545,13 +561,21 @@ const DetailContent = () => {
               configs.actual_year ||
               syncConfig.actualYear ||
               new Date().getFullYear(),
-            // เดือน: ให้ in-memory syncConfig (user's current selection) สำคัญกว่า backend config
-            // เพื่อให้ default เป็นเดือนปัจจุบันตอน mount ไม่โดน stale config จาก backend ทับ
-            selectedMonths:
-              (syncConfig.selectedMonths && syncConfig.selectedMonths.length > 0
-                ? syncConfig.selectedMonths
-                : parseMonths(configs.selectedMonths || configs.selected_months)) ||
-              [String(new Date().getMonth() + 1).padStart(2, "0")],
+            // เดือน: backend config ชนะ (เพื่อให้เดือนที่ admin เซฟใน DataManage มีผล)
+            //   fallback เป็นเดือนปัจจุบัน "APR" format ถ้า backend ยังไม่เคยตั้งค่า
+            // Format "APR" (3-letter) match กับ backend query TO_CHAR(date, 'MON')
+            selectedMonths: (() => {
+              const fromBackend = parseMonths(
+                configs.selectedMonths || configs.selected_months
+              );
+              if (fromBackend && fromBackend.length > 0) return fromBackend;
+              if (
+                syncConfig.selectedMonths &&
+                syncConfig.selectedMonths.length > 0
+              )
+                return syncConfig.selectedMonths;
+              return [currentMonthAbbr];
+            })(),
             selectedBudget:
               configs.selectedBudget ||
               configs.selected_budget ||
@@ -701,10 +725,11 @@ const DetailContent = () => {
 
   const currentFilters = useMemo(() => {
     // หาเดือนที่จะโชว์: 1. จาก config 2. ถ้าไม่มีใช้เดือนปัจจุบัน
+    // Format: "APR" (3-letter) match กับ backend query (TO_CHAR 'MON')
     const currentMonthFromConfig =
       syncConfig.selectedMonths && syncConfig.selectedMonths.length > 0
         ? syncConfig.selectedMonths[0]
-        : String(new Date().getMonth() + 1).padStart(2, "0");
+        : currentMonthAbbr;
 
     return {
       entity: selectedEntity,

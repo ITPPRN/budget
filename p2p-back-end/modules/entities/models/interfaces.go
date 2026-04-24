@@ -198,6 +198,8 @@ type ActualRepository interface {
 	GetAllAchHmwGle(ctx context.Context) ([]AchHmwGleEntity, error)
 	GetAggregatedHMW(ctx context.Context, year string, months []string) ([]ActualAggregatedDTO, error)
 	GetRawTransactionsHMW(ctx context.Context, year string, months []string) ([]ActualTransactionDTO, error)
+	StreamRawTransactionsHMW(ctx context.Context, year string, months []string, batchSize int, handler func([]ActualTransactionDTO) error) error
+	StreamRawTransactionsCLIK(ctx context.Context, year string, months []string, batchSize int, handler func([]ActualTransactionDTO) error) error
 	GetAllClikGle(ctx context.Context) ([]ClikGleEntity, error)
 	GetAggregatedCLIK(ctx context.Context, year string, months []string) ([]ActualAggregatedDTO, error)
 	GetRawTransactionsCLIK(ctx context.Context, year string, months []string) ([]ActualTransactionDTO, error)
@@ -220,6 +222,8 @@ type ActualService interface {
 type ExternalSyncRepository interface {
 	FetchHMWInBatches(ctx context.Context, year int, month int, batchSize int, handle func([]AchHmwGleEntity) error) error
 	FetchCLIKInBatches(ctx context.Context, year int, month int, batchSize int, handle func([]ClikGleEntity) error) error
+	DeleteHMWByYearMonth(ctx context.Context, year int, month int) error
+	DeleteCLIKByYearMonth(ctx context.Context, year int, month int) error
 	UpsertHMWLocal(ctx context.Context, data []AchHmwGleEntity) error
 	UpsertCLIKLocal(ctx context.Context, data []ClikGleEntity) error
 }
@@ -269,6 +273,7 @@ type DashboardRepository interface {
 	GetDashboardAggregates(ctx context.Context, filter map[string]interface{}) (*DashboardSummaryDTO, error)
 	GetActualYears(ctx context.Context) ([]string, error)
 	GetAvailableMonths(ctx context.Context, year string) ([]string, error)
+	GetAdminPermittedMonths(ctx context.Context) []string
 }
 
 type DashboardService interface {
@@ -281,6 +286,7 @@ type DashboardService interface {
 	GetActualTransactions(ctx context.Context, filter map[string]interface{}) (*PaginatedActualTransactionDTO, error)
 	GetActualYears(ctx context.Context) ([]string, error)
 	GetAvailableMonths(ctx context.Context, year string) ([]string, error)
+	GetAdminPermittedMonths(ctx context.Context) []string
 }
 
 // --- Owner ---
@@ -293,6 +299,7 @@ type OwnerRepository interface {
 	GetActualDetails(ctx context.Context, filter map[string]interface{}) ([]ActualFactEntity, error)
 	GetBudgetDetails(ctx context.Context, filter map[string]interface{}) ([]BudgetFactEntity, error)
 	GetActualYears(ctx context.Context) ([]string, error)
+	GetAdminPermittedMonths(ctx context.Context) []string
 }
 
 type OwnerService interface {
@@ -304,6 +311,7 @@ type OwnerService interface {
 	GetOrganizationStructure(ctx context.Context, user *UserInfo) ([]OrganizationDTO, error)
 	GetOwnerFilterLists(ctx context.Context, user *UserInfo) (*OwnerFilterListsDTO, error)
 	GetActualYears(ctx context.Context, user *UserInfo) ([]string, error)
+	GetAdminPermittedMonths(ctx context.Context) []string
 	InjectPermissions(ctx context.Context, user *UserInfo, filter map[string]interface{}) map[string]interface{}
 }
 

@@ -75,6 +75,14 @@ func (m *MockOwnerService) InjectPermissions(ctx context.Context, user *models.U
 	return args.Get(0).(map[string]interface{})
 }
 
+func (m *MockOwnerService) GetAdminPermittedMonths(ctx context.Context) []string {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil
+	}
+	return args.Get(0).([]string)
+}
+
 // Compile-time check that mock satisfies the interface.
 var _ models.OwnerService = (*MockOwnerService)(nil)
 

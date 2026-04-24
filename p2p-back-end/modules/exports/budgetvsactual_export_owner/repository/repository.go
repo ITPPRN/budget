@@ -79,13 +79,10 @@ func (r *repository) GetOwnerBudgetVsActual(ctx context.Context, filter map[stri
 		Joins("LEFT JOIN (SELECT conso_gl, MAX(group1) as group1, MAX(group2) as group2, MAX(group3) as group3 FROM gl_grouping_entities GROUP BY conso_gl) bs ON actual_fact_entities.conso_gl = bs.conso_gl").
 		Joins("JOIN actual_amount_entities aa ON aa.actual_fact_id = actual_fact_entities.id AND aa.deleted_at IS NULL")
 
-	// Apply Months filter to Actual only
-	if mVal, ok := filter["months"]; ok {
-		mstrs := utils.ToStringSlice(mVal)
-		if len(mstrs) > 0 {
-			atx = atx.Where("aa.month IN ?", mstrs)
-		}
-	}
+	// Months filter intentionally NOT applied here.
+	// Budget fetch (ด้านบน) ก็ไม่ filter month — ทั้งสองฝั่งต้อง full-year parity
+	// เพื่อให้ YearTotal Budget vs Actual เทียบกันได้แบบ apples-to-apples
+	// (ตรงกับ pattern ของ admin export และ budget_detail_export)
 
 	atx = r.applyCommonFilters(atx, "actual_fact_entities", filter)
 	if err := atx.Scan(&actualResults).Error; err != nil {

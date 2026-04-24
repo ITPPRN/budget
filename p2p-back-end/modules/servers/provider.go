@@ -39,6 +39,7 @@ type SharedDeps struct {
 	ExternalSyncService models.ExternalSyncService
 	AuditService        models.AuditService
 	BranchCodeMapSrv    models.CompanyBranchCodeMappingService
+	SyncTrackingRepo    _extSyncRe.SyncTrackingRepository
 }
 
 func initSharedDeps(s *server) *SharedDeps {
@@ -92,10 +93,13 @@ func initSharedDeps(s *server) *SharedDeps {
 	ownerService := _ownerSer.NewOwnerService(ownerRepo, authService, capexService)
 
 	// --- External Sync Module (DW) ---
+	// Tracking repo เสมอ — ใช้ทั้ง DW sync, Tier 1/2 cron, และ manual triggers
+	syncTrackingRepo := _extSyncRe.NewSyncTrackingRepository(s.Db)
+
 	var externalSyncService models.ExternalSyncService
 	if s.Db2 != nil {
 		extSyncRepo := _extSyncRe.NewExternalSyncRepository(s.Db, s.Db2)
-		externalSyncService = _extSyncSer.NewExternalSyncService(extSyncRepo, actualService)
+		externalSyncService = _extSyncSer.NewExternalSyncService(extSyncRepo, actualService, syncTrackingRepo)
 	}
 
 	// --- Consumer Module ---
@@ -120,5 +124,6 @@ func initSharedDeps(s *server) *SharedDeps {
 		ExternalSyncService: externalSyncService,
 		AuditService:        auditService,
 		BranchCodeMapSrv:    branchCodeMapService,
+		SyncTrackingRepo:    syncTrackingRepo,
 	}
 }

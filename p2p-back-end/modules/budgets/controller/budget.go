@@ -118,6 +118,10 @@ func (c *budgetController) getActualTransactions(ctx *fiber.Ctx) error {
 		req = map[string]interface{}{}
 	}
 	middlewares.EnforceBranchScopeFromCtx(ctx, req)
+	middlewares.EnforceMonthScope(
+		middlewares.UserFromCtx(ctx), req,
+		c.dashSrv.GetAdminPermittedMonths(ctx.UserContext()),
+	)
 
 	details, err := c.dashSrv.GetActualTransactions(ctx.UserContext(), req)
 	if err != nil {
@@ -135,6 +139,10 @@ func (c *budgetController) getDashboardSummary(ctx *fiber.Ctx) error {
 		req = map[string]interface{}{}
 	}
 	middlewares.EnforceBranchScopeFromCtx(ctx, req)
+	middlewares.EnforceMonthScope(
+		middlewares.UserFromCtx(ctx), req,
+		c.dashSrv.GetAdminPermittedMonths(ctx.UserContext()),
+	)
 
 	summary, err := c.dashSrv.GetDashboardSummary(ctx.UserContext(), req)
 	if err != nil {
@@ -189,6 +197,10 @@ func (c *budgetController) getBudgetDetails(ctx *fiber.Ctx) error {
 		req = map[string]interface{}{}
 	}
 	middlewares.EnforceBranchScopeFromCtx(ctx, req)
+	middlewares.EnforceMonthScope(
+		middlewares.UserFromCtx(ctx), req,
+		c.dashSrv.GetAdminPermittedMonths(ctx.UserContext()),
+	)
 
 	details, err := c.dashSrv.GetBudgetDetails(ctx.UserContext(), req)
 	if err != nil {
@@ -206,6 +218,10 @@ func (c *budgetController) getActualDetails(ctx *fiber.Ctx) error {
 		req = map[string]interface{}{}
 	}
 	middlewares.EnforceBranchScopeFromCtx(ctx, req)
+	middlewares.EnforceMonthScope(
+		middlewares.UserFromCtx(ctx), req,
+		c.dashSrv.GetAdminPermittedMonths(ctx.UserContext()),
+	)
 
 	details, err := c.dashSrv.GetActualDetails(ctx.UserContext(), req)
 	if err != nil {

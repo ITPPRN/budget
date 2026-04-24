@@ -41,7 +41,7 @@ const Navbar = ({ user, onLogout, onToggle }) => {
                     {user.name_th || user.name || user.username || 'ผู้ใช้งาน'} | {displayRole}
                   </Typography>
                   <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.85)', fontWeight: 600, fontSize: '0.7rem', letterSpacing: 0.5 }}>
-                    {user.department_code || '-'}
+                    {user.mapped_department || '-'}
                   </Typography>
                 </Box>
                 <Avatar sx={{ bgcolor: 'secondary.main', width: 34, height: 34, fontSize: '0.9rem', fontWeight: 'bold', border: '1px solid rgba(255,255,255,0.2)' }}>

@@ -203,6 +203,10 @@ func (s *ownerService) GetActualYears(ctx context.Context, user *models.UserInfo
 	return s.repo.GetActualYears(ctx)
 }
 
+func (s *ownerService) GetAdminPermittedMonths(ctx context.Context) []string {
+	return s.repo.GetAdminPermittedMonths(ctx)
+}
+
 func (s *ownerService) InjectPermissions(ctx context.Context, user *models.UserInfo, filter map[string]interface{}) map[string]interface{} {
 	if filter == nil {
 		filter = make(map[string]interface{})

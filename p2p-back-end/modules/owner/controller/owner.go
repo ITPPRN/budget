@@ -36,6 +36,10 @@ func (c *ownerController) GetDashboardSummary(ctx *fiber.Ctx) error {
 		req = map[string]interface{}{}
 	}
 	middlewares.EnforceBranchScopeFromCtx(ctx, req)
+	middlewares.EnforceMonthScope(
+		user, req,
+		c.ownerService.GetAdminPermittedMonths(ctx.UserContext()),
+	)
 
 	summary, err := c.ownerService.GetDashboardSummary(ctx.UserContext(), user, req)
 	if err != nil {
@@ -92,6 +96,10 @@ func (c *ownerController) GetActualTransactions(ctx *fiber.Ctx) error {
 		req = map[string]interface{}{}
 	}
 	middlewares.EnforceBranchScopeFromCtx(ctx, req)
+	middlewares.EnforceMonthScope(
+		user, req,
+		c.ownerService.GetAdminPermittedMonths(ctx.UserContext()),
+	)
 
 	txs, err := c.ownerService.GetActualTransactions(ctx.UserContext(), user, req)
 	if err != nil {

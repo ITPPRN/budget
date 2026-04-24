@@ -30,6 +30,7 @@ import (
 	_authCon "p2p-back-end/modules/auth/controller"
 	_budgetCon "p2p-back-end/modules/budgets/controller"
 	_capexCon "p2p-back-end/modules/capex/controller"
+	_extSyncCon "p2p-back-end/modules/external_sync/controller"
 	_ownerCon "p2p-back-end/modules/owner/controller"
 
 	"p2p-back-end/pkg/middlewares"
@@ -115,6 +116,10 @@ func (s *server) Handlers() error {
 	ownerGroup := v1.Group("/owner")
 	ownerGroup.Use(middlewares.JwtAuthentication(s.Shd.AuthService, nil))
 	_ownerCon.NewOwnerController(ownerGroup, s.Shd.OwnerService)
+
+	// --- Admin Sync Observability Module ---
+	adminGroup := v1.Group("/admin")
+	_extSyncCon.NewSyncAdminController(adminGroup, s.Shd.AuthService, s.Shd.SyncTrackingRepo, s.Shd.ExternalSyncService, s.Shd.ActualService)
 
 	// --- Export Module Initialization ---
 	exportGroup := v1.Group("")

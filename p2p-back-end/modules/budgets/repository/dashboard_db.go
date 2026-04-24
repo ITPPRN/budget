@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -733,6 +734,32 @@ func (r *dashboardRepository) GetActualYears(ctx context.Context) ([]string, err
 		return nil, fmt.Errorf("dashboardRepo.GetActualYears: %w", err)
 	}
 	return years, nil
+}
+
+// GetAdminPermittedMonths อ่าน selectedMonths จาก global admin config
+// คืน array ของเดือน format "APR" (ตามที่ DataManage เซฟ)
+// ถ้ายังไม่เคยตั้งค่า → คืน nil
+func (r *dashboardRepository) GetAdminPermittedMonths(ctx context.Context) []string {
+	var row struct {
+		Value string
+	}
+	err := r.db.WithContext(ctx).
+		Table("user_config_entities").
+		Where("user_id = ? AND (config_key = ? OR config_key = ?)",
+			"GLOBAL_ADMIN_SETTINGS", "selectedMonths", "selected_months").
+		Select("value").
+		Limit(1).
+		Scan(&row).Error
+	if err != nil || row.Value == "" {
+		return nil
+	}
+
+	// ค่าอาจเก็บเป็น JSON array เช่น `["JAN","FEB"]` หรือ string ธรรมดา
+	var months []string
+	if err := json.Unmarshal([]byte(row.Value), &months); err == nil {
+		return months
+	}
+	return []string{strings.ToUpper(strings.TrimSpace(row.Value))}
 }
 
 func (r *dashboardRepository) GetAvailableMonths(ctx context.Context, year string) ([]string, error) {

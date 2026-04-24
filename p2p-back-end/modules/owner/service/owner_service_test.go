@@ -90,6 +90,14 @@ func (m *MockOwnerRepository) GetActualYears(ctx context.Context) ([]string, err
 	return args.Get(0).([]string), args.Error(1)
 }
 
+func (m *MockOwnerRepository) GetAdminPermittedMonths(ctx context.Context) []string {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil
+	}
+	return args.Get(0).([]string)
+}
+
 // ============================================================
 // Mock: AuthService
 // ============================================================

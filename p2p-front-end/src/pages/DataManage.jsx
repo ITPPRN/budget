@@ -208,13 +208,19 @@ const DataManagePage = () => {
 
   const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 
+  // Admin มีสิทธิ์เต็ม → คลิกได้ทุกเดือนไม่ว่า data_inventory จะ sync หรือไม่
+  // สิทธิ์อื่นจะถูกจำกัดที่ availableMonths (เดือนที่มีข้อมูลใน inventory)
+  const isAdmin = (user?.roles || []).some(r => String(r).toUpperCase().includes('ADMIN'));
+
   const toggleMonth = (month) => {
     const monthIdx = MONTHS.indexOf(month);
     if (selectedMonths.length > 0 && selectedMonths[selectedMonths.length - 1] === month) {
       setSelectedMonths([]);
     } else {
-      // Select range from JAN up to clicked month, but ONLY include months that have data
-      const newSelected = MONTHS.slice(0, monthIdx + 1).filter(m => availableMonths.includes(m));
+      // Admin: เลือกได้ทุกเดือนในช่วง JAN → เดือนที่คลิก
+      // Non-admin: เลือกได้เฉพาะเดือนที่มีใน availableMonths
+      const range = MONTHS.slice(0, monthIdx + 1);
+      const newSelected = isAdmin ? range : range.filter(m => availableMonths.includes(m));
       setSelectedMonths(newSelected);
     }
   };
@@ -554,6 +560,10 @@ const DataManagePage = () => {
                 {MONTHS.map((month) => {
                   const isSelected = selectedMonths.includes(month);
                   const isAvailable = availableMonths.includes(month);
+                  // Admin: คลิกได้ทุกเดือน; Non-admin: ต้องอยู่ใน availableMonths
+                  const isDisabled = !isAdmin && !isAvailable;
+                  // สำหรับ styling — admin มอง "available" ทุกเดือนเพื่อไม่ให้ปุ่มเทาดูคลิกไม่ได้
+                  const showAsAvailable = isAdmin || isAvailable;
 
                   return (
                     <Button
@@ -561,7 +571,7 @@ const DataManagePage = () => {
                       fullWidth
                       variant={isSelected ? "contained" : "outlined"}
                       onClick={() => toggleMonth(month)}
-                      disabled={!isAvailable} // Disable if no data
+                      disabled={isDisabled}
                       sx={{
                         height: '36px',
                         minWidth: 'auto',
@@ -570,11 +580,11 @@ const DataManagePage = () => {
                         fontSize: '0.75rem',
                         fontWeight: isSelected ? 'bold' : 500,
                         bgcolor: isSelected ? '#043478' : 'white',
-                        color: isSelected ? 'white' : (isAvailable ? '#043478' : '#bdbdbd'), // Dim text if unavailable
-                        borderColor: isSelected ? 'transparent' : (isAvailable ? '#eceff1' : '#f5f5f5'),
+                        color: isSelected ? 'white' : (showAsAvailable ? '#043478' : '#bdbdbd'),
+                        borderColor: isSelected ? 'transparent' : (showAsAvailable ? '#eceff1' : '#f5f5f5'),
                         '&:hover': {
-                          bgcolor: isSelected ? '#043478' : (isAvailable ? '#f5f5f5' : 'white'),
-                          borderColor: isAvailable ? '#043478' : '#f5f5f5'
+                          bgcolor: isSelected ? '#043478' : (showAsAvailable ? '#f5f5f5' : 'white'),
+                          borderColor: showAsAvailable ? '#043478' : '#f5f5f5'
                         },
                         '&.Mui-disabled': {
                           bgcolor: '#f5f5f5',

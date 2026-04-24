@@ -101,6 +101,16 @@ func (m *MockActualRepository) GetRawTransactionsCLIK(ctx context.Context, year 
 	return args.Get(0).([]models.ActualTransactionDTO), args.Error(1)
 }
 
+func (m *MockActualRepository) StreamRawTransactionsHMW(ctx context.Context, year string, months []string, batchSize int, handler func([]models.ActualTransactionDTO) error) error {
+	args := m.Called(ctx, year, months, batchSize, handler)
+	return args.Error(0)
+}
+
+func (m *MockActualRepository) StreamRawTransactionsCLIK(ctx context.Context, year string, months []string, batchSize int, handler func([]models.ActualTransactionDTO) error) error {
+	args := m.Called(ctx, year, months, batchSize, handler)
+	return args.Error(0)
+}
+
 func (m *MockActualRepository) CreateActualTransactions(ctx context.Context, txs []models.ActualTransactionEntity) error {
 	args := m.Called(ctx, txs)
 	return args.Error(0)
@@ -197,6 +207,14 @@ func (m *MockDashboardRepository) GetAvailableMonths(ctx context.Context, year s
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]string), args.Error(1)
+}
+
+func (m *MockDashboardRepository) GetAdminPermittedMonths(ctx context.Context) []string {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil
+	}
+	return args.Get(0).([]string)
 }
 
 // --- MockPLBudgetRepository ---
@@ -506,6 +524,14 @@ func (m *MockDashboardService) GetAvailableMonths(ctx context.Context, year stri
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]string), args.Error(1)
+}
+
+func (m *MockDashboardService) GetAdminPermittedMonths(ctx context.Context) []string {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil
+	}
+	return args.Get(0).([]string)
 }
 
 // --- MockMasterDataService ---
@@ -1685,8 +1711,12 @@ func TestSyncActuals_PreservesConfirmedStatuses(t *testing.T) {
 	repo.On("GetNonPendingTransactionKeys", mock.Anything, "2026", []string{"APR"}).Return(preservedMap, nil)
 	repo.On("DeleteActualFactsByMonth", mock.Anything, "2026", "APR").Return(nil)
 	repo.On("DeleteActualTransactionsByMonth", mock.Anything, "2026", "APR").Return(nil)
-	repo.On("GetRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}).Return(hmwRows, nil)
-	repo.On("GetRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}).Return([]models.ActualTransactionDTO{}, nil)
+	repo.On("StreamRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}, mock.AnythingOfType("int"), mock.AnythingOfType("func([]models.ActualTransactionDTO) error")).
+		Run(func(args mock.Arguments) {
+			handler := args.Get(4).(func([]models.ActualTransactionDTO) error)
+			_ = handler(hmwRows)
+		}).Return(nil)
+	repo.On("StreamRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}, mock.AnythingOfType("int"), mock.AnythingOfType("func([]models.ActualTransactionDTO) error")).Return(nil)
 	depSrv.On("GetMasterDepartment", mock.Anything, "ACC", "HMW").Return(&models.DepartmentEntity{Code: "ACC"}, nil)
 	repo.On("CreateActualTransactions", mock.Anything, mock.Anything).Return(nil)
 	repo.On("RestoreTransactionStatuses", mock.Anything, preservedMap).Return(nil)
@@ -1723,8 +1753,8 @@ func TestSyncActuals_FullYearPreservesStatuses(t *testing.T) {
 	repo.On("DeleteActualFactsByYear", mock.Anything, "2026").Return(nil)
 	repo.On("DeleteActualTransactionsByYear", mock.Anything, "2026").Return(nil)
 	for _, m := range allMonths {
-		repo.On("GetRawTransactionsHMW", mock.Anything, "2026", []string{m}).Return([]models.ActualTransactionDTO{}, nil)
-		repo.On("GetRawTransactionsCLIK", mock.Anything, "2026", []string{m}).Return([]models.ActualTransactionDTO{}, nil)
+		repo.On("StreamRawTransactionsHMW", mock.Anything, "2026", []string{m}, mock.AnythingOfType("int"), mock.AnythingOfType("func([]models.ActualTransactionDTO) error")).Return(nil)
+		repo.On("StreamRawTransactionsCLIK", mock.Anything, "2026", []string{m}, mock.AnythingOfType("int"), mock.AnythingOfType("func([]models.ActualTransactionDTO) error")).Return(nil)
 	}
 	repo.On("RestoreTransactionStatuses", mock.Anything, preservedMap).Return(nil)
 	repo.On("RefreshDataInventory", mock.Anything).Return(nil)
@@ -1754,8 +1784,8 @@ func TestSyncActuals_NoPreservedStatuses(t *testing.T) {
 	repo.On("GetNonPendingTransactionKeys", mock.Anything, "2026", []string{"APR"}).Return(emptyMap, nil)
 	repo.On("DeleteActualFactsByMonth", mock.Anything, "2026", "APR").Return(nil)
 	repo.On("DeleteActualTransactionsByMonth", mock.Anything, "2026", "APR").Return(nil)
-	repo.On("GetRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}).Return([]models.ActualTransactionDTO{}, nil)
-	repo.On("GetRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}).Return([]models.ActualTransactionDTO{}, nil)
+	repo.On("StreamRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}, mock.AnythingOfType("int"), mock.AnythingOfType("func([]models.ActualTransactionDTO) error")).Return(nil)
+	repo.On("StreamRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}, mock.AnythingOfType("int"), mock.AnythingOfType("func([]models.ActualTransactionDTO) error")).Return(nil)
 	repo.On("RefreshDataInventory", mock.Anything).Return(nil)
 
 	err := svc.SyncActuals(context.Background(), "2026", []string{"APR"})
@@ -1781,8 +1811,8 @@ func TestSyncActuals_PreserveStatusesFetchError(t *testing.T) {
 	repo.On("GetNonPendingTransactionKeys", mock.Anything, "2026", []string{"APR"}).Return(nil, errors.New("db error"))
 	repo.On("DeleteActualFactsByMonth", mock.Anything, "2026", "APR").Return(nil)
 	repo.On("DeleteActualTransactionsByMonth", mock.Anything, "2026", "APR").Return(nil)
-	repo.On("GetRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}).Return([]models.ActualTransactionDTO{}, nil)
-	repo.On("GetRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}).Return([]models.ActualTransactionDTO{}, nil)
+	repo.On("StreamRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}, mock.AnythingOfType("int"), mock.AnythingOfType("func([]models.ActualTransactionDTO) error")).Return(nil)
+	repo.On("StreamRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}, mock.AnythingOfType("int"), mock.AnythingOfType("func([]models.ActualTransactionDTO) error")).Return(nil)
 	repo.On("RefreshDataInventory", mock.Anything).Return(nil)
 
 	err := svc.SyncActuals(context.Background(), "2026", []string{"APR"})
@@ -1816,8 +1846,8 @@ func TestSyncActuals_MultipleMonthsPreserveStatuses(t *testing.T) {
 	for _, m := range months {
 		repo.On("DeleteActualFactsByMonth", mock.Anything, "2026", m).Return(nil)
 		repo.On("DeleteActualTransactionsByMonth", mock.Anything, "2026", m).Return(nil)
-		repo.On("GetRawTransactionsHMW", mock.Anything, "2026", []string{m}).Return([]models.ActualTransactionDTO{}, nil)
-		repo.On("GetRawTransactionsCLIK", mock.Anything, "2026", []string{m}).Return([]models.ActualTransactionDTO{}, nil)
+		repo.On("StreamRawTransactionsHMW", mock.Anything, "2026", []string{m}, mock.AnythingOfType("int"), mock.AnythingOfType("func([]models.ActualTransactionDTO) error")).Return(nil)
+		repo.On("StreamRawTransactionsCLIK", mock.Anything, "2026", []string{m}, mock.AnythingOfType("int"), mock.AnythingOfType("func([]models.ActualTransactionDTO) error")).Return(nil)
 	}
 	repo.On("RestoreTransactionStatuses", mock.Anything, preservedMap).Return(nil)
 	repo.On("RefreshDataInventory", mock.Anything).Return(nil)
@@ -1850,8 +1880,8 @@ func TestSyncActuals_RestoreError_SyncStillSucceeds(t *testing.T) {
 	repo.On("GetNonPendingTransactionKeys", mock.Anything, "2026", []string{"APR"}).Return(preservedMap, nil)
 	repo.On("DeleteActualFactsByMonth", mock.Anything, "2026", "APR").Return(nil)
 	repo.On("DeleteActualTransactionsByMonth", mock.Anything, "2026", "APR").Return(nil)
-	repo.On("GetRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}).Return([]models.ActualTransactionDTO{}, nil)
-	repo.On("GetRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}).Return([]models.ActualTransactionDTO{}, nil)
+	repo.On("StreamRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}, mock.AnythingOfType("int"), mock.AnythingOfType("func([]models.ActualTransactionDTO) error")).Return(nil)
+	repo.On("StreamRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}, mock.AnythingOfType("int"), mock.AnythingOfType("func([]models.ActualTransactionDTO) error")).Return(nil)
 	repo.On("RestoreTransactionStatuses", mock.Anything, preservedMap).Return(errors.New("restore failed"))
 	repo.On("RefreshDataInventory", mock.Anything).Return(nil)
 
@@ -1907,8 +1937,16 @@ func TestSyncActuals_VerifyTransactionDataIntegrity(t *testing.T) {
 	repo.On("GetNonPendingTransactionKeys", mock.Anything, "2026", []string{"APR"}).Return(map[string]string{}, nil)
 	repo.On("DeleteActualFactsByMonth", mock.Anything, "2026", "APR").Return(nil)
 	repo.On("DeleteActualTransactionsByMonth", mock.Anything, "2026", "APR").Return(nil)
-	repo.On("GetRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}).Return(hmwRows, nil)
-	repo.On("GetRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}).Return(clikRows, nil)
+	repo.On("StreamRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}, mock.AnythingOfType("int"), mock.AnythingOfType("func([]models.ActualTransactionDTO) error")).
+		Run(func(args mock.Arguments) {
+			handler := args.Get(4).(func([]models.ActualTransactionDTO) error)
+			_ = handler(hmwRows)
+		}).Return(nil)
+	repo.On("StreamRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}, mock.AnythingOfType("int"), mock.AnythingOfType("func([]models.ActualTransactionDTO) error")).
+		Run(func(args mock.Arguments) {
+			handler := args.Get(4).(func([]models.ActualTransactionDTO) error)
+			_ = handler(clikRows)
+		}).Return(nil)
 	repo.On("CreateActualTransactions", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
 		txs := args.Get(1).([]models.ActualTransactionEntity)
 		capturedTxs = append(capturedTxs, txs...)
@@ -1976,8 +2014,12 @@ func TestSyncActuals_UnmappedGLsAreFiltered(t *testing.T) {
 	repo.On("GetNonPendingTransactionKeys", mock.Anything, "2026", []string{"APR"}).Return(map[string]string{}, nil)
 	repo.On("DeleteActualFactsByMonth", mock.Anything, "2026", "APR").Return(nil)
 	repo.On("DeleteActualTransactionsByMonth", mock.Anything, "2026", "APR").Return(nil)
-	repo.On("GetRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}).Return(hmwRows, nil)
-	repo.On("GetRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}).Return([]models.ActualTransactionDTO{}, nil)
+	repo.On("StreamRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}, mock.AnythingOfType("int"), mock.AnythingOfType("func([]models.ActualTransactionDTO) error")).
+		Run(func(args mock.Arguments) {
+			handler := args.Get(4).(func([]models.ActualTransactionDTO) error)
+			_ = handler(hmwRows)
+		}).Return(nil)
+	repo.On("StreamRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}, mock.AnythingOfType("int"), mock.AnythingOfType("func([]models.ActualTransactionDTO) error")).Return(nil)
 	repo.On("CreateActualTransactions", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
 		txs := args.Get(1).([]models.ActualTransactionEntity)
 		capturedTxs = append(capturedTxs, txs...)
@@ -2024,8 +2066,12 @@ func TestSyncActuals_VerifyFactAggregation(t *testing.T) {
 	repo.On("GetNonPendingTransactionKeys", mock.Anything, "2026", []string{"APR"}).Return(map[string]string{}, nil)
 	repo.On("DeleteActualFactsByMonth", mock.Anything, "2026", "APR").Return(nil)
 	repo.On("DeleteActualTransactionsByMonth", mock.Anything, "2026", "APR").Return(nil)
-	repo.On("GetRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}).Return(hmwRows, nil)
-	repo.On("GetRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}).Return([]models.ActualTransactionDTO{}, nil)
+	repo.On("StreamRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}, mock.AnythingOfType("int"), mock.AnythingOfType("func([]models.ActualTransactionDTO) error")).
+		Run(func(args mock.Arguments) {
+			handler := args.Get(4).(func([]models.ActualTransactionDTO) error)
+			_ = handler(hmwRows)
+		}).Return(nil)
+	repo.On("StreamRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}, mock.AnythingOfType("int"), mock.AnythingOfType("func([]models.ActualTransactionDTO) error")).Return(nil)
 	repo.On("CreateActualTransactions", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
 		txs := args.Get(1).([]models.ActualTransactionEntity)
 		capturedTxs = append(capturedTxs, txs...)
@@ -2081,8 +2127,12 @@ func TestSyncActuals_InactiveGLMappingIgnored(t *testing.T) {
 	repo.On("GetNonPendingTransactionKeys", mock.Anything, "2026", []string{"APR"}).Return(map[string]string{}, nil)
 	repo.On("DeleteActualFactsByMonth", mock.Anything, "2026", "APR").Return(nil)
 	repo.On("DeleteActualTransactionsByMonth", mock.Anything, "2026", "APR").Return(nil)
-	repo.On("GetRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}).Return(hmwRows, nil)
-	repo.On("GetRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}).Return([]models.ActualTransactionDTO{}, nil)
+	repo.On("StreamRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}, mock.AnythingOfType("int"), mock.AnythingOfType("func([]models.ActualTransactionDTO) error")).
+		Run(func(args mock.Arguments) {
+			handler := args.Get(4).(func([]models.ActualTransactionDTO) error)
+			_ = handler(hmwRows)
+		}).Return(nil)
+	repo.On("StreamRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}, mock.AnythingOfType("int"), mock.AnythingOfType("func([]models.ActualTransactionDTO) error")).Return(nil)
 	repo.On("RefreshDataInventory", mock.Anything).Return(nil)
 
 	err := svc.SyncActuals(context.Background(), "2026", []string{"APR"})
@@ -2120,8 +2170,12 @@ func TestSyncActuals_NegativeAmountsPreserved(t *testing.T) {
 	repo.On("GetNonPendingTransactionKeys", mock.Anything, "2026", []string{"APR"}).Return(map[string]string{}, nil)
 	repo.On("DeleteActualFactsByMonth", mock.Anything, "2026", "APR").Return(nil)
 	repo.On("DeleteActualTransactionsByMonth", mock.Anything, "2026", "APR").Return(nil)
-	repo.On("GetRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}).Return(hmwRows, nil)
-	repo.On("GetRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}).Return([]models.ActualTransactionDTO{}, nil)
+	repo.On("StreamRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}, mock.AnythingOfType("int"), mock.AnythingOfType("func([]models.ActualTransactionDTO) error")).
+		Run(func(args mock.Arguments) {
+			handler := args.Get(4).(func([]models.ActualTransactionDTO) error)
+			_ = handler(hmwRows)
+		}).Return(nil)
+	repo.On("StreamRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}, mock.AnythingOfType("int"), mock.AnythingOfType("func([]models.ActualTransactionDTO) error")).Return(nil)
 	repo.On("CreateActualTransactions", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
 		txs := args.Get(1).([]models.ActualTransactionEntity)
 		capturedTxs = append(capturedTxs, txs...)
@@ -2195,8 +2249,12 @@ func TestSyncActuals_EntityNormalization(t *testing.T) {
 	repo.On("GetNonPendingTransactionKeys", mock.Anything, "2026", []string{"APR"}).Return(map[string]string{}, nil)
 	repo.On("DeleteActualFactsByMonth", mock.Anything, "2026", "APR").Return(nil)
 	repo.On("DeleteActualTransactionsByMonth", mock.Anything, "2026", "APR").Return(nil)
-	repo.On("GetRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}).Return(hmwRows, nil)
-	repo.On("GetRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}).Return([]models.ActualTransactionDTO{}, nil)
+	repo.On("StreamRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}, mock.AnythingOfType("int"), mock.AnythingOfType("func([]models.ActualTransactionDTO) error")).
+		Run(func(args mock.Arguments) {
+			handler := args.Get(4).(func([]models.ActualTransactionDTO) error)
+			_ = handler(hmwRows)
+		}).Return(nil)
+	repo.On("StreamRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}, mock.AnythingOfType("int"), mock.AnythingOfType("func([]models.ActualTransactionDTO) error")).Return(nil)
 	repo.On("CreateActualTransactions", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
 		txs := args.Get(1).([]models.ActualTransactionEntity)
 		capturedTxs = append(capturedTxs, txs...)
@@ -2247,8 +2305,12 @@ func TestSyncActuals_CLIKServiceRename_RawServiceNoMapping(t *testing.T) {
 	repo.On("GetNonPendingTransactionKeys", mock.Anything, "2026", []string{"APR"}).Return(map[string]string{}, nil)
 	repo.On("DeleteActualFactsByMonth", mock.Anything, "2026", "APR").Return(nil)
 	repo.On("DeleteActualTransactionsByMonth", mock.Anything, "2026", "APR").Return(nil)
-	repo.On("GetRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}).Return([]models.ActualTransactionDTO{}, nil)
-	repo.On("GetRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}).Return(clikRows, nil)
+	repo.On("StreamRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}, mock.AnythingOfType("int"), mock.AnythingOfType("func([]models.ActualTransactionDTO) error")).Return(nil)
+	repo.On("StreamRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}, mock.AnythingOfType("int"), mock.AnythingOfType("func([]models.ActualTransactionDTO) error")).
+		Run(func(args mock.Arguments) {
+			handler := args.Get(4).(func([]models.ActualTransactionDTO) error)
+			_ = handler(clikRows)
+		}).Return(nil)
 	repo.On("CreateActualTransactions", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
 		txs := args.Get(1).([]models.ActualTransactionEntity)
 		capturedTxs = append(capturedTxs, txs...)
@@ -2289,8 +2351,12 @@ func TestSyncActuals_CLIKServiceRename_MappedToService(t *testing.T) {
 	repo.On("GetNonPendingTransactionKeys", mock.Anything, "2026", []string{"APR"}).Return(map[string]string{}, nil)
 	repo.On("DeleteActualFactsByMonth", mock.Anything, "2026", "APR").Return(nil)
 	repo.On("DeleteActualTransactionsByMonth", mock.Anything, "2026", "APR").Return(nil)
-	repo.On("GetRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}).Return([]models.ActualTransactionDTO{}, nil)
-	repo.On("GetRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}).Return(clikRows, nil)
+	repo.On("StreamRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}, mock.AnythingOfType("int"), mock.AnythingOfType("func([]models.ActualTransactionDTO) error")).Return(nil)
+	repo.On("StreamRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}, mock.AnythingOfType("int"), mock.AnythingOfType("func([]models.ActualTransactionDTO) error")).
+		Run(func(args mock.Arguments) {
+			handler := args.Get(4).(func([]models.ActualTransactionDTO) error)
+			_ = handler(clikRows)
+		}).Return(nil)
 	repo.On("CreateActualTransactions", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
 		txs := args.Get(1).([]models.ActualTransactionEntity)
 		capturedTxs = append(capturedTxs, txs...)
@@ -2333,8 +2399,12 @@ func TestSyncActuals_CLIKServiceRename_RawServiceMappedToOther(t *testing.T) {
 	repo.On("GetNonPendingTransactionKeys", mock.Anything, "2026", []string{"APR"}).Return(map[string]string{}, nil)
 	repo.On("DeleteActualFactsByMonth", mock.Anything, "2026", "APR").Return(nil)
 	repo.On("DeleteActualTransactionsByMonth", mock.Anything, "2026", "APR").Return(nil)
-	repo.On("GetRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}).Return([]models.ActualTransactionDTO{}, nil)
-	repo.On("GetRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}).Return(clikRows, nil)
+	repo.On("StreamRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}, mock.AnythingOfType("int"), mock.AnythingOfType("func([]models.ActualTransactionDTO) error")).Return(nil)
+	repo.On("StreamRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}, mock.AnythingOfType("int"), mock.AnythingOfType("func([]models.ActualTransactionDTO) error")).
+		Run(func(args mock.Arguments) {
+			handler := args.Get(4).(func([]models.ActualTransactionDTO) error)
+			_ = handler(clikRows)
+		}).Return(nil)
 	repo.On("CreateActualTransactions", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
 		txs := args.Get(1).([]models.ActualTransactionEntity)
 		capturedTxs = append(capturedTxs, txs...)
@@ -2375,8 +2445,12 @@ func TestSyncActuals_CLIKServiceRename_LowercaseRaw(t *testing.T) {
 	repo.On("GetNonPendingTransactionKeys", mock.Anything, "2026", []string{"APR"}).Return(map[string]string{}, nil)
 	repo.On("DeleteActualFactsByMonth", mock.Anything, "2026", "APR").Return(nil)
 	repo.On("DeleteActualTransactionsByMonth", mock.Anything, "2026", "APR").Return(nil)
-	repo.On("GetRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}).Return([]models.ActualTransactionDTO{}, nil)
-	repo.On("GetRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}).Return(clikRows, nil)
+	repo.On("StreamRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}, mock.AnythingOfType("int"), mock.AnythingOfType("func([]models.ActualTransactionDTO) error")).Return(nil)
+	repo.On("StreamRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}, mock.AnythingOfType("int"), mock.AnythingOfType("func([]models.ActualTransactionDTO) error")).
+		Run(func(args mock.Arguments) {
+			handler := args.Get(4).(func([]models.ActualTransactionDTO) error)
+			_ = handler(clikRows)
+		}).Return(nil)
 	repo.On("CreateActualTransactions", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
 		txs := args.Get(1).([]models.ActualTransactionEntity)
 		capturedTxs = append(capturedTxs, txs...)
@@ -2425,8 +2499,16 @@ func TestSyncActuals_CLIKServiceRename_HMWNotAffected(t *testing.T) {
 	repo.On("GetNonPendingTransactionKeys", mock.Anything, "2026", []string{"APR"}).Return(map[string]string{}, nil)
 	repo.On("DeleteActualFactsByMonth", mock.Anything, "2026", "APR").Return(nil)
 	repo.On("DeleteActualTransactionsByMonth", mock.Anything, "2026", "APR").Return(nil)
-	repo.On("GetRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}).Return(hmwRows, nil)
-	repo.On("GetRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}).Return(clikRows, nil)
+	repo.On("StreamRawTransactionsHMW", mock.Anything, "2026", []string{"APR"}, mock.AnythingOfType("int"), mock.AnythingOfType("func([]models.ActualTransactionDTO) error")).
+		Run(func(args mock.Arguments) {
+			handler := args.Get(4).(func([]models.ActualTransactionDTO) error)
+			_ = handler(hmwRows)
+		}).Return(nil)
+	repo.On("StreamRawTransactionsCLIK", mock.Anything, "2026", []string{"APR"}, mock.AnythingOfType("int"), mock.AnythingOfType("func([]models.ActualTransactionDTO) error")).
+		Run(func(args mock.Arguments) {
+			handler := args.Get(4).(func([]models.ActualTransactionDTO) error)
+			_ = handler(clikRows)
+		}).Return(nil)
 	repo.On("CreateActualTransactions", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
 		txs := args.Get(1).([]models.ActualTransactionEntity)
 		capturedTxs = append(capturedTxs, txs...)

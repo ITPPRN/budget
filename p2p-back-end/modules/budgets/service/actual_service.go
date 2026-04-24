@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
@@ -133,47 +134,56 @@ func (s *actualService) SyncActuals(ctx context.Context, year string, months []s
 			}
 		}
 
-		// Keep headers aggregation in memory (Aggregated data is safe)
+		// Aggregation map — accumulates across months within a year.
+		// ขนาดถูกจำกัดด้วยจำนวน unique (Entity, Branch, Dept, EntityGL, ConsoGL, GLName, Vendor, Month) combinations
+		// ต่างจาก transactions slice ที่ถูก flush ทิ้งทุก batch เพื่อกัน OOM
 		mergedFactMap := make(map[AggKey]decimal.Decimal)
 
+		const streamBatchSize = 2000   // จำนวน rows ที่อ่านจาก DB ต่อรอบ
+		const flushChunkSize = 500     // จำนวน rows ที่ insert ลง actual_transaction_entities ต่อครั้ง
+		const heartbeatEvery = 10000   // log progress ทุก N rows
+
+		monthStart := time.Now()
 		for _, mName := range targetMonths {
 			fmt.Printf("[Sync] Processing Month: %s\n", mName)
+			mStart := time.Now()
 
-			// Fetch one month
-			hmwRows, err := trxRepo.GetRawTransactionsHMW(ctx, year, []string{mName})
-			if err != nil {
-				return fmt.Errorf("transaction.GetHMWRows(%s): %w", mName, err)
-			}
-			clikRows, err := trxRepo.GetRawTransactionsCLIK(ctx, year, []string{mName})
-			if err != nil {
-				return fmt.Errorf("transaction.GetCLIKRows(%s): %w", mName, err)
-			}
+			var (
+				totalRows        int
+				mappedRows       int
+				filteredRows     int
+				lastHeartbeatRow int
+			)
 
-			totalRows := 0
-			mappedRows := 0
-			filteredRows := 0
-
-			var transactions []models.ActualTransactionEntity
-
-			processRowsBatch := func(rows []models.ActualTransactionDTO) {
+			// processBatch แปลงแต่ละ batch ของ DTO → ActualTransactionEntity + อัพเดต aggregation map
+			// แล้วบันทึกลง DB ทันที (ไม่สะสม full-month เข้า memory)
+			processBatch := func(rows []models.ActualTransactionDTO) error {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				// Heartbeat: log progress ทุก N rows เพื่อ monitor sync ระหว่างทำงาน
+				if totalRows-lastHeartbeatRow >= heartbeatEvery {
+					elapsed := time.Since(mStart)
+					rate := float64(totalRows) / elapsed.Seconds()
+					fmt.Printf("[Sync][Heartbeat] Month %s: %d rows processed (%d mapped, %d filtered) — %.0f rows/sec — %.1fs elapsed\n",
+						mName, totalRows, mappedRows, filteredRows, rate, elapsed.Seconds())
+					lastHeartbeatRow = totalRows
+				}
+				batchTransactions := make([]models.ActualTransactionEntity, 0, len(rows))
 				for _, row := range rows {
 					company := NormalizeEntityCode(row.Company)
-					// 1. Look up STRICT mapping (Company + GL) - NO GLOBAL FALLBACK
+					// 1. Look up STRICT mapping (Company + GL)
 					key := fmt.Sprintf("%s_%s", company, row.EntityGL)
 					mapping, ok := mappingMap[key]
 
 					totalRows++
 
-					// FILTER: Only sync if the GL is specifically mapped for this company
+					// FILTER: sync only if specifically mapped
 					if !ok || mapping.ConsoGL == "" {
 						filteredRows++
-
 						continue
 					}
-
 					mappedRows++
-
-					// We now have the best possible mapping (Specific > Global)
 
 					branch := mapToCode(row.Branch, branchNameMap)
 					deptCode := row.Department
@@ -188,8 +198,8 @@ func (s *actualService) SyncActuals(ctx context.Context, year string, months []s
 						deptCode = "SERVICE_CLIK"
 					}
 
-					// 1. Transaction Table (Centralized Detail)
-					transactions = append(transactions, models.ActualTransactionEntity{
+					// 1. Transaction row
+					batchTransactions = append(batchTransactions, models.ActualTransactionEntity{
 						ID:            uuid.New(),
 						Source:        row.Source,
 						PostingDate:   row.PostingDate,
@@ -203,36 +213,21 @@ func (s *actualService) SyncActuals(ctx context.Context, year string, months []s
 						EntityGL:      row.EntityGL,
 						ConsoGL:       mapping.ConsoGL,
 						Year:          year,
-						GLAccountName: mapping.AccountName, // Use the name from mapping table as requested
+						GLAccountName: mapping.AccountName,
 					})
 
-					// 2. Aggregate for Fact Table
-					if len(row.PostingDate) >= 7 {
-						// Robust Month Extraction: Find any 2-digit number between separators
-						// E.g., 2026-03-25 or 25/03/2026 or 2026/03/25
-						monCode := ""
-						parts := strings.FieldsFunc(row.PostingDate, func(r rune) bool {
-							return r == '-' || r == '/' || r == '.'
-						})
-						for _, p := range parts {
-							if len(p) == 2 && p != "20" && p != "26" { // Heuristic: Month is a 2-digit part excluding common years
-								monCode = p
-
-								break
-							}
+					// 2. Aggregation — parse ISO date (posting_date = "YYYY-MM-DD" from SQL TO_CHAR)
+					if len(row.PostingDate) >= 10 {
+						t, parseErr := time.Parse("2006-01-02", row.PostingDate[:10])
+						if parseErr != nil {
+							continue
 						}
-						// Fallback to substring if heuristic fails (but is standard ISO)
-						if monCode == "" && strings.Contains(row.PostingDate, "-") && len(row.PostingDate) >= 7 {
-							monCode = row.PostingDate[5:7]
-						}
-
+						monCode := fmt.Sprintf("%02d", int(t.Month()))
 						if mon, ok := monthToCodeMap[monCode]; ok {
-							// Determine GL Name: Use Mapped name if exists, else Original name
 							glName := mapping.AccountName
 							if glName == "" {
 								glName = row.GLAccountName
 							}
-
 							k := AggKey{
 								Entity: company, Branch: branch, Dept: deptCode, NavCode: row.Department,
 								EntityGL: row.EntityGL, ConsoGL: mapping.ConsoGL, GLName: glName,
@@ -242,37 +237,33 @@ func (s *actualService) SyncActuals(ctx context.Context, year string, months []s
 						}
 					}
 				}
-			}
 
-			processRowsBatch(hmwRows)
-			processRowsBatch(clikRows)
-
-			fmt.Printf("[Sync] Month %s Result: Total %d, Mapped %d, Filtered %d (Optimized)\n", mName, totalRows, mappedRows, filteredRows)
-
-			// 3. Save Transactions IMMEDIATELY to free memory
-			if len(transactions) > 0 {
-				const chunkSize = 500 // 🍰 แบ่งส่งทีละ 500 รายการ
-				for i := 0; i < len(transactions); i += chunkSize {
-					end := i + chunkSize
-					if end > len(transactions) {
-						end = len(transactions)
+				// Flush transactions of THIS batch ลง DB ทันที — peak memory ถูกจำกัดที่ streamBatchSize
+				for i := 0; i < len(batchTransactions); i += flushChunkSize {
+					end := i + flushChunkSize
+					if end > len(batchTransactions) {
+						end = len(batchTransactions)
 					}
-					// ส่งทีละก้อนเล็กๆ แทนก้อนใหญ่ก้อนเดียว
-					if err := trxRepo.CreateActualTransactions(ctx, transactions[i:end]); err != nil {
+					if err := trxRepo.CreateActualTransactions(ctx, batchTransactions[i:end]); err != nil {
 						return fmt.Errorf("transaction.CreateTransactionsChunk: %w", err)
 					}
 				}
-				transactions = nil
+				return nil
 			}
-			// if len(transactions) > 0 {
-			// 	if err := trxRepo.CreateActualTransactions(ctx, transactions); err != nil {
-			// 		return fmt.Errorf("transaction.CreateTransactions(%s): %w", mName, err)
-			// 	}
-			// 	transactions = nil // Help GC
-			// }
-			// hmwRows = nil
-			// clikRows = nil
+
+			// Stream raw rows แบบ batch — ไม่โหลดทั้งเดือนเข้า memory
+			if err := trxRepo.StreamRawTransactionsHMW(ctx, year, []string{mName}, streamBatchSize, processBatch); err != nil {
+				return fmt.Errorf("transaction.StreamHMW(%s): %w", mName, err)
+			}
+			if err := trxRepo.StreamRawTransactionsCLIK(ctx, year, []string{mName}, streamBatchSize, processBatch); err != nil {
+				return fmt.Errorf("transaction.StreamCLIK(%s): %w", mName, err)
+			}
+
+			monthElapsed := time.Since(mStart)
+			fmt.Printf("[Sync] Month %s Result: Total %d, Mapped %d, Filtered %d — took %.1fs\n",
+				mName, totalRows, mappedRows, filteredRows, monthElapsed.Seconds())
 		}
+		fmt.Printf("[Sync] All months done for year %s — total elapsed %.1fs\n", year, time.Since(monthStart).Seconds())
 
 		// 4.5 Restore preserved statuses for transactions that were previously confirmed/completed
 		if len(preservedStatuses) > 0 {
