@@ -135,6 +135,23 @@ func (c *SyncAdminController) triggerSync(ctx *fiber.Ctx, user *models.UserInfo)
 			} else {
 				err = c.actualSrv.SyncActuals(bgCtx, req.Year, req.Months)
 			}
+		case models.SyncJobTier1Fast:
+			year := req.Year
+			months := req.Months
+			if year == "" {
+				year = fmt.Sprintf("%d", time.Now().Year())
+			}
+			if len(months) == 0 {
+				monthMap := []string{"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"}
+				months = []string{monthMap[time.Now().Month()-1]}
+			}
+			err = c.actualSrv.SyncActuals(bgCtx, year, months)
+		case models.SyncJobTier2Full:
+			year := req.Year
+			if year == "" {
+				year = fmt.Sprintf("%d", time.Now().Year())
+			}
+			err = c.actualSrv.SyncActuals(bgCtx, year, []string{})
 		case models.SyncJobDW:
 			if c.extSyncSrv == nil {
 				err = fmt.Errorf("external sync service not configured")

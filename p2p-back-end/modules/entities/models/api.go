@@ -1,6 +1,9 @@
 package models
 
-import "github.com/google/uuid"
+import (
+	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
+)
 
 // request
 
@@ -86,3 +89,27 @@ type AuditRejectBasketRes struct {
 	TransactionID uuid.UUID `json:"transaction_id"`
 	UserID        uuid.UUID `json:"user_id"`
 }
+
+
+// --- เพิ่ม Struct ตัวแทนไว้ตรงนี้ ---
+
+// rawTransactionRow มีเฉพาะคอลัมน์ใน DB (ไม่มี Source)
+type RawTransactionRow struct {
+	PostingDate   string          `gorm:"column:posting_date"`
+	DocNo         string          `gorm:"column:doc_no"`
+	Description   string          `gorm:"column:description"`
+	EntityGL      string          `gorm:"column:entity_gl"`
+	GLAccountName string          `gorm:"column:gl_account_name"`
+	Department    string          `gorm:"column:department"`
+	Amount        decimal.Decimal `gorm:"column:amount"`
+	Vendor        string          `gorm:"column:vendor"`
+	Company       string          `gorm:"column:company"`
+	Branch        string          `gorm:"column:branch"`
+}
+
+// streamRawRow สำหรับทำ Pagination ของ Stream
+type StreamRawRow struct {
+	ID int64 `gorm:"column:id"`
+	RawTransactionRow
+}
+// ---------------------------------
