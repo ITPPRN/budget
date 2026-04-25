@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 
 	"p2p-back-end/modules/entities/models"
 )
@@ -16,14 +15,10 @@ type actualRepository struct {
 }
 
 func NewActualRepository(db *gorm.DB) models.ActualRepository {
-	// Best-effort: ensure unique index exists on actual_transaction_entities business key
-	// to prevent duplicate inserts from concurrent sync runs.
-	// Wrapped in IF NOT EXISTS so this is idempotent.
-	_ = db.Exec(`
-		CREATE UNIQUE INDEX IF NOT EXISTS uniq_actual_txn_business_key
-		ON actual_transaction_entities (entity, entity_gl, doc_no, posting_date)
-		WHERE deleted_at IS NULL
-	`).Error
+	// Drop the legacy too-narrow unique index if it exists — it was incorrectly added
+	// on (entity, entity_gl, doc_no, posting_date) which collides on multi-line documents
+	// where the same GL appears multiple times with different branches/departments.
+	_ = db.Exec(`DROP INDEX IF EXISTS uniq_actual_txn_business_key`).Error
 	return &actualRepository{db: db}
 }
 
@@ -795,14 +790,11 @@ func (r *actualRepository) CreateActualTransactions(ctx context.Context, txs []m
 	if len(txs) == 0 {
 		return nil
 	}
-	// ON CONFLICT DO NOTHING — relies on uniq_actual_txn_business_key index.
-	// Prevents duplicate insertion when concurrent sync runs race on same business key.
-	if err := r.db.WithContext(ctx).
-		Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "entity"}, {Name: "entity_gl"}, {Name: "doc_no"}, {Name: "posting_date"}},
-			DoNothing: true,
-		}).
-		CreateInBatches(txs, 500).Error; err != nil {
+	// Plain INSERT — concurrency is prevented by SyncMutex held by callers (cron/manual trigger).
+	// We deliberately do NOT use a unique index/ON CONFLICT here because a single document can
+	// have multiple legitimate line items with the same (entity, entity_gl, doc_no, posting_date)
+	// distinguished only by branch/department.
+	if err := r.db.WithContext(ctx).CreateInBatches(txs, 500).Error; err != nil {
 		return fmt.Errorf("actualRepo.CreateActualTransactions: %w", err)
 	}
 	return nil
