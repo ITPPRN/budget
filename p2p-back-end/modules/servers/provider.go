@@ -1,6 +1,8 @@
 package servers
 
 import (
+	"sync"
+
 	_authSer "p2p-back-end/modules/auth/service"
 	_budgetRe "p2p-back-end/modules/budgets/repository"
 	_budgetSer "p2p-back-end/modules/budgets/service"
@@ -40,6 +42,7 @@ type SharedDeps struct {
 	AuditService        models.AuditService
 	BranchCodeMapSrv    models.CompanyBranchCodeMappingService
 	SyncTrackingRepo    _extSyncRe.SyncTrackingRepository
+	SyncMutex           *sync.Mutex
 }
 
 func initSharedDeps(s *server) *SharedDeps {
@@ -125,5 +128,6 @@ func initSharedDeps(s *server) *SharedDeps {
 		AuditService:        auditService,
 		BranchCodeMapSrv:    branchCodeMapService,
 		SyncTrackingRepo:    syncTrackingRepo,
+		SyncMutex:           &s.SyncMutex,
 	}
 }

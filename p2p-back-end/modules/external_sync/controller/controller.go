@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -19,6 +20,7 @@ type SyncAdminController struct {
 	extSyncSrv   models.ExternalSyncService
 	actualSrv    models.ActualService
 	authSrv      models.AuthService
+	syncMutex    *sync.Mutex
 }
 
 func NewSyncAdminController(
@@ -27,12 +29,14 @@ func NewSyncAdminController(
 	trackingRepo _repo.SyncTrackingRepository,
 	extSyncSrv models.ExternalSyncService,
 	actualSrv models.ActualService,
+	syncMutex *sync.Mutex,
 ) {
 	c := &SyncAdminController{
 		trackingRepo: trackingRepo,
 		extSyncSrv:   extSyncSrv,
 		actualSrv:    actualSrv,
 		authSrv:      authSrv,
+		syncMutex:    syncMutex,
 	}
 
 	// GET /admin/sync/status — latest run + recent history
@@ -108,8 +112,19 @@ func (c *SyncAdminController) triggerSync(ctx *fiber.Ctx, user *models.UserInfo)
 
 	triggeredBy := "ADMIN:" + user.ID
 
+	// Try to acquire sync mutex — refuse if another sync is already running
+	// (prevents concurrent syncs that cause duplicate transaction inserts)
+	if c.syncMutex != nil && !c.syncMutex.TryLock() {
+		return ctx.Status(fiber.StatusConflict).JSON(fiber.Map{
+			"error": "another sync is already running — please wait until it finishes",
+		})
+	}
+
 	// Run in background so the HTTP request doesn't time out for large syncs
 	go func() {
+		if c.syncMutex != nil {
+			defer c.syncMutex.Unlock()
+		}
 		bgCtx := context.Background()
 
 		run := &models.SyncRunEntity{

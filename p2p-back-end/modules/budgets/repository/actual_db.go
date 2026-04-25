@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"p2p-back-end/modules/entities/models"
 )
@@ -15,6 +16,14 @@ type actualRepository struct {
 }
 
 func NewActualRepository(db *gorm.DB) models.ActualRepository {
+	// Best-effort: ensure unique index exists on actual_transaction_entities business key
+	// to prevent duplicate inserts from concurrent sync runs.
+	// Wrapped in IF NOT EXISTS so this is idempotent.
+	_ = db.Exec(`
+		CREATE UNIQUE INDEX IF NOT EXISTS uniq_actual_txn_business_key
+		ON actual_transaction_entities (entity, entity_gl, doc_no, posting_date)
+		WHERE deleted_at IS NULL
+	`).Error
 	return &actualRepository{db: db}
 }
 
@@ -209,21 +218,20 @@ func (r *actualRepository) RestoreTransactionStatuses(ctx context.Context, statu
 				return fmt.Errorf("actualRepo.RestoreTransactionStatuses: %w", err)
 			}
 
-			// Delete old duplicate (the non-PENDING one that was preserved during delete)
-			// Now the new record has the correct status, so we can safely remove the old one.
-			// We delete by: same key + same old status + older created_at (keep the newer one)
+			// Delete ALL duplicate rows for this business key, keeping only the newest one
+			// (matches behaviour of the new uniq_actual_txn_business_key index)
 			r.db.WithContext(ctx).Exec(`
 				DELETE FROM actual_transaction_entities
 				WHERE id IN (
-					SELECT id FROM actual_transaction_entities
-					WHERE entity = ? AND entity_gl = ? AND doc_no = ? AND posting_date = ? AND status = ?
-					ORDER BY created_at ASC
-					LIMIT 1
-				)
-				AND (SELECT COUNT(*) FROM actual_transaction_entities
-					WHERE entity = ? AND entity_gl = ? AND doc_no = ? AND posting_date = ?
-				) > 1`,
-				k[0], k[1], k[2], k[3], status,
+					SELECT id FROM (
+						SELECT id, ROW_NUMBER() OVER (
+							PARTITION BY entity, entity_gl, doc_no, posting_date
+							ORDER BY created_at DESC, id DESC
+						) AS rn
+						FROM actual_transaction_entities
+						WHERE entity = ? AND entity_gl = ? AND doc_no = ? AND posting_date = ?
+					) t WHERE rn > 1
+				)`,
 				k[0], k[1], k[2], k[3])
 		}
 	}
@@ -787,7 +795,14 @@ func (r *actualRepository) CreateActualTransactions(ctx context.Context, txs []m
 	if len(txs) == 0 {
 		return nil
 	}
-	if err := r.db.WithContext(ctx).CreateInBatches(txs, 500).Error; err != nil {
+	// ON CONFLICT DO NOTHING — relies on uniq_actual_txn_business_key index.
+	// Prevents duplicate insertion when concurrent sync runs race on same business key.
+	if err := r.db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "entity"}, {Name: "entity_gl"}, {Name: "doc_no"}, {Name: "posting_date"}},
+			DoNothing: true,
+		}).
+		CreateInBatches(txs, 500).Error; err != nil {
 		return fmt.Errorf("actualRepo.CreateActualTransactions: %w", err)
 	}
 	return nil

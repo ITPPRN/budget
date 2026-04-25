@@ -119,7 +119,7 @@ func (s *server) Handlers() error {
 
 	// --- Admin Sync Observability Module ---
 	adminGroup := v1.Group("/admin")
-	_extSyncCon.NewSyncAdminController(adminGroup, s.Shd.AuthService, s.Shd.SyncTrackingRepo, s.Shd.ExternalSyncService, s.Shd.ActualService)
+	_extSyncCon.NewSyncAdminController(adminGroup, s.Shd.AuthService, s.Shd.SyncTrackingRepo, s.Shd.ExternalSyncService, s.Shd.ActualService, s.Shd.SyncMutex)
 
 	// --- Export Module Initialization ---
 	exportGroup := v1.Group("")
