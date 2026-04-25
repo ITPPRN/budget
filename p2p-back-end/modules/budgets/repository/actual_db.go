@@ -90,9 +90,18 @@ func (r *actualRepository) DeleteActualFactsByMonth(ctx context.Context, year st
 		return fmt.Errorf("actualRepo.DeleteActualFactsByMonth.UpdateTotal: %w", err)
 	}
 
-	if err := r.db.WithContext(ctx).Unscoped().
-		Where("year = ? AND year_total = 0", year).
-		Delete(&models.ActualFactEntity{}).Error; err != nil {
+	// Cleanup: delete fact entities that have NO amount rows left at all.
+	// Important: don't use year_total=0 here — amounts can legitimately sum to 0 (e.g. debits
+	// cancelling credits) while still being valid rows that must remain joinable.
+	if err := r.db.WithContext(ctx).Exec(`
+		DELETE FROM actual_fact_entities
+		WHERE year = ?
+		  AND NOT EXISTS (
+		      SELECT 1 FROM actual_amount_entities a
+		      WHERE a.actual_fact_id = actual_fact_entities.id
+		        AND a.deleted_at IS NULL
+		  )
+	`, year).Error; err != nil {
 		return fmt.Errorf("actualRepo.DeleteActualFactsByMonth.Cleanup: %w", err)
 	}
 	return nil
