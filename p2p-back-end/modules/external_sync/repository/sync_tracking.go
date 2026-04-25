@@ -22,6 +22,7 @@ type SyncTrackingRepository interface {
 	GetReconciliation(ctx context.Context, year string) (*ReconciliationResult, error)
 	GetFailedRunsForRetry(ctx context.Context, within time.Duration, maxRetries int) ([]models.SyncRunEntity, error)
 	ClearStaleRunningRuns(ctx context.Context, olderThan time.Duration) (int64, error)
+	DeleteOldRunsByJobType(ctx context.Context, jobType string, olderThan time.Duration) (int64, error)
 }
 
 type syncTrackingRepository struct {
@@ -254,6 +255,19 @@ func (r *syncTrackingRepository) GetFailedRunsForRetry(ctx context.Context, with
 		return nil, fmt.Errorf("syncTrackingRepo.GetFailedRunsForRetry: %w", err)
 	}
 	return runs, nil
+}
+
+// DeleteOldRunsByJobType — ลบ sync_runs ของ jobType ที่เก่ากว่า olderThan
+// ใช้กับ TIER1_FAST (รันทุก 5 นาที = 288 แถว/วัน) ป้องกัน table โต disk เต็ม
+func (r *syncTrackingRepository) DeleteOldRunsByJobType(ctx context.Context, jobType string, olderThan time.Duration) (int64, error) {
+	cutoff := time.Now().Add(-olderThan)
+	res := r.db.WithContext(ctx).
+		Where("job_type = ? AND started_at < ?", jobType, cutoff).
+		Delete(&models.SyncRunEntity{})
+	if res.Error != nil {
+		return 0, fmt.Errorf("syncTrackingRepo.DeleteOldRunsByJobType: %w", res.Error)
+	}
+	return res.RowsAffected, nil
 }
 
 // ClearStaleRunningRuns — clean up RUNNING rows ที่ค้างจาก server crash

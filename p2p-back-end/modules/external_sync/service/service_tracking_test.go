@@ -88,6 +88,11 @@ func (m *MockSyncTrackingRepository) ClearStaleRunningRuns(ctx context.Context, 
 	return args.Get(0).(int64), args.Error(1)
 }
 
+func (m *MockSyncTrackingRepository) DeleteOldRunsByJobType(ctx context.Context, jobType string, olderThan time.Duration) (int64, error) {
+	args := m.Called(ctx, jobType, olderThan)
+	return args.Get(0).(int64), args.Error(1)
+}
+
 // ─────────────────────────────────────────────
 // Tests: SyncFromDW with tracking + delete-before-fetch
 // ─────────────────────────────────────────────

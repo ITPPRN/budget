@@ -179,6 +179,21 @@ func (s *server) StartCronJob() {
 		}); err != nil {
 			logs.Fatal(fmt.Sprintf("Failed to register Retry Cron Job: %v", err))
 		}
+
+		// 4. Cleanup Job — ลบ sync_runs ของ TIER1_FAST ที่เก่ากว่า 24 ชม. ทุกวัน 03:00
+		// (Tier 1 รันทุก 5 นาที = 288 แถว/วัน + retries → log บวมเร็ว)
+		if _, err := s.Cron.AddFunc("0 3 * * *", func() {
+			deleted, err := s.Shd.SyncTrackingRepo.DeleteOldRunsByJobType(
+				context.Background(), models.SyncJobTier1Fast, 24*time.Hour,
+			)
+			if err != nil {
+				logs.Errorf("🧹 Cleanup Job: Failed to delete old TIER1_FAST runs: %v", err)
+				return
+			}
+			logs.Infof("🧹 Cleanup Job: Deleted %d old TIER1_FAST sync_runs (>24h)", deleted)
+		}); err != nil {
+			logs.Fatal(fmt.Sprintf("Failed to register Cleanup Cron Job: %v", err))
+		}
 	}
 
 	// 2. Job: Department Seeding (Run once at startup, or could be a job)

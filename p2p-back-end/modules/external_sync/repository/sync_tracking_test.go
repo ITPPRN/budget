@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/glebarez/sqlite"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
@@ -17,6 +17,7 @@ import (
 )
 
 // setupTestDB creates an in-memory SQLite DB with the sync_runs schema auto-migrated.
+// Uses glebarez/sqlite (pure-Go, modernc.org/sqlite-based) so tests run without cgo.
 func setupTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
