@@ -65,6 +65,9 @@ func (s *ownerService) GetDashboardSummary(ctx context.Context, user *models.Use
 
 func (s *ownerService) GetActualTransactions(ctx context.Context, user *models.UserInfo, filter map[string]interface{}) (*models.PaginatedActualTransactionDTO, error) {
 	filter = s.InjectPermissions(ctx, user, filter)
+	if user != nil {
+		filter["user_id"] = user.ID
+	}
 	return s.repo.GetActualTransactions(ctx, filter)
 }
 
@@ -198,6 +201,10 @@ func (s *ownerService) GetOwnerFilterLists(ctx context.Context, user *models.Use
 
 func (s *ownerService) GetActualYears(ctx context.Context, user *models.UserInfo) ([]string, error) {
 	return s.repo.GetActualYears(ctx)
+}
+
+func (s *ownerService) GetAdminPermittedMonths(ctx context.Context) []string {
+	return s.repo.GetAdminPermittedMonths(ctx)
 }
 
 func (s *ownerService) InjectPermissions(ctx context.Context, user *models.UserInfo, filter map[string]interface{}) map[string]interface{} {

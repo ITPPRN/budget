@@ -66,14 +66,23 @@ func NewPostgresConnection(cfg *configs.Config, connType string) (*gorm.DB, erro
 			logs.Warn("Failed to backfill deleted flag for users: ", zap.Error(err))
 		}
 
+		// --- Drop legacy single-column unique on company_branch_code_mappings.company_id
+		//     so the new composite (company_id, branch_code) unique can take effect.
+		//     Safe to run repeatedly — IF EXISTS guards.
+		if err := db.Exec(`ALTER TABLE company_branch_code_mappings
+			DROP CONSTRAINT IF EXISTS company_branch_code_mappings_company_id_key`).Error; err != nil {
+			logs.Warn("Drop legacy company_id unique constraint failed: ", zap.Error(err))
+		}
+		if err := db.Exec(`DROP INDEX IF EXISTS idx_company_branch_code_mappings_company_id`).Error; err != nil {
+			logs.Warn("Drop legacy company_id unique index failed: ", zap.Error(err))
+		}
+
 		// --- 🚀 FORCE REACTIVATE ADMIN (Don't remove until confirm) ---
 		if err := db.Table("user_entities").Where("username = ?", "admin").Update("deleted", false).Error; err != nil {
 			logs.Errorf("CRITICAL: Failed to reactivate admin user: %v", err)
 		} else {
 			logs.Info("✅ [STARTUP] Admin account has been force-reactivated.")
 		}
-
-
 
 		// 3. Seed GL Mappings (Unified)
 		if err := seeders.SeedGLGrouping(db); err != nil {
@@ -98,6 +107,9 @@ func getModelsToMigrate() []interface{} {
 		&models.Departments{},
 		&models.Sections{},
 		&models.Positions{},
+
+		// Branch-scope mapping for BRANCH_DELEGATE role
+		&models.CompanyBranchCodeMappingEntity{},
 
 		// Budget & Capex (Flattened Type 2: Header + Detail)
 		&models.FileBudgetEntity{},
@@ -132,5 +144,7 @@ func getModelsToMigrate() []interface{} {
 		// Audit Logs (Owner Approval & Reporting)
 		&models.AuditLogEntity{},
 		&models.AuditLogRejectedItemEntity{},
+
+		&models.AuditRejectBasket{},
 	}
 }

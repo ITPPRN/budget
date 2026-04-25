@@ -198,10 +198,14 @@ type ActualRepository interface {
 	GetAllAchHmwGle(ctx context.Context) ([]AchHmwGleEntity, error)
 	GetAggregatedHMW(ctx context.Context, year string, months []string) ([]ActualAggregatedDTO, error)
 	GetRawTransactionsHMW(ctx context.Context, year string, months []string) ([]ActualTransactionDTO, error)
+	StreamRawTransactionsHMW(ctx context.Context, year string, months []string, batchSize int, handler func([]ActualTransactionDTO) error) error
+	StreamRawTransactionsCLIK(ctx context.Context, year string, months []string, batchSize int, handler func([]ActualTransactionDTO) error) error
 	GetAllClikGle(ctx context.Context) ([]ClikGleEntity, error)
 	GetAggregatedCLIK(ctx context.Context, year string, months []string) ([]ActualAggregatedDTO, error)
 	GetRawTransactionsCLIK(ctx context.Context, year string, months []string) ([]ActualTransactionDTO, error)
 	CreateActualTransactions(ctx context.Context, txs []ActualTransactionEntity) error
+	GetNonPendingTransactionKeys(ctx context.Context, year string, months []string) (map[string]string, error)
+	RestoreTransactionStatuses(ctx context.Context, statusMap map[string]string) error
 	GetRawDate(ctx context.Context) (string, error)
 	RefreshDataInventory(ctx context.Context) error
 }
@@ -211,12 +215,15 @@ type ActualService interface {
 	DeleteActualFacts(ctx context.Context, year string) error
 	GetRawDate(ctx context.Context) (string, error)
 	RefreshDataInventory(ctx context.Context) error
+	// SyncActualsDebug(ctx context.Context, targetDocNo string) error
 }
 
 // 6. External Sync Domain (NAV/DW)
 type ExternalSyncRepository interface {
 	FetchHMWInBatches(ctx context.Context, year int, month int, batchSize int, handle func([]AchHmwGleEntity) error) error
 	FetchCLIKInBatches(ctx context.Context, year int, month int, batchSize int, handle func([]ClikGleEntity) error) error
+	DeleteHMWByYearMonth(ctx context.Context, year int, month int) error
+	DeleteCLIKByYearMonth(ctx context.Context, year int, month int) error
 	UpsertHMWLocal(ctx context.Context, data []AchHmwGleEntity) error
 	UpsertCLIKLocal(ctx context.Context, data []ClikGleEntity) error
 }
@@ -266,6 +273,7 @@ type DashboardRepository interface {
 	GetDashboardAggregates(ctx context.Context, filter map[string]interface{}) (*DashboardSummaryDTO, error)
 	GetActualYears(ctx context.Context) ([]string, error)
 	GetAvailableMonths(ctx context.Context, year string) ([]string, error)
+	GetAdminPermittedMonths(ctx context.Context) []string
 }
 
 type DashboardService interface {
@@ -278,6 +286,7 @@ type DashboardService interface {
 	GetActualTransactions(ctx context.Context, filter map[string]interface{}) (*PaginatedActualTransactionDTO, error)
 	GetActualYears(ctx context.Context) ([]string, error)
 	GetAvailableMonths(ctx context.Context, year string) ([]string, error)
+	GetAdminPermittedMonths(ctx context.Context) []string
 }
 
 // --- Owner ---
@@ -290,6 +299,7 @@ type OwnerRepository interface {
 	GetActualDetails(ctx context.Context, filter map[string]interface{}) ([]ActualFactEntity, error)
 	GetBudgetDetails(ctx context.Context, filter map[string]interface{}) ([]BudgetFactEntity, error)
 	GetActualYears(ctx context.Context) ([]string, error)
+	GetAdminPermittedMonths(ctx context.Context) []string
 }
 
 type OwnerService interface {
@@ -301,6 +311,7 @@ type OwnerService interface {
 	GetOrganizationStructure(ctx context.Context, user *UserInfo) ([]OrganizationDTO, error)
 	GetOwnerFilterLists(ctx context.Context, user *UserInfo) (*OwnerFilterListsDTO, error)
 	GetActualYears(ctx context.Context, user *UserInfo) ([]string, error)
+	GetAdminPermittedMonths(ctx context.Context) []string
 	InjectPermissions(ctx context.Context, user *UserInfo, filter map[string]interface{}) map[string]interface{}
 }
 
@@ -314,15 +325,29 @@ type AuditRepository interface {
 	GetTransactionsByIDs(ctx context.Context, ids []uuid.UUID) ([]ActualTransactionEntity, error)
 	GetTransactionsByFilter(ctx context.Context, filter map[string]interface{}) ([]ActualTransactionEntity, error)
 	UpdateTransactionsStatus(ctx context.Context, ids []uuid.UUID, status string) error
-	MarkRestAsComplete(ctx context.Context, department, year, month string, excludedIDs []uuid.UUID) error
+	// MarkRestAsComplete(ctx context.Context, department, year, month string, excludedIDs []uuid.UUID) error
+	AddToBasket(ctx context.Context, items []AuditRejectBasket) error
+	GetBasketItems(ctx context.Context, userID string) ([]ActualTransactionEntity, error)
+	RemoveFromBasket(ctx context.Context, userID string, transactionID string) error
+	GetBasketTransactionIDs(ctx context.Context, userID string) ([]uuid.UUID, error)
+	ClearBasket(ctx context.Context, userID string) error
+	MarkRestAsComplete(ctx context.Context, department, year, month string, excludedIDs []uuid.UUID, targetStatus string) error
+	ValidateBasketScope(ctx context.Context, ids []uuid.UUID, year string, month string) (bool, error)
+	ConfirmMonthTransactions(ctx context.Context, department, year, month string, excludedIDs []uuid.UUID) error
+	CountPendingByDepartments(ctx context.Context, year, month string, departments []string) (int64, error)
+	CountTotalByDepartments(ctx context.Context, year, month string, departments []string) (int64, error)
 }
 
 type AuditService interface {
+	AddToBasket(context.Context, *UserInfo, []string) error
 	Approve(ctx context.Context, user *UserInfo, payload map[string]interface{}) error
 	Report(ctx context.Context, user *UserInfo, payload map[string]interface{}) error
 	ListLogs(ctx context.Context, filter map[string]interface{}) ([]AuditLogEntity, error)
 	GetRejectedItemDetails(ctx context.Context, logID string) ([]AuditLogRejectedItemEntity, error)
 	GetReportableTransactions(ctx context.Context, user *UserInfo, payload map[string]interface{}) ([]ActualTransactionEntity, error)
+	GetBasketItems(ctx context.Context, userID string) ([]ActualTransactionEntity, error)
+	RemoveFromBasket(ctx context.Context, userID string, transactionID string) error
+	CheckAuditComplete(ctx context.Context, user *UserInfo, year, month string) (map[string]interface{}, error)
 }
 
 // --- Organization ---
@@ -330,6 +355,40 @@ type AuditService interface {
 type DepartmentService interface {
 	ManageDepartments(ctx context.Context) error
 	GetMasterDepartment(ctx context.Context, navCode, entity string) (*DepartmentEntity, error)
+}
+
+// --- Company Branch Code Mapping (drives BRANCH_DELEGATE scope) ---
+
+type CompanyBranchCodeMappingRepository interface {
+	List(ctx context.Context) ([]CompanyBranchCodeMappingEntity, error)
+	ListByCompanyID(ctx context.Context, companyID uuid.UUID) ([]CompanyBranchCodeMappingEntity, error)
+	Upsert(ctx context.Context, m *CompanyBranchCodeMappingEntity) error
+	Delete(ctx context.Context, id uuid.UUID) error
+	ListCompanies(ctx context.Context) ([]Companies, error)
+	ListAvailableBranchCodes(ctx context.Context) ([]string, error)
+	FindCompanyByNameAndBranchNo(ctx context.Context, name, branchNo string) (*Companies, error)
+}
+
+type ImportBranchCodeMappingResult struct {
+	Imported int      `json:"imported"`
+	Updated  int      `json:"updated"`
+	Skipped  int      `json:"skipped"`
+	Errors   []string `json:"errors,omitempty"`
+}
+
+type CompanyBranchCodeMappingService interface {
+	List(ctx context.Context) ([]CompanyBranchCodeMappingEntity, error)
+	// ResolveBranchCodes returns ALL branch codes mapped to the given company.
+	// Returns an empty slice (not nil) when no mapping exists.
+	ResolveBranchCodes(ctx context.Context, companyID uuid.UUID) ([]string, error)
+	// Upsert is idempotent on (company_id, branch_code). Adding a new code for
+	// an already-mapped company appends a row; it does NOT replace existing codes.
+	Upsert(ctx context.Context, companyID uuid.UUID, branchCode string) (*CompanyBranchCodeMappingEntity, error)
+	Delete(ctx context.Context, id uuid.UUID) error
+	ListCompanies(ctx context.Context) ([]Companies, error)
+	ListAvailableBranchCodes(ctx context.Context) ([]string, error)
+	ImportFromExcel(ctx context.Context, file *multipart.FileHeader) (*ImportBranchCodeMappingResult, error)
+	GenerateImportTemplate(ctx context.Context) ([]byte, error)
 }
 
 // --- DTOs ---

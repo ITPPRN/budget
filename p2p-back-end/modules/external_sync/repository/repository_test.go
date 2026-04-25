@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql/driver"
 	"testing"
 
 	"p2p-back-end/modules/entities/models"
@@ -60,6 +61,8 @@ func TestUpsertHMWLocal_WithData_ExecutesUpsert(t *testing.T) {
 	}
 
 	mockSql.ExpectBegin()
+	// 44 args: HMW has 45 columns total but ID is reset to 0 by UpsertHMWLocal,
+	// so GORM excludes ID from INSERT (auto-increment) → 44 args go to the query
 	mockSql.ExpectQuery("INSERT INTO \"achhmw_gle_api\"").
 		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
 			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
@@ -69,7 +72,7 @@ func TestUpsertHMWLocal_WithData_ExecutesUpsert(t *testing.T) {
 			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
 			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
 			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
-			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
 	mockSql.ExpectCommit()
 
@@ -137,25 +140,14 @@ func TestUpsertCLIKLocal_SetsCompanyToCLIK(t *testing.T) {
 	}
 
 	mockSql.ExpectBegin()
+	// 82 args = 2 records × 41 columns. CLIK has 42 columns total, but ID is reset to 0
+	// by UpsertCLIKLocal so GORM excludes it from INSERT (auto-increment).
+	args := make([]driver.Value, 82)
+	for i := range args {
+		args[i] = sqlmock.AnyArg()
+	}
 	mockSql.ExpectQuery("INSERT INTO \"general_ledger_entries_clik\"").
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
-			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
-			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
-			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
-			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
-			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
-			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
-			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
-			sqlmock.AnyArg(), sqlmock.AnyArg(),
-			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
-			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
-			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
-			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
-			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
-			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
-			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
-			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
-			sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WithArgs(args...).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1).AddRow(2))
 	mockSql.ExpectCommit()
 

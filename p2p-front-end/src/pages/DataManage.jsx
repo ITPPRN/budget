@@ -21,7 +21,9 @@ import api from '../utils/api/axiosInstance';
 import { toast } from 'react-toastify';
 import StorageIcon from '@mui/icons-material/Storage';
 import GLGroupingModal from '../components/Budget/GLGroupingModal';
+import BranchCodeMappingModal from '../components/Budget/BranchCodeMappingModal';
 import { BudgetVersionModal, CapexPlanModal, CapexActualModal } from '../components/Budget/VersionModals';
+import StoreIcon from '@mui/icons-material/Store';
 
 
 const DataManagePage = () => {
@@ -206,13 +208,19 @@ const DataManagePage = () => {
 
   const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 
+  // Admin มีสิทธิ์เต็ม → คลิกได้ทุกเดือนไม่ว่า data_inventory จะ sync หรือไม่
+  // สิทธิ์อื่นจะถูกจำกัดที่ availableMonths (เดือนที่มีข้อมูลใน inventory)
+  const isAdmin = (user?.roles || []).some(r => String(r).toUpperCase().includes('ADMIN'));
+
   const toggleMonth = (month) => {
     const monthIdx = MONTHS.indexOf(month);
     if (selectedMonths.length > 0 && selectedMonths[selectedMonths.length - 1] === month) {
       setSelectedMonths([]);
     } else {
-      // Select range from JAN up to clicked month, but ONLY include months that have data
-      const newSelected = MONTHS.slice(0, monthIdx + 1).filter(m => availableMonths.includes(m));
+      // Admin: เลือกได้ทุกเดือนในช่วง JAN → เดือนที่คลิก
+      // Non-admin: เลือกได้เฉพาะเดือนที่มีใน availableMonths
+      const range = MONTHS.slice(0, monthIdx + 1);
+      const newSelected = isAdmin ? range : range.filter(m => availableMonths.includes(m));
       setSelectedMonths(newSelected);
     }
   };
@@ -552,6 +560,10 @@ const DataManagePage = () => {
                 {MONTHS.map((month) => {
                   const isSelected = selectedMonths.includes(month);
                   const isAvailable = availableMonths.includes(month);
+                  // Admin: คลิกได้ทุกเดือน; Non-admin: ต้องอยู่ใน availableMonths
+                  const isDisabled = !isAdmin && !isAvailable;
+                  // สำหรับ styling — admin มอง "available" ทุกเดือนเพื่อไม่ให้ปุ่มเทาดูคลิกไม่ได้
+                  const showAsAvailable = isAdmin || isAvailable;
 
                   return (
                     <Button
@@ -559,7 +571,7 @@ const DataManagePage = () => {
                       fullWidth
                       variant={isSelected ? "contained" : "outlined"}
                       onClick={() => toggleMonth(month)}
-                      disabled={!isAvailable} // Disable if no data
+                      disabled={isDisabled}
                       sx={{
                         height: '36px',
                         minWidth: 'auto',
@@ -568,11 +580,11 @@ const DataManagePage = () => {
                         fontSize: '0.75rem',
                         fontWeight: isSelected ? 'bold' : 500,
                         bgcolor: isSelected ? '#043478' : 'white',
-                        color: isSelected ? 'white' : (isAvailable ? '#043478' : '#bdbdbd'), // Dim text if unavailable
-                        borderColor: isSelected ? 'transparent' : (isAvailable ? '#eceff1' : '#f5f5f5'),
+                        color: isSelected ? 'white' : (showAsAvailable ? '#043478' : '#bdbdbd'),
+                        borderColor: isSelected ? 'transparent' : (showAsAvailable ? '#eceff1' : '#f5f5f5'),
                         '&:hover': {
-                          bgcolor: isSelected ? '#043478' : (isAvailable ? '#f5f5f5' : 'white'),
-                          borderColor: isAvailable ? '#043478' : '#f5f5f5'
+                          bgcolor: isSelected ? '#043478' : (showAsAvailable ? '#f5f5f5' : 'white'),
+                          borderColor: showAsAvailable ? '#043478' : '#f5f5f5'
                         },
                         '&.Mui-disabled': {
                           bgcolor: '#f5f5f5',
@@ -652,6 +664,58 @@ const DataManagePage = () => {
             </Button>
           </Paper>
         </Box>
+
+        {/* Card 4: Branch Code Mapping (drives BRANCH_DELEGATE scope) */}
+        <Box sx={{ gridColumn: { sm: '1 / span 2' } }}>
+          <Paper elevation={0}
+            sx={{
+              p: 4,
+              borderRadius: '20px',
+              border: '1px solid #e3e6f0',
+              bgcolor: 'white',
+              boxShadow: '0 10px 30px rgba(0,0,0,0.03)',
+              display: 'flex',
+              flexDirection: { xs: 'column', md: 'row' },
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 3
+            }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2.5 }}>
+              <Avatar sx={{ bgcolor: '#e8eaf6', width: 48, height: 48 }}>
+                <StoreIcon sx={{ color: '#043478', fontSize: 28 }} />
+              </Avatar>
+              <Box>
+                <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#043478' }}>
+                  Branch Code Mapping
+                </Typography>
+                <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                  จับคู่ Company → Branch Code (ใช้กำหนดขอบเขตข้อมูลของ BRANCH_DELEGATE)
+                </Typography>
+              </Box>
+            </Box>
+
+            <Button
+              variant="contained"
+              onClick={() => handleOpenModal('BRANCH_CODE', 'MANAGE BRANCH CODE MAPPING')}
+              sx={{
+                height: '50px',
+                px: 4,
+                borderRadius: '12px',
+                textTransform: 'none',
+                fontWeight: 'bold',
+                bgcolor: '#043478',
+                boxShadow: '0 4px 14px rgba(4, 52, 120, 0.3)',
+                '&:hover': {
+                  bgcolor: '#03285a',
+                  boxShadow: '0 6px 20px rgba(4, 52, 120, 0.4)'
+                }
+              }}
+              startIcon={<EditIcon />}
+            >
+              จัดการ Branch Mapping
+            </Button>
+          </Paper>
+        </Box>
       </Box>
 
       {/* --- Specialized Management Modals --- */}
@@ -681,6 +745,9 @@ const DataManagePage = () => {
 
       {/* --- GL Grouping Modal (Unified) --- */}
       <GLGroupingModal open={modalType === 'GL_GROUPING' && open} onClose={handleClose} />
+
+      {/* --- Branch Code Mapping Modal --- */}
+      <BranchCodeMappingModal open={modalType === 'BRANCH_CODE' && open} onClose={handleClose} />
 
     </Box>
   );

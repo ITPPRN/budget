@@ -1,6 +1,5 @@
 // src/hooks/useAuth.jsx
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import api from '../utils/api/axiosInstance';
 
 // 1. สร้าง Context (ห้องโถงกลาง)
@@ -10,7 +9,6 @@ const AuthContext = createContext(null);
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
-  const navigate = useNavigate(); // ✅ Authorized to use here now
 
   // ฟังก์ชันเช็ค User (ใช้ตอนเปิดเว็บ หรือหลัง Login)
   const checkUser = async () => {
@@ -23,14 +21,14 @@ export const AuthProvider = ({ children }) => {
 
       // ✅ Strict Role Check: Only set user state if they have a privileged role
       const roles = userData.roles || [];
-      const hasAccess = roles.some(r => ['ADMIN', 'OWNER', 'DELEGATE'].includes(r.toUpperCase()));
+      const hasAccess = roles.some(r => ['ADMIN', 'SUPER_ADMIN', 'OWNER', 'DELEGATE', 'BRANCH_DELEGATE'].includes(r.toUpperCase()));
 
       if (hasAccess) {
         setUser(userData);
       } else {
-        console.warn("AuthProvider: User has no privileged roles. Automatical Logout.");
+        console.warn("AuthProvider: User has no privileged roles. Redirecting to gateway login.");
         setUser(null);
-        navigate("/login");
+        window.location.href = "/budget-dash/v1/login";
       }
 
       return userData; // Always return data so Login.jsx can check it
@@ -51,27 +49,46 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   // ฟังก์ชัน Login
-  const login = async (username, password) => {
-    await api.post('/auth/login', { username, password });
-    return await checkUser();
+  // const login = async (username, password) => {
+  //   await api.post('/auth/login', { username, password });
+  //   return await checkUser();
+  // };
+
+  const login = () => {
+    setIsLoading(true);
+    // await api.post('/auth/login', { username, password });
+    // await checkUser(); // 🔥 สำคัญ: โหลดข้อมูลใหม่ทันทีหลัง Login ผ่าน
+    window.location.href = "/budget-dash/v1/login";
   };
 
   // ฟังก์ชัน Logout
-  const logout = async (redirect = true) => {
-    try {
-      await api.post('/auth/logout');
-      setUser(null);
-      if (redirect) {
-        navigate("/login");
-      }
-    } catch (error) {
-      console.error("Logout failed", error);
-      // Ensure state is cleared even if network fails
-      setUser(null);
-      if (redirect) {
-        navigate("/login");
-      }
-    }
+  // const logout = async (redirect = true) => {
+  //   try {
+  //     await api.post('/auth/logout');
+  //     setUser(null);
+  //     if (redirect) {
+  //       navigate("/login");
+  //     }
+  //   } catch (error) {
+  //     console.error("Logout failed", error);
+  //     // Ensure state is cleared even if network fails
+  //     setUser(null);
+  //     if (redirect) {
+  //       navigate("/login");
+  //     }
+  //   }
+  // };
+
+  const logout = () => {
+    setIsLoading(true);
+    
+    // 1. ล้างฝั่ง React
+    setUser(null);
+    localStorage.clear();
+  
+    // 2. ให้ Browser วิ่งไปหา Gateway เพื่อสั่ง Keycloak เคลียร์ Session 
+    // (เดี๋ยวมันจะเด้งกลับมาหน้าเว็บเราเองตาม post_logout_redirect_uri)
+    window.location.href = "/budget-dash/v1/logout"; 
   };
 
   return (

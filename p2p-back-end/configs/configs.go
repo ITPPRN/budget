@@ -86,7 +86,7 @@ type KeyCloak struct {
 	Port          string
 	RealmName     string
 	ClientID      string
-	ClientSecret  string
+	ClientSecret  string // #nosec G117 -- internal config struct, not exposed via API
 	AdminUsername string
 	AdminPassword string
 	PublicKey     string // Used for manual key management if needed

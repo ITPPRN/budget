@@ -211,8 +211,8 @@ const UserManagePage = () => {
   const isDelegate = currentUserRole === 'DELEGATE';
 
   const getAllowedRoles = () => {
-    if (currentUserRole === 'ADMIN') return ['OWNER'];
-    if (currentUserRole === 'OWNER') return ['DELEGATE'];
+    if (currentUserRole === 'ADMIN') return ['OWNER', 'DELEGATE', 'BRANCH_DELEGATE'];
+    if (currentUserRole === 'OWNER') return ['DELEGATE', 'BRANCH_DELEGATE'];
     return [];
   };
   const allowedRoles = getAllowedRoles();
@@ -222,8 +222,8 @@ const UserManagePage = () => {
     selectedUser?.permissions?.some(p => p.is_active && p.role?.toUpperCase() === 'ADMIN');
   const isTargetOwner = selectedUser?.roles?.some(r => r.toUpperCase() === 'OWNER') ||
     selectedUser?.permissions?.some(p => p.is_active && p.role?.toUpperCase() === 'OWNER');
-  const isTargetDelegate = selectedUser?.roles?.some(r => r.toUpperCase() === 'DELEGATE') ||
-    selectedUser?.permissions?.some(p => p.is_active && p.role?.toUpperCase() === 'DELEGATE');
+  const isTargetDelegate = selectedUser?.roles?.some(r => ['DELEGATE', 'BRANCH_DELEGATE'].includes(r.toUpperCase())) ||
+    selectedUser?.permissions?.some(p => p.is_active && ['DELEGATE', 'BRANCH_DELEGATE'].includes(p.role?.toUpperCase()));
 
   let canModifyModal = false;
   if (!isDelegate && selectedUser) {
@@ -454,6 +454,7 @@ const UserManagePage = () => {
                     if (roles.some(r => r.toUpperCase() === 'ADMIN')) displayRole = 'ADMIN';
                     else if (roles.some(r => r.toUpperCase() === 'OWNER')) displayRole = 'OWNER';
                     else if (roles.some(r => r.toUpperCase() === 'DELEGATE')) displayRole = 'DELEGATE';
+                    else if (roles.some(r => r.toUpperCase() === 'BRANCH_DELEGATE')) displayRole = 'BRANCH DELEGATE';
                     else if (roles.length > 0 && roles[0] !== 'USER') displayRole = roles[0]; // Custom role
 
                     if (displayRole === 'USER' && roles.includes('USER')) {
@@ -560,6 +561,7 @@ const UserManagePage = () => {
                           {/* Dynamic Menu Items based on Allowed Roles */}
                           {allowedRoles.includes('OWNER') && <MenuItem value="OWNER">Owner</MenuItem>}
                           {allowedRoles.includes('DELEGATE') && <MenuItem value="DELEGATE">Delegate</MenuItem>}
+                          {allowedRoles.includes('BRANCH_DELEGATE') && <MenuItem value="BRANCH_DELEGATE">Branch Delegate</MenuItem>}
                         </Select>
                       </TableCell>
                       <TableCell>

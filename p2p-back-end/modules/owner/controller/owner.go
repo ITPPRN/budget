@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"p2p-back-end/logs"
 	"p2p-back-end/modules/entities/models"
+	"p2p-back-end/pkg/middlewares"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -31,6 +32,14 @@ func (c *ownerController) GetDashboardSummary(ctx *fiber.Ctx) error {
 	if err := ctx.BodyParser(&req); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
 	}
+	if req == nil {
+		req = map[string]interface{}{}
+	}
+	middlewares.EnforceBranchScopeFromCtx(ctx, req)
+	middlewares.EnforceMonthScope(
+		user, req,
+		c.ownerService.GetAdminPermittedMonths(ctx.UserContext()),
+	)
 
 	summary, err := c.ownerService.GetDashboardSummary(ctx.UserContext(), user, req)
 	if err != nil {
@@ -83,6 +92,14 @@ func (c *ownerController) GetActualTransactions(ctx *fiber.Ctx) error {
 	if err := ctx.BodyParser(&req); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
 	}
+	if req == nil {
+		req = map[string]interface{}{}
+	}
+	middlewares.EnforceBranchScopeFromCtx(ctx, req)
+	middlewares.EnforceMonthScope(
+		user, req,
+		c.ownerService.GetAdminPermittedMonths(ctx.UserContext()),
+	)
 
 	txs, err := c.ownerService.GetActualTransactions(ctx.UserContext(), user, req)
 	if err != nil {

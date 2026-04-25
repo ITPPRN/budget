@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+
 	"p2p-back-end/modules/exports/department_budget_status_export_admin/repository"
 	"p2p-back-end/pkg/utils"
 )
@@ -45,12 +46,12 @@ func (s *service) ExportDeptBudgetStatusExcel(ctx context.Context, filter map[st
 	// 4. Fill Data
 	rowIdx := 2
 	for _, row := range data {
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("A%d", rowIdx), row.Status)
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("B%d", rowIdx), row.Department)
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("C%d", rowIdx), row.Budget.InexactFloat64())
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("D%d", rowIdx), row.Spend.InexactFloat64())
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("E%d", rowIdx), row.Remaining.InexactFloat64())
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("F%d", rowIdx), row.Percentage)
+		_ = helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("A%d", rowIdx), row.Status)
+		_ = helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("B%d", rowIdx), row.Department)
+		_ = helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("C%d", rowIdx), row.Budget.InexactFloat64())
+		_ = helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("D%d", rowIdx), row.Spend.InexactFloat64())
+		_ = helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("E%d", rowIdx), row.Remaining.InexactFloat64())
+		_ = helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("F%d", rowIdx), row.Percentage)
 		rowIdx++
 	}
 

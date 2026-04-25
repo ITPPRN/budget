@@ -1,0 +1,62 @@
+services:
+  go_backend:
+    # build:
+    #   context: ./p2p-back-end
+    #   dockerfile: Dockerfile
+    image: ${CI_REGISTRY_IMAGE}/backend:latest
+    container_name: budget_backend
+    restart: unless-stopped
+    environment:
+      - INFISICAL_PROJECT_ID=${INFISICAL_PROJECT_ID}
+      - INFISICAL_CLIENT_ID=${INFISICAL_CLIENT_ID}
+      - INFISICAL_CLIENT_SECRET=${INFISICAL_CLIENT_SECRET}
+      - INFISICAL_URL=${INFISICAL_URL}
+    ports:
+      - "18011:8000"
+    networks:
+      - app_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "200k"
+        max-file: "3"
+    # จำกัดทรัพยากร CPU และ RAM
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 512M
+        reservations:
+          memory: 128M
+
+  frontend:
+    # build:
+    #   context: ./p2p-front-end
+    #   dockerfile: Dockerfile
+    image: ${CI_REGISTRY_IMAGE}/frontend:latest
+    container_name: budget_frontend
+    restart: unless-stopped
+    ports:
+      - "13002:80"
+    depends_on:
+      - go_backend
+    networks:
+      - app_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "200k"
+        max-file: "3"
+    # จำกัดทรัพยากร (Nginx เสิร์ฟ React กินสเปคน้อยมาก)
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256M
+        reservations:
+          memory: 64M
+
+networks:
+  app_network:
+    external:
+      name: nginx-proxy

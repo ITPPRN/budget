@@ -3,6 +3,8 @@ package controller
 import (
 	"p2p-back-end/modules/entities/models"
 	"p2p-back-end/modules/exports/capex_budget_export_owner/service"
+	"p2p-back-end/pkg/middlewares"
+
 	"github.com/gofiber/fiber/v2"
 )
 
@@ -22,6 +24,10 @@ func (c *ownerCapexController) exportOwnerCapex(ctx *fiber.Ctx) error {
 	if err := ctx.BodyParser(&req); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
+	if req == nil {
+		req = map[string]interface{}{}
+	}
+	middlewares.EnforceBranchScopeFromCtx(ctx, req)
 
 	data, filename, err := c.srv.ExportOwnerCapexExcel(ctx.UserContext(), user, req)
 	if err != nil {

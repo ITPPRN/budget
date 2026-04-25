@@ -1,0 +1,85 @@
+stages:
+  - analyze
+  - test
+  - build
+  - deploy
+
+# 1. Static Analysis (Backend)
+static_analysis:
+  stage: analyze
+  image: golangci/golangci-lint:latest-alpine
+  tags:
+    - internal
+  before_script:
+    - cd p2p-back-end
+  script:
+    - golangci-lint run ./... --verbose
+    - go install github.com/securego/gosec/v2/cmd/gosec@latest
+    - gosec -severity=medium -nosec ./...
+  allow_failure: false
+
+# 2. Unit Test (Backend)
+run_unit_tests:
+  stage: test
+  image: golang:1.25.4-alpine3.22
+  tags:
+    - internal
+  before_script:
+    - cd p2p-back-end
+  script:
+    - go test -v ./...
+  only:
+    - main
+    - merge_requests
+
+# 3. Build Docker Images
+build_backend:
+  stage: build
+  image: docker:latest
+  tags:
+    - internal
+  variables:
+    DOCKER_HOST: unix:///var/run/docker.sock
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker build -t $CI_REGISTRY_IMAGE/backend:$CI_COMMIT_SHA -f p2p-back-end/Dockerfile p2p-back-end
+    - docker build -t $CI_REGISTRY_IMAGE/backend:latest -f p2p-back-end/Dockerfile p2p-back-end
+    - docker push $CI_REGISTRY_IMAGE/backend:$CI_COMMIT_SHA
+    - docker push $CI_REGISTRY_IMAGE/backend:latest
+  only:
+    - main
+
+build_frontend:
+  stage: build
+  image: docker:latest
+  tags:
+    - internal
+  variables:
+    DOCKER_HOST: unix:///var/run/docker.sock
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker build -t $CI_REGISTRY_IMAGE/frontend:$CI_COMMIT_SHA -f p2p-front-end/Dockerfile p2p-front-end
+    - docker build -t $CI_REGISTRY_IMAGE/frontend:latest -f p2p-front-end/Dockerfile p2p-front-end
+    - docker push $CI_REGISTRY_IMAGE/frontend:$CI_COMMIT_SHA
+    - docker push $CI_REGISTRY_IMAGE/frontend:latest
+  only:
+    - main
+
+# 4. Deploy
+deploy_to_server:
+  stage: deploy
+  image: docker:latest
+  tags:
+    - internal
+  variables:
+    DOCKER_HOST: unix:///var/run/docker.sock
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker compose pull
+    - docker compose up -d --force-recreate
+    - docker image prune -f
+  only:
+    - main

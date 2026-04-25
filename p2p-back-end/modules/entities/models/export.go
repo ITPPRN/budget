@@ -33,6 +33,7 @@ type ActualExportDTO struct {
 	VendorName  string          `gorm:"column:vendor_name"`
 	Description string          `gorm:"column:description"`
 	PostingDate string          `gorm:"column:posting_date"`
+	Status      string          `gorm:"column:status"`
 }
 
 type DeptBudgetStatusDTO struct {
@@ -69,6 +70,7 @@ type CapexDeptStatusDTO struct {
 
 type CapexVsActualExportDTO struct {
 	Entity        string                 `gorm:"column:entity"`
+	Branch        string                 `gorm:"column:branch"`
 	Department    string                 `gorm:"column:department"`
 	CapexNo       string                 `gorm:"column:capex_no"`
 	CapexName     string                 `gorm:"column:capex_name"`
@@ -93,13 +95,13 @@ type TopExpenseExportDTO struct {
 }
 
 type OwnerCapexBudgetExportDTO struct {
-	Entity        string          `gorm:"column:entity"`
-	Department    string          `gorm:"column:department"`
-	CapexNo       string          `gorm:"column:capex_no"`
-	CapexName     string          `gorm:"column:capex_name"`
-	CapexCategory string          `gorm:"column:capex_category"`
-	Budget        decimal.Decimal `gorm:"column:budget"`
-	Actual        decimal.Decimal `gorm:"column:actual"`
-	Remaining     decimal.Decimal `gorm:"column:remaining"`
-	Percentage    float64         `gorm:"column:percentage"`
+	Entity        string                 `gorm:"column:entity"`
+	Branch        string                 `gorm:"column:branch"`
+	Department    string                 `gorm:"column:department"`
+	CapexNo       string                 `gorm:"column:capex_no"`
+	CapexName     string                 `gorm:"column:capex_name"`
+	CapexCategory string                 `gorm:"column:capex_category"`
+	Type          string                 `json:"type"` // "Budget" or "Actual"
+	MonthsAmounts map[string]interface{} `gorm:"-"`
+	YearTotal     decimal.Decimal        `gorm:"-"`
 }

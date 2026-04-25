@@ -11,7 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
-	"github.com/xuri/excelize/v2"
+	// "github.com/xuri/excelize/v2"
 	"gorm.io/datatypes"
 
 	"p2p-back-end/modules/entities/models"
@@ -69,7 +69,7 @@ func getColSafe(row []string, idx int) string {
 // Import & Sync
 // ---------------------------------------------------------------------
 
-var expectedCapexHeaders = []string{"Entity", "Department", "CAPEX No.", "CAPEX Name", "CAPEX Category", "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC", "YEARTOTAL"}
+var expectedCapexHeaders = []string{"Entity", "Branch", "Department", "CAPEX No.", "CAPEX Name", "CAPEX Category", "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC", "YEARTOTAL"}
 
 func (s *capexService) ImportCapexBudget(ctx context.Context, fileHeader *multipart.FileHeader, userID string, versionName string) error {
 	rows, err := excel.ParseExcelToJSONStrict(fileHeader, expectedCapexHeaders)
@@ -133,6 +133,7 @@ func (s *capexService) processCapexBudgetFact(rows [][]string, fileID uuid.UUID,
 	}
 
 	idxEntity := colMap["ENTITY"]
+	idxBranch := colMap["BRANCH"]
 	idxDept := colMap["DEPARTMENT"]
 	idxCNo := colMap["CAPEX NO."]
 	idxCName := colMap["CAPEX NAME"]
@@ -149,6 +150,7 @@ func (s *capexService) processCapexBudgetFact(rows [][]string, fileID uuid.UUID,
 		}
 
 		entity := getColSafe(row, idxEntity)
+		branch := getColSafe(row, idxBranch)
 		dept := getColSafe(row, idxDept)
 		cNo := getColSafe(row, idxCNo)
 		cName := getColSafe(row, idxCName)
@@ -158,7 +160,7 @@ func (s *capexService) processCapexBudgetFact(rows [][]string, fileID uuid.UUID,
 		header := models.CapexBudgetFactEntity{
 			ID:                headerID,
 			FileCapexBudgetID: fileID,
-			Entity:            entity, Department: dept, CapexNo: cNo, CapexName: cName, CapexCategory: cCat,
+			Entity:            entity, Branch: branch, Department: dept, CapexNo: cNo, CapexName: cName, CapexCategory: cCat,
 			Year:               year,
 			YearTotal:          decimal.Zero,
 			CapexBudgetAmounts: []models.CapexBudgetAmountEntity{},
@@ -195,6 +197,7 @@ func (s *capexService) processCapexActualFact(rows [][]string, fileID uuid.UUID,
 	}
 
 	idxEntity := colMap["ENTITY"]
+	idxBranch := colMap["BRANCH"]
 	idxDept := colMap["DEPARTMENT"]
 	idxCNo := colMap["CAPEX NO."]
 	idxCName := colMap["CAPEX NAME"]
@@ -211,6 +214,7 @@ func (s *capexService) processCapexActualFact(rows [][]string, fileID uuid.UUID,
 		}
 
 		entity := getColSafe(row, idxEntity)
+		branch := getColSafe(row, idxBranch)
 		dept := getColSafe(row, idxDept)
 		cNo := getColSafe(row, idxCNo)
 		cName := getColSafe(row, idxCName)
@@ -220,7 +224,7 @@ func (s *capexService) processCapexActualFact(rows [][]string, fileID uuid.UUID,
 		header := models.CapexActualFactEntity{
 			ID:                headerID,
 			FileCapexActualID: fileID,
-			Entity:            entity, Department: dept, CapexNo: cNo, CapexName: cName, CapexCategory: cCat,
+			Entity:            entity, Branch: branch, Department: dept, CapexNo: cNo, CapexName: cName, CapexCategory: cCat,
 			Year:               year,
 			YearTotal:          decimal.Zero,
 			CapexActualAmounts: []models.CapexActualAmountEntity{},
@@ -363,25 +367,25 @@ func (s *capexService) ClearCapexActual(ctx context.Context) error {
 // ---------------------------------------------------------------------
 // Excel Parsing Helper
 // ---------------------------------------------------------------------
-func parseExcelToJSON(fileHeader *multipart.FileHeader) ([][]string, error) {
-	f, err := fileHeader.Open()
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
+// func parseExcelToJSON(fileHeader *multipart.FileHeader) ([][]string, error) {
+// 	f, err := fileHeader.Open()
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	// defer f.Close()
+// 	defer func() { _ = f.Close() }()
+// 	excelFile, err := excelize.OpenReader(f)
+// 	if err != nil {
+// 		return nil, err
+// 	}
 
-	excelFile, err := excelize.OpenReader(f)
-	if err != nil {
-		return nil, err
-	}
-
-	// Assuming first sheet
-	sheetName := excelFile.GetSheetName(0)
-	rows, err := excelFile.GetRows(sheetName)
-	if err != nil {
-		return nil, err
-	}
-	return rows, nil
-}
+// 	// Assuming first sheet
+// 	sheetName := excelFile.GetSheetName(0)
+// 	rows, err := excelFile.GetRows(sheetName)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	return rows, nil
+// }
 
 // Placeholder since strict types used above

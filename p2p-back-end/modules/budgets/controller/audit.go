@@ -2,9 +2,11 @@ package controller
 
 import (
 	"fmt"
-	"p2p-back-end/modules/entities/models"
 
 	"github.com/gofiber/fiber/v2"
+
+	"p2p-back-end/modules/entities/models"
+	"p2p-back-end/pkg/middlewares"
 )
 
 type auditController struct {
@@ -16,12 +18,85 @@ func NewAuditController(
 	auditSrv models.AuditService,
 ) {
 	controller := &auditController{auditSrv: auditSrv}
-	
+
+	router.Post("/audit/basket/add", controller.addBasket)
+	router.Get("/audit/basket/list", controller.getBasket)
+	router.Delete("/audit/basket/:id", controller.removeBasket)
 	router.Post("/audit/approve", controller.approve)
 	router.Post("/audit/report", controller.report)
 	router.Post("/audit/reportable", controller.getReportableTransactions)
 	router.Get("/audit/logs", controller.listLogs)
 	router.Get("/audit/logs/:id/items", controller.getRejectedItems)
+	router.Get("/audit/check-complete", controller.checkAuditComplete)
+}
+
+func (h *auditController) addBasket(c *fiber.Ctx) error {
+	user, ok := c.Locals("user").(*models.UserInfo)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Unauthorized"})
+	}
+
+	var itemReq []string
+
+	// Parse JSON array
+	if err := c.BodyParser(&itemReq); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request format: expected an array of strings"})
+	}
+
+	// Validate input length
+	if len(itemReq) == 0 {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "no request"})
+	}
+
+	err := h.auditSrv.AddToBasket(c.UserContext(), user, itemReq)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to save basket: " + err.Error()})
+	}
+
+	return c.JSON(fiber.Map{
+		"status":  "success",
+		"message": fmt.Sprintf("Added %d items to basket", len(itemReq)),
+	})
+}
+
+func (h *auditController) getBasket(c *fiber.Ctx) error {
+    user, ok := c.Locals("user").(*models.UserInfo)
+    if !ok {
+        return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Unauthorized"})
+    }
+
+    // เรียก Service เพื่อดึงข้อมูลตะกร้า
+    items, err := h.auditSrv.GetBasketItems(c.UserContext(), user.ID)
+    if err != nil {
+        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to get basket: " + err.Error()})
+    }
+
+    // ส่งคืนข้อมูลเป็น Array ของ Object ได้เลย
+    return c.JSON(items)
+}
+
+func (h *auditController) removeBasket(c *fiber.Ctx) error {
+    user, ok := c.Locals("user").(*models.UserInfo)
+    if !ok {
+        return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Unauthorized"})
+    }
+
+    transactionID := c.Params("id")
+    
+    if transactionID == "" {
+        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Transaction ID is required"})
+    }
+
+    // โยนให้ Service จัดการลบทีละ 1 รายการ
+    err := h.auditSrv.RemoveFromBasket(c.UserContext(), user.ID, transactionID)
+    if err != nil {
+        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to remove from basket: " + err.Error()})
+    }
+
+    return c.JSON(fiber.Map{
+        "status": "success", 
+        "message": "Item removed from basket",
+    })
 }
 
 func (c *auditController) approve(ctx *fiber.Ctx) error {
@@ -35,7 +110,7 @@ func (c *auditController) approve(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
 
-	// 🛠️ The Approval now processes the "Reject Basket" (rejected_item_ids) 
+	// 🛠️ The Approval now processes the "Reject Basket" (rejected_item_ids)
 	// and auto-completes everything else in the month.
 	if err := c.auditSrv.Approve(ctx.UserContext(), user, req); err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
@@ -76,6 +151,7 @@ func (c *auditController) listLogs(ctx *fiber.Ctx) error {
 	if entity := ctx.Query("entity"); entity != "" {
 		filter["entity"] = entity
 	}
+	middlewares.EnforceBranchScopeFromCtx(ctx, filter)
 
 	logs, err := c.auditSrv.ListLogs(ctx.UserContext(), filter)
 	if err != nil {
@@ -95,6 +171,10 @@ func (c *auditController) getReportableTransactions(ctx *fiber.Ctx) error {
 	if err := ctx.BodyParser(&req); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
+	if req == nil {
+		req = map[string]interface{}{}
+	}
+	middlewares.EnforceBranchScopeFromCtx(ctx, req)
 
 	items, err := c.auditSrv.GetReportableTransactions(ctx.UserContext(), user, req)
 	if err != nil {
@@ -103,6 +183,26 @@ func (c *auditController) getReportableTransactions(ctx *fiber.Ctx) error {
 	}
 
 	return ctx.JSON(items)
+}
+
+func (c *auditController) checkAuditComplete(ctx *fiber.Ctx) error {
+	user, ok := ctx.Locals("user").(*models.UserInfo)
+	if !ok {
+		return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Unauthorized"})
+	}
+
+	year := ctx.Query("year")
+	month := ctx.Query("month")
+	if year == "" || month == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "year and month are required"})
+	}
+
+	result, err := c.auditSrv.CheckAuditComplete(ctx.UserContext(), user, year, month)
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return ctx.JSON(result)
 }
 
 func (c *auditController) getRejectedItems(ctx *fiber.Ctx) error {

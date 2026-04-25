@@ -1,0 +1,41 @@
+# Environment
+.env
+*.env
+
+# OS
+.DS_Store
+
+# --- Backend (Go) ---
+p2p-back-end/main
+p2p-back-end/app/main
+p2p-back-end/gosec-report.json
+p2p-back-end/testResult/
+
+# --- Frontend (React) ---
+p2p-front-end/node_modules/
+p2p-front-end/dist/
+p2p-front-end/build/
+p2p-front-end/.pnp.*
+p2p-front-end/.yarn/*
+!p2p-front-end/.yarn/patches
+!p2p-front-end/.yarn/plugins
+!p2p-front-end/.yarn/releases
+!p2p-front-end/.yarn/sdks
+!p2p-front-end/.yarn/versions
+
+# Cypress
+p2p-front-end/cypress/videos
+p2p-front-end/cypress/screenshots
+p2p-front-end/cypress/reports
+p2p-front-end/cypress/downloads
+
+
+# Logs
+*.log
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.suo
+*.sw?

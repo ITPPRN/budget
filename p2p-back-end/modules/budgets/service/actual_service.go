@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
@@ -40,7 +41,7 @@ func (s *actualService) SyncActuals(ctx context.Context, year string, months []s
 	}
 
 	mappingMap := make(map[string]models.GlGroupingEntity)
-	glProfileMap := make(map[string]string)                      // ConsoGL -> Group1 (Profile)
+	glProfileMap := make(map[string]string) // ConsoGL -> Group1 (Profile)
 
 	for _, g := range groupings {
 		if g.IsActive {
@@ -64,7 +65,7 @@ func (s *actualService) SyncActuals(ctx context.Context, year string, months []s
 		"SURIN": "SUR", "VEERAWAT": "VEE",
 		"AUTOCORP HEAD OFFICE": "HQ",
 		"":                     "Branch00",
-		"BRANCH01": "Branch01", "BRANCH02": "Branch02", "BRANCH03": "Branch03",
+		"BRANCH01":             "Branch01", "BRANCH02": "Branch02", "BRANCH03": "Branch03",
 		"BRANCH04": "Branch04", "BRANCH05": "Branch05", "BRANCH06": "Branch06",
 		"BRANCH07": "Branch07", "BRANCH08": "Branch08", "BRANCH09": "Branch09",
 		"BRANCH10": "Branch10", "BRANCH11": "Branch11", "BRANCH12": "Branch12",
@@ -104,6 +105,15 @@ func (s *actualService) SyncActuals(ctx context.Context, year string, months []s
 
 	// 4. Persistence with Transaction & Batching
 	return s.repo.WithTrx(func(trxRepo models.ActualRepository) error {
+		// Preserve non-PENDING statuses (CONFIRMED, COMPLETE, REPORTED, etc.) before deleting
+		preservedStatuses, err := trxRepo.GetNonPendingTransactionKeys(ctx, year, targetMonths)
+		if err != nil {
+			fmt.Printf("[WARN] Failed to get preserved statuses: %v\n", err)
+			preservedStatuses = nil
+		} else if len(preservedStatuses) > 0 {
+			fmt.Printf("[Sync] Preserving %d non-PENDING transaction statuses\n", len(preservedStatuses))
+		}
+
 		if fullYearSync {
 			// Wipe whole year once
 			if err := trxRepo.DeleteActualFactsByYear(ctx, year); err != nil {
@@ -124,118 +134,100 @@ func (s *actualService) SyncActuals(ctx context.Context, year string, months []s
 			}
 		}
 
-		// Keep headers aggregation in memory (Aggregated data is safe)
+		// Aggregation map — accumulates across months within a year.
+		// ขนาดถูกจำกัดด้วยจำนวน unique (Entity, Branch, Dept, EntityGL, ConsoGL, GLName, Vendor, Month) combinations
+		// ต่างจาก transactions slice ที่ถูก flush ทิ้งทุก batch เพื่อกัน OOM
 		mergedFactMap := make(map[AggKey]decimal.Decimal)
 
+		const streamBatchSize = 2000   // จำนวน rows ที่อ่านจาก DB ต่อรอบ
+		const flushChunkSize = 500     // จำนวน rows ที่ insert ลง actual_transaction_entities ต่อครั้ง
+		const heartbeatEvery = 10000   // log progress ทุก N rows
+
+		monthStart := time.Now()
 		for _, mName := range targetMonths {
 			fmt.Printf("[Sync] Processing Month: %s\n", mName)
+			mStart := time.Now()
 
-			// Fetch one month
-			hmwRows, err := trxRepo.GetRawTransactionsHMW(ctx, year, []string{mName})
-			if err != nil {
-				return fmt.Errorf("transaction.GetHMWRows(%s): %w", mName, err)
-			}
-			clikRows, err := trxRepo.GetRawTransactionsCLIK(ctx, year, []string{mName})
-			if err != nil {
-				return fmt.Errorf("transaction.GetCLIKRows(%s): %w", mName, err)
-			}
+			var (
+				totalRows        int
+				mappedRows       int
+				filteredRows     int
+				lastHeartbeatRow int
+			)
 
-			totalRows := 0
-			mappedRows := 0
-			filteredRows := 0
-
-			var transactions []models.ActualTransactionEntity
-
-			processRowsBatch := func(rows []models.ActualTransactionDTO) {
+			// processBatch แปลงแต่ละ batch ของ DTO → ActualTransactionEntity + อัพเดต aggregation map
+			// แล้วบันทึกลง DB ทันที (ไม่สะสม full-month เข้า memory)
+			processBatch := func(rows []models.ActualTransactionDTO) error {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				// Heartbeat: log progress ทุก N rows เพื่อ monitor sync ระหว่างทำงาน
+				if totalRows-lastHeartbeatRow >= heartbeatEvery {
+					elapsed := time.Since(mStart)
+					rate := float64(totalRows) / elapsed.Seconds()
+					fmt.Printf("[Sync][Heartbeat] Month %s: %d rows processed (%d mapped, %d filtered) — %.0f rows/sec — %.1fs elapsed\n",
+						mName, totalRows, mappedRows, filteredRows, rate, elapsed.Seconds())
+					lastHeartbeatRow = totalRows
+				}
+				batchTransactions := make([]models.ActualTransactionEntity, 0, len(rows))
 				for _, row := range rows {
 					company := NormalizeEntityCode(row.Company)
-					// 1. Look up STRICT mapping (Company + GL) - NO GLOBAL FALLBACK
+					// 1. Look up STRICT mapping (Company + GL)
 					key := fmt.Sprintf("%s_%s", company, row.EntityGL)
 					mapping, ok := mappingMap[key]
 
-					if row.DocNo == "07-APP2604-0001" || row.DocNo == "PVL2603-0040" {
-						fmt.Printf("[DEBUG-SYNC] Checking Doc: %s | Key: %s | FoundInMap: %v\n", row.DocNo, key, ok)
-						if ok {
-							fmt.Printf("[DEBUG-SYNC] ConsoGL: '%s' | MappedName: '%s'\n", mapping.ConsoGL, mapping.AccountName)
-						}
-					}
-
 					totalRows++
 
-					// FILTER: Only sync if the GL is specifically mapped for this company
+					// FILTER: sync only if specifically mapped
 					if !ok || mapping.ConsoGL == "" {
 						filteredRows++
-						if row.DocNo == "07-APP2604-0001" || row.DocNo == "PVL2603-0040" {
-							fmt.Printf("[DEBUG-SYNC] ❌ REJECTED: Reason = No GL Mapping or ConsoGL is empty\n")
-						}
 						continue
 					}
-
 					mappedRows++
-
-					// We now have the best possible mapping (Specific > Global)
-
 
 					branch := mapToCode(row.Branch, branchNameMap)
 					deptCode := row.Department
 					lookupDept := normalize(row.Department)
 					if masterDept, err := s.depSrv.GetMasterDepartment(ctx, lookupDept, company); err == nil && masterDept != nil {
 						deptCode = masterDept.Code
-					}else {
-						// --- DEBUG BLOCK 2 ---
-						if row.DocNo == "07-APP2604-0001" || row.DocNo == "PVL2603-0040" {
-							fmt.Printf("[DEBUG-SYNC] ⚠️ DEPT NOT FOUND: NavCode '%s' not matched in P2P Master. Using original: '%s'\n", lookupDept, deptCode)
-						}
-						// ---------------------
 					}
 
-					// 1. Transaction Table (Centralized Detail)
-					transactions = append(transactions, models.ActualTransactionEntity{
-						ID:          uuid.New(),
-						Source:      row.Source,
-						PostingDate: row.PostingDate,
-						DocNo:       row.DocNo,
-						Description: row.Description,
-						Amount:      row.Amount,
-						VendorName:  row.Vendor,
-						Entity:      company,
-						Branch:      branch,
-						Department:  deptCode,
-						EntityGL:    row.EntityGL,
+					if company == "CLIK" &&
+						(strings.EqualFold(strings.TrimSpace(deptCode), "SERVICE") ||
+							strings.EqualFold(strings.TrimSpace(row.Department), "SERVICE")) {
+						deptCode = "SERVICE_CLIK"
+					}
+
+					// 1. Transaction row
+					batchTransactions = append(batchTransactions, models.ActualTransactionEntity{
+						ID:            uuid.New(),
+						Source:        row.Source,
+						PostingDate:   row.PostingDate,
+						DocNo:         row.DocNo,
+						Description:   row.Description,
+						Amount:        row.Amount,
+						VendorName:    row.Vendor,
+						Entity:        company,
+						Branch:        branch,
+						Department:    deptCode,
+						EntityGL:      row.EntityGL,
 						ConsoGL:       mapping.ConsoGL,
 						Year:          year,
-						GLAccountName: mapping.AccountName, // Use the name from mapping table as requested
+						GLAccountName: mapping.AccountName,
 					})
 
-					// 2. Aggregate for Fact Table
-					if len(row.PostingDate) >= 7 {
-						// Robust Month Extraction: Find any 2-digit number between separators
-						// E.g., 2026-03-25 or 25/03/2026 or 2026/03/25
-						monCode := ""
-						parts := strings.FieldsFunc(row.PostingDate, func(r rune) bool {
-							return r == '-' || r == '/' || r == '.'
-						})
-						for _, p := range parts {
-							if len(p) == 2 && p != "20" && p != "26" { // Heuristic: Month is a 2-digit part excluding common years
-								monCode = p
-								if row.DocNo == "07-APP2604-0001" || row.DocNo == "PVL2603-0040" {
-									fmt.Printf("[DEBUG-SYNC] 📅 MONTH EXTRACTED: RawDate '%s' -> Detected Part '%s' -> Final Month: %s\n", row.PostingDate, p, monthToCodeMap[p])
-								}
-								break
-							}
+					// 2. Aggregation — parse ISO date (posting_date = "YYYY-MM-DD" from SQL TO_CHAR)
+					if len(row.PostingDate) >= 10 {
+						t, parseErr := time.Parse("2006-01-02", row.PostingDate[:10])
+						if parseErr != nil {
+							continue
 						}
-						// Fallback to substring if heuristic fails (but is standard ISO)
-						if monCode == "" && strings.Contains(row.PostingDate, "-") && len(row.PostingDate) >= 7 {
-							monCode = row.PostingDate[5:7]
-						}
-
+						monCode := fmt.Sprintf("%02d", int(t.Month()))
 						if mon, ok := monthToCodeMap[monCode]; ok {
-							// Determine GL Name: Use Mapped name if exists, else Original name
 							glName := mapping.AccountName
 							if glName == "" {
 								glName = row.GLAccountName
 							}
-
 							k := AggKey{
 								Entity: company, Branch: branch, Dept: deptCode, NavCode: row.Department,
 								EntityGL: row.EntityGL, ConsoGL: mapping.ConsoGL, GLName: glName,
@@ -245,36 +237,41 @@ func (s *actualService) SyncActuals(ctx context.Context, year string, months []s
 						}
 					}
 				}
-			}
 
-			processRowsBatch(hmwRows)
-			processRowsBatch(clikRows)
-
-			fmt.Printf("[Sync] Month %s Result: Total %d, Mapped %d, Filtered %d (Optimized)\n", mName, totalRows, mappedRows, filteredRows)
-
-			// 3. Save Transactions IMMEDIATELY to free memory
-			if len(transactions) > 0 {
-				const chunkSize = 500 // 🍰 แบ่งส่งทีละ 500 รายการ
-				for i := 0; i < len(transactions); i += chunkSize {
-					end := i + chunkSize
-					if end > len(transactions) {
-						end = len(transactions)
+				// Flush transactions of THIS batch ลง DB ทันที — peak memory ถูกจำกัดที่ streamBatchSize
+				for i := 0; i < len(batchTransactions); i += flushChunkSize {
+					end := i + flushChunkSize
+					if end > len(batchTransactions) {
+						end = len(batchTransactions)
 					}
-					// ส่งทีละก้อนเล็กๆ แทนก้อนใหญ่ก้อนเดียว
-					if err := trxRepo.CreateActualTransactions(ctx, transactions[i:end]); err != nil {
+					if err := trxRepo.CreateActualTransactions(ctx, batchTransactions[i:end]); err != nil {
 						return fmt.Errorf("transaction.CreateTransactionsChunk: %w", err)
 					}
 				}
-				transactions = nil 
+				return nil
 			}
-			// if len(transactions) > 0 {
-			// 	if err := trxRepo.CreateActualTransactions(ctx, transactions); err != nil {
-			// 		return fmt.Errorf("transaction.CreateTransactions(%s): %w", mName, err)
-			// 	}
-			// 	transactions = nil // Help GC
-			// }
-			hmwRows = nil
-			clikRows = nil
+
+			// Stream raw rows แบบ batch — ไม่โหลดทั้งเดือนเข้า memory
+			if err := trxRepo.StreamRawTransactionsHMW(ctx, year, []string{mName}, streamBatchSize, processBatch); err != nil {
+				return fmt.Errorf("transaction.StreamHMW(%s): %w", mName, err)
+			}
+			if err := trxRepo.StreamRawTransactionsCLIK(ctx, year, []string{mName}, streamBatchSize, processBatch); err != nil {
+				return fmt.Errorf("transaction.StreamCLIK(%s): %w", mName, err)
+			}
+
+			monthElapsed := time.Since(mStart)
+			fmt.Printf("[Sync] Month %s Result: Total %d, Mapped %d, Filtered %d — took %.1fs\n",
+				mName, totalRows, mappedRows, filteredRows, monthElapsed.Seconds())
+		}
+		fmt.Printf("[Sync] All months done for year %s — total elapsed %.1fs\n", year, time.Since(monthStart).Seconds())
+
+		// 4.5 Restore preserved statuses for transactions that were previously confirmed/completed
+		if len(preservedStatuses) > 0 {
+			if err := trxRepo.RestoreTransactionStatuses(ctx, preservedStatuses); err != nil {
+				fmt.Printf("[WARN] Failed to restore transaction statuses: %v\n", err)
+			} else {
+				fmt.Printf("[Sync] Successfully restored preserved statuses\n")
+			}
 		}
 
 		// 5. Save Aggregated Facts (Re-build Headers)
@@ -356,3 +353,198 @@ func (s *actualService) GetRawDate(ctx context.Context) (string, error) {
 func (s *actualService) RefreshDataInventory(ctx context.Context) error {
 	return s.repo.RefreshDataInventory(ctx)
 }
+
+// func (s *actualService) SyncActualsDebug(ctx context.Context, targetDocNo string) error {
+//     fmt.Printf("\n--- [🕵️ TARGETED DEBUG] Doc: %s ---\n", targetDocNo)
+
+//     groupings, _ := s.masterSrv.ListGLGroupings(ctx)
+//     mappingMap := make(map[string]models.GlGroupingEntity)
+
+//     fmt.Printf("📦 [STEP 1: DB SCANNING]\n")
+//     for _, g := range groupings {
+//         if g.IsActive && strings.Contains(g.EntityGL, "51310010") {
+//             // เราจะ Normalize ทั้งสองฝั่งเพื่อดูความเพี้ยน
+//             normEntity := NormalizeEntityCode(g.Entity)
+//             key := fmt.Sprintf("%s_%s", normEntity, g.EntityGL)
+//             mappingMap[key] = g
+
+//             fmt.Printf("   📌 DB Mapping -> Entity: [%s] | GL: [%s] | Norm: [%s] | Key: [%s]\n",
+//                 g.Entity, g.EntityGL, normEntity, key)
+//         }
+//     }
+
+//     // 🎯 แก้จุดนี้: บิลใบใหม่คือ 2502-0010 (ปี 2025 เดือน FEB)
+//     year := "2026"
+//     months := []string{"FEB"}
+
+//     return s.repo.WithTrx(func(trxRepo models.ActualRepository) error {
+//         for _, mName := range months {
+//             hmwRows, _ := trxRepo.GetRawTransactionsHMW(ctx, year, []string{mName})
+//             allRows := hmwRows
+
+//             for _, row := range allRows {
+//                 if row.DocNo != targetDocNo { continue }
+
+//                 fmt.Printf("\n⚡ [STEP 2: RUNTIME CHECK]\n")
+//                 fmt.Printf("   📑 Data ดิบ -> Company: [%s] | GL: [%s]\n", row.Company, row.EntityGL)
+
+//                 company := NormalizeEntityCode(row.Company)
+//                 runtimeKey := fmt.Sprintf("%s_%s", company, row.EntityGL)
+
+//                 fmt.Printf("   🎯 ระบบพยายามหา Key: [%s]\n", runtimeKey)
+
+//                 mapping, ok := mappingMap[runtimeKey]
+//                 if !ok {
+//                     fmt.Printf("   ❌ RESULT -> ไม่เจอ! เพราะ [%s] ไม่ตรงกับ Key ใน DB ด้านบน\n", runtimeKey)
+
+//                     // สแกนหาตัวใกล้เคียงเพื่อฟันธง
+//                     for k := range mappingMap {
+//                         if strings.Contains(k, row.EntityGL) {
+//                             fmt.Printf("      💡 ใน Memory มี Key นี้: [%s] แต่คุณหา [%s] มันเลยไม่เจอกัน!\n", k, runtimeKey)
+//                         }
+//                     }
+//                 } else {
+//                     fmt.Printf("   ✅ RESULT -> เจอแล้ว! ConsoGL: %s\n", mapping.ConsoGL)
+//                 }
+//             }
+//         }
+//         return nil
+//     })
+// }
+
+// func (s *actualService) SyncActualsDebug(ctx context.Context, targetDocNo string) error {
+//     fmt.Printf("\n--- [🕵️ TARGETED DEBUG] Doc: %s ---\n", targetDocNo)
+
+//     // ดึง Mapping ทั้งหมดมาก่อน
+//     groupings, _ := s.masterSrv.ListGLGroupings(ctx)
+//     mappingMap := make(map[string]models.GlGroupingEntity)
+
+//     fmt.Printf("📦 [STEP 1: DB SCANNING]\n")
+//     for _, g := range groupings {
+//         // กรองเฉพาะ GL ที่เราสงสัยเพื่อลด noise ใน log (51310010)
+//         if g.IsActive && strings.Contains(g.EntityGL, "51310001") {
+//             normEntity := NormalizeEntityCode(g.Entity)
+//             key := fmt.Sprintf("%s_%s", normEntity, g.EntityGL)
+//             mappingMap[key] = g
+
+//             fmt.Printf("   📌 DB Mapping -> Entity: [%s] | GL: [%s] | Norm: [%s] | Key: [%s]\n",
+//                 g.Entity, g.EntityGL, normEntity, key)
+//         }
+//     }
+
+//     // 🎯 วิเคราะห์จากเลขบิล C00-PVL2602-0082: 26 คือปี 2026, 02 คือ FEB
+//     year := "2026"
+//     months := []string{"FEB"}
+
+//     return s.repo.WithTrx(func(trxRepo models.ActualRepository) error {
+//         for _, mName := range months {
+//             // 1. ดึงจากทั้งสอง Table (HMW และ CLIK)
+//             hmwRows, _ := trxRepo.GetRawTransactionsHMW(ctx, year, []string{mName})
+//             clikRows, _ := trxRepo.GetRawTransactionsCLIK(ctx, year, []string{mName})
+
+//             // รวมข้อมูลเข้าด้วยกัน
+//             allRows := append(hmwRows, clikRows...)
+
+//             foundAny := false
+//             for _, row := range allRows {
+//                 // เช็ค DocNo (ใช้ strings.Contains เผื่อมี Space หรือ Prefix ต่างกันเล็กน้อย)
+//                 if !strings.Contains(row.DocNo, targetDocNo) {
+//                     continue
+//                 }
+//                 foundAny = true
+
+//                 fmt.Printf("\n⚡ [STEP 2: RUNTIME CHECK] (Source Table: %s)\n", row.Source)
+//                 fmt.Printf("   📑 Data ดิบ -> Company: [%s] | GL: [%s] | Doc: [%s]\n",
+//                     row.Company, row.EntityGL, row.DocNo)
+
+//                 // กระบวนการเดียวกับใน Actual Service จริงๆ
+//                 company := NormalizeEntityCode(row.Company)
+//                 runtimeKey := fmt.Sprintf("%s_%s", company, row.EntityGL)
+
+//                 fmt.Printf("   🎯 ระบบพยายามหา Key: [%s]\n", runtimeKey)
+
+//                 mapping, ok := mappingMap[runtimeKey]
+//                 if !ok {
+//                     fmt.Printf("   ❌ RESULT -> ไม่เจอใน Mapping! เพราะ Key [%s] ไม่ตรงกับใน DB\n", runtimeKey)
+
+//                     // ช่วยหาว่าในระบบมี GL นี้ภายใต้ชื่อบริษัทอื่นไหม
+//                     for k := range mappingMap {
+//                         if strings.Contains(k, row.EntityGL) {
+//                             fmt.Printf("      💡 คำแนะนำ: ใน DB มี Key [%s] ลองเช็คว่าบริษัทใน Data ดิบส่งมาผิดหรือเปล่า?\n", k)
+//                         }
+//                     }
+//                 } else {
+//                     fmt.Printf("   ✅ RESULT -> เจอคู่ Matching! รายการนี้จะถูกส่งไปที่ ConsoGL: [%s]\n", mapping.ConsoGL)
+//                 }
+//             }
+
+//             if !foundAny {
+//                 fmt.Printf("\n⚠️ [RESULT] ไม่พบเลขบิล [%s] ใน Table ของเดือน %s ปี %s เลย (ลองเช็ค Year/Month อีกครั้ง)\n",
+//                     targetDocNo, mName, year)
+//             }
+//         }
+//         return nil
+//     })
+// }
+
+// func (s *actualService) SyncActualsDebug(ctx context.Context, targetDocNo string) error {
+//     fmt.Printf("\n--- [🕵️ TARGETED DEBUG] Doc: %s ---\n", targetDocNo)
+
+//     // 1. ดึง Mapping ทั้งหมดมาเก็บไว้ (เอาเงื่อนไข IF ออกเพื่อให้ Match ได้ทุก GL)
+//     groupings, _ := s.masterSrv.ListGLGroupings(ctx)
+//     mappingMap := make(map[string]models.GlGroupingEntity)
+
+//     for _, g := range groupings {
+//         if g.IsActive {
+//             normEntity := NormalizeEntityCode(g.Entity)
+//             key := fmt.Sprintf("%s_%s", normEntity, g.EntityGL)
+//             mappingMap[key] = g
+//         }
+//     }
+
+//     year := "2026"
+//     months := []string{"JAN", "FEB", "MAR", "APR"}
+
+//     return s.repo.WithTrx(func(trxRepo models.ActualRepository) error {
+//         for _, mName := range months {
+//             hmwRows, _ := trxRepo.GetRawTransactionsHMW(ctx, year, []string{mName})
+//             clikRows, _ := trxRepo.GetRawTransactionsCLIK(ctx, year, []string{mName})
+//             allRows := append(hmwRows, clikRows...)
+
+//             foundAny := false
+//             fmt.Printf("📦 [STEP 2: SCANNING ALL ENTRIES IN THIS BILL]\n")
+
+//             for _, row := range allRows {
+//                 // กรองเฉพาะเลขบิลที่ต้องการ
+//                 if !strings.Contains(row.DocNo, targetDocNo) {
+//                     continue
+//                 }
+//                 foundAny = true
+
+//                 // --- ส่วนที่เพิ่ม/แก้ไขเพื่อให้เห็นข้อมูลชัดขึ้น ---
+//                 company := NormalizeEntityCode(row.Company)
+//                 runtimeKey := fmt.Sprintf("%s_%s", company, row.EntityGL)
+
+//                 fmt.Printf("\n🔍 [ENTRY FOUND]")
+//                 fmt.Printf("\n   ├─ Source Table: %s", row.Source)
+//                 fmt.Printf("\n   ├─ GL Account:   [%s] <--- เช็คเลขนี้!", row.EntityGL)
+//                 fmt.Printf("\n   ├─ GL Name:      %s", row.GLAccountName)
+//                 fmt.Printf("\n   ├─ Description:  %s", row.Description)
+//                 fmt.Printf("\n   ├─ Amount:       %.2f", row.Amount)
+//                 fmt.Printf("\n   └─ Runtime Key:  [%s]", runtimeKey)
+
+//                 // ตรวจสอบว่า GL บรรทัดนี้ มีในระบบเราไหม
+//                 if mapping, ok := mappingMap[runtimeKey]; ok {
+//                     fmt.Printf("\n   ✅ STATUS: MATCHED! -> จะถูกเข้า Grouping: [%s]\n", mapping.AccountName)
+//                 } else {
+//                     fmt.Printf("\n   ❌ STATUS: NOT MAPPED! -> เลข GL นี้ไม่ได้ตั้งค่าไว้ในระบบ\n")
+//                 }
+//             }
+
+//             if !foundAny {
+//                 fmt.Printf("\n⚠️ [RESULT] ไม่พบเลขบิล [%s] ในฐานข้อมูลเลย\n", targetDocNo)
+//             }
+//         }
+//         return nil
+//     })
+// }

@@ -30,9 +30,9 @@ func (r *repository) GetDeptBudgetStatus(ctx context.Context, filter map[string]
 
 	// 1. Get Budgets per Department
 	var budgetRows []summaryRow
-	btx := r.db.Model(&models.BudgetFactEntity{}).Select("COALESCE(NULLIF(department, ''), nav_code) as department, SUM(year_total) as total")
+	btx := r.db.Model(&models.BudgetFactEntity{}).Select("COALESCE(NULLIF(NULLIF(department, ''), 'None'), NULLIF(nav_code, ''), 'None') as department, SUM(year_total) as total")
 	btx = r.applyCommonFilters(btx, "budget_fact_entities", filter)
-	if err := btx.WithContext(ctx).Group("COALESCE(NULLIF(department, ''), nav_code)").Scan(&budgetRows).Error; err != nil {
+	if err := btx.WithContext(ctx).Group("COALESCE(NULLIF(NULLIF(department, ''), 'None'), NULLIF(nav_code, ''), 'None')").Scan(&budgetRows).Error; err != nil {
 		return nil, err
 	}
 
@@ -41,7 +41,7 @@ func (r *repository) GetDeptBudgetStatus(ctx context.Context, filter map[string]
 	atx := r.db.Model(&models.ActualFactEntity{})
 
 	// Select base columns early to avoid GORM's default "SELECT *" which fails with GROUP BY
-	colExpr := "COALESCE(NULLIF(actual_fact_entities.department, ''), actual_fact_entities.nav_code) as department"
+	colExpr := "COALESCE(NULLIF(NULLIF(actual_fact_entities.department, ''), 'None'), NULLIF(actual_fact_entities.nav_code, ''), 'None') as department"
 
 	// Month filter logic (must sum from amount table)
 	if months, ok := filter["months"]; ok {
@@ -55,11 +55,11 @@ func (r *repository) GetDeptBudgetStatus(ctx context.Context, filter map[string]
 			atx = atx.Select(colExpr + ", 0 as total").Where("1 = 0")
 		}
 	} else {
-		atx = atx.Select("COALESCE(NULLIF(department, ''), nav_code) as department, SUM(year_total) as total")
+		atx = atx.Select("COALESCE(NULLIF(NULLIF(department, ''), 'None'), NULLIF(nav_code, ''), 'None') as department, SUM(year_total) as total")
 	}
 
 	atx = r.applyCommonFilters(atx, "actual_fact_entities", filter)
-	if err := atx.WithContext(ctx).Group("COALESCE(NULLIF(department, ''), nav_code)").Scan(&actualRows).Error; err != nil {
+	if err := atx.WithContext(ctx).Group("COALESCE(NULLIF(NULLIF(department, ''), 'None'), NULLIF(nav_code, ''), 'None')").Scan(&actualRows).Error; err != nil {
 		return nil, err
 	}
 

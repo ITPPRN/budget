@@ -44,7 +44,9 @@ func (r *repository) GetCapexVsActualData(ctx context.Context, filter map[string
 		}
 	}
 	type rawCapexRow struct {
+		ID            string
 		Entity        string
+		Branch        string
 		Department    string
 		CapexNo       string
 		CapexName     string
@@ -56,7 +58,9 @@ func (r *repository) GetCapexVsActualData(ctx context.Context, filter map[string
 	var budgetResults []rawCapexRow
 	btx := r.db.Table("capex_budget_fact_entities").
 		Select(`
+			capex_budget_fact_entities.id,
 			capex_budget_fact_entities.entity,
+			capex_budget_fact_entities.branch,
 			capex_budget_fact_entities.department,
 			capex_budget_fact_entities.capex_no,
 			capex_budget_fact_entities.capex_name,
@@ -64,7 +68,8 @@ func (r *repository) GetCapexVsActualData(ctx context.Context, filter map[string
 			ba.month,
 			ba.amount
 		`).
-		Joins("JOIN capex_budget_amount_entities ba ON ba.capex_budget_fact_id = capex_budget_fact_entities.id AND ba.deleted_at IS NULL")
+		Joins("LEFT JOIN capex_budget_amount_entities ba ON ba.capex_budget_fact_id = capex_budget_fact_entities.id AND ba.deleted_at IS NULL").
+		Where("COALESCE(capex_budget_fact_entities.capex_no, '') <> ''")
 
 	btx = r.applyCommonFilters(btx, "capex_budget_fact_entities", filter)
 	if err := btx.Scan(&budgetResults).Error; err != nil {
@@ -74,7 +79,9 @@ func (r *repository) GetCapexVsActualData(ctx context.Context, filter map[string
 	var actualResults []rawCapexRow
 	atx := r.db.Table("capex_actual_fact_entities").
 		Select(`
+			capex_actual_fact_entities.id,
 			capex_actual_fact_entities.entity,
+			capex_actual_fact_entities.branch,
 			capex_actual_fact_entities.department,
 			capex_actual_fact_entities.capex_no,
 			capex_actual_fact_entities.capex_name,
@@ -82,27 +89,25 @@ func (r *repository) GetCapexVsActualData(ctx context.Context, filter map[string
 			aa.month,
 			aa.amount
 		`).
-		Joins("JOIN capex_actual_amount_entities aa ON aa.capex_actual_fact_id = capex_actual_fact_entities.id AND aa.deleted_at IS NULL")
+		Joins("LEFT JOIN capex_actual_amount_entities aa ON aa.capex_actual_fact_id = capex_actual_fact_entities.id AND aa.deleted_at IS NULL").
+		Where("COALESCE(capex_actual_fact_entities.capex_no, '') <> ''")
 
 	atx = r.applyCommonFilters(atx, "capex_actual_fact_entities", filter)
 	if err := atx.Scan(&actualResults).Error; err != nil {
 		return nil, err
 	}
 
-	type rowKey struct {
-		Entity     string
-		Department string
-		CapexNo    string
-	}
+	// Group by fact ID so each uploaded record becomes one row — no cross-fact merging
+	budgetMap := make(map[string]models.CapexVsActualExportDTO)
+	actualMap := make(map[string]models.CapexVsActualExportDTO)
 
-	budgetMap := make(map[rowKey]models.CapexVsActualExportDTO)
-	actualMap := make(map[rowKey]models.CapexVsActualExportDTO)
-
-	process := func(data []rawCapexRow, targetMap map[rowKey]models.CapexVsActualExportDTO, rowType string) {
+	process := func(data []rawCapexRow, targetMap map[string]models.CapexVsActualExportDTO, rowType string) {
 		for _, res := range data {
-			key := rowKey{res.Entity, res.Department, res.CapexNo}
+			key := res.ID
 			if row, ok := targetMap[key]; ok {
-				// Sum monthly amounts (fix overwrite bug)
+				if res.Month == "" {
+					continue
+				}
 				amt := utils.ToDecimal(res.Amount)
 				if existingAmt, ok := row.MonthsAmounts[res.Month].(decimal.Decimal); ok {
 					row.MonthsAmounts[res.Month] = existingAmt.Add(amt)
@@ -112,16 +117,23 @@ func (r *repository) GetCapexVsActualData(ctx context.Context, filter map[string
 				row.YearTotal = row.YearTotal.Add(amt)
 				targetMap[key] = row
 			} else {
-				targetMap[key] = models.CapexVsActualExportDTO{
+				dto := models.CapexVsActualExportDTO{
 					Entity:        res.Entity,
+					Branch:        res.Branch,
 					Department:    res.Department,
 					CapexNo:       res.CapexNo,
 					CapexName:     res.CapexName,
 					CapexCategory: res.CapexCategory,
 					Type:          rowType,
-					MonthsAmounts: map[string]interface{}{res.Month: utils.ToDecimal(res.Amount)},
-					YearTotal:     utils.ToDecimal(res.Amount),
+					MonthsAmounts: map[string]interface{}{},
+					YearTotal:     decimal.Zero,
 				}
+				if res.Month != "" {
+					amt := utils.ToDecimal(res.Amount)
+					dto.MonthsAmounts[res.Month] = amt
+					dto.YearTotal = amt
+				}
+				targetMap[key] = dto
 			}
 		}
 	}
@@ -129,37 +141,17 @@ func (r *repository) GetCapexVsActualData(ctx context.Context, filter map[string
 	process(budgetResults, budgetMap, "Budget")
 	process(actualResults, actualMap, "Actual")
 
-	var finalResults []models.CapexVsActualExportDTO
-	allKeysMap := make(map[rowKey]bool)
-	for k := range budgetMap { allKeysMap[k] = true }
-	for k := range actualMap { allKeysMap[k] = true }
-
-	for k := range allKeysMap {
-		if bRow, ok := budgetMap[k]; ok {
-			finalResults = append(finalResults, bRow)
-		} else {
-			aRow := actualMap[k]
-			finalResults = append(finalResults, models.CapexVsActualExportDTO{
-				Entity: aRow.Entity, Department: aRow.Department, CapexNo: aRow.CapexNo,
-				CapexName: aRow.CapexName, CapexCategory: aRow.CapexCategory, Type: "Budget",
-				MonthsAmounts: make(map[string]interface{}),
-			})
-		}
-
-		if aRow, ok := actualMap[k]; ok {
-			finalResults = append(finalResults, aRow)
-		} else {
-			bRow := budgetMap[k]
-			finalResults = append(finalResults, models.CapexVsActualExportDTO{
-				Entity: bRow.Entity, Department: bRow.Department, CapexNo: bRow.CapexNo,
-				CapexName: bRow.CapexName, CapexCategory: bRow.CapexCategory, Type: "Actual",
-				MonthsAmounts: make(map[string]interface{}),
-			})
-		}
+	finalResults := make([]models.CapexVsActualExportDTO, 0, len(budgetMap)+len(actualMap))
+	for _, row := range budgetMap {
+		finalResults = append(finalResults, row)
+	}
+	for _, row := range actualMap {
+		finalResults = append(finalResults, row)
 	}
 
 	sort.Slice(finalResults, func(i, j int) bool {
 		if finalResults[i].Entity != finalResults[j].Entity { return finalResults[i].Entity < finalResults[j].Entity }
+		if finalResults[i].Branch != finalResults[j].Branch { return finalResults[i].Branch < finalResults[j].Branch }
 		if finalResults[i].Department != finalResults[j].Department { return finalResults[i].Department < finalResults[j].Department }
 		if finalResults[i].CapexNo != finalResults[j].CapexNo { return finalResults[i].CapexNo < finalResults[j].CapexNo }
 		return finalResults[i].Type < finalResults[j].Type
@@ -172,6 +164,11 @@ func (r *repository) applyCommonFilters(tx *gorm.DB, tableName string, filter ma
 	if val, ok := filter["entities"]; ok {
 		if strs := utils.ToStringSlice(val); len(strs) > 0 {
 			tx = tx.Where(tableName+".entity IN ?", strs)
+		}
+	}
+	if val, ok := filter["branches"]; ok {
+		if strs := utils.ToStringSlice(val); len(strs) > 0 {
+			tx = tx.Where(tableName+".branch IN ?", strs)
 		}
 	}
 	if val, ok := filter["departments"]; ok {

@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"p2p-back-end/modules/entities/models"
 	"strings"
 
 	"github.com/xuri/excelize/v2"
 	"gorm.io/gorm"
+
+	"p2p-back-end/modules/entities/models"
 )
 
 func findSeedFile() (string, error) {
@@ -27,7 +28,6 @@ func findSeedFile() (string, error) {
 	return "", fmt.Errorf("no Excel file found in seed_data directory")
 }
 
-
 // SeedGLGrouping reads any Excel in seed_data and populates the UNIFIED gl_grouping_entities table.
 func SeedGLGrouping(db *gorm.DB) error {
 	fmt.Println("Syncing UNIFIED GL Grouping...")
@@ -40,8 +40,8 @@ func SeedGLGrouping(db *gorm.DB) error {
 	if err != nil {
 		return fmt.Errorf("SeedGLGrouping: failed to open %s: %v", filePath, err)
 	}
-	defer f.Close()
-
+	// defer f.Close()
+	defer func() { _ = f.Close() }()
 	sheetName := "Total Mapping"
 	rows, err := f.GetRows(sheetName)
 	if err != nil {

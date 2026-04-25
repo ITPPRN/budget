@@ -1,17 +1,26 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import mkcert from "vite-plugin-mkcert";
 
 export default defineConfig({
-  plugins: [react()],
+  // base: "/front-budget/",
+  plugins: [react(), mkcert()],
   server: {
     port: 3000,
     host: true,
+    strictPort: true,
+    https: true,
+    hmr: {
+      clientPort: 3000, // ✅ แก้ปัญหา WebSocket Error
+    },
     proxy: {
-      // เมื่อไหร่ที่ Frontend ยิงไปที่ /api
-      "/v1": {
-        target: "https://dzv6zh3b-8000.asse.devtunnels.ms/", // 👉 ส่งต่อไปหา Go Backend ที่พอร์ต 8000
+      "/budget-dash/v1": {
+        // แนะนำให้ใช้ IP ตรงๆ หรือ 127.0.0.1 แทน localhost
+        target: "https://api.yourdomain.com:443", 
         changeOrigin: true,
         secure: false,
+        // เพิ่ม rewrite เพื่อเช็กว่า path ตรงกับที่ Backend ต้องการไหม
+        // rewrite: (path) => path.replace(/^\/v1/, '/v1') 
       },
     },
   },

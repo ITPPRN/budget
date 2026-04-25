@@ -256,3 +256,7 @@ func (s *dashboardService) GetActualYears(ctx context.Context) ([]string, error)
 func (s *dashboardService) GetAvailableMonths(ctx context.Context, year string) ([]string, error) {
 	return s.repo.GetAvailableMonths(ctx, year)
 }
+
+func (s *dashboardService) GetAdminPermittedMonths(ctx context.Context) []string {
+	return s.repo.GetAdminPermittedMonths(ctx)
+}

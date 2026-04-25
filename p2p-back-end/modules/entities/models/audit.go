@@ -31,12 +31,12 @@ func (AuditLogEntity) TableName() string { return "audit_log_entities" }
 
 // AuditLogRejectedItemEntity links a log entry to specific transaction records
 type AuditLogRejectedItemEntity struct {
-	ID         uuid.UUID  `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
-	AuditLogID uuid.UUID  `gorm:"type:uuid;index" json:"audit_log_id"`
-	
+	ID         uuid.UUID `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
+	AuditLogID uuid.UUID `gorm:"type:uuid;index" json:"audit_log_id"`
+
 	// Reference to ActualTransactionEntity
 	TransactionID uuid.UUID `gorm:"type:uuid;index" json:"transaction_id"`
-	
+
 	// Snapshot Data (recorded at the time of report)
 	ConsoGL       string          `json:"conso_gl"`
 	GLAccountName string          `json:"gl_account_name"`
@@ -48,3 +48,18 @@ type AuditLogRejectedItemEntity struct {
 }
 
 func (AuditLogRejectedItemEntity) TableName() string { return "audit_log_rejected_item_entities" }
+
+type AuditRejectBasket struct {
+    ID            uuid.UUID `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
+    TransactionID uuid.UUID `gorm:"type:uuid;uniqueIndex:idx_user_tx" json:"transaction_id"`
+    UserID        uuid.UUID `gorm:"type:uuid;uniqueIndex:idx_user_tx" json:"user_id"`
+    CreatedAt     time.Time `gorm:"autoCreateTime" json:"created_at"` 
+}
+
+func (AuditRejectBasket) TableName() string { return  "audit_rejection_baskets"}
+
+
+type YearMonth struct {
+    Year  string
+    Month string
+}

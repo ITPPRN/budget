@@ -116,7 +116,7 @@ func TestLogin_UserNotFound(t *testing.T) {
 
 func TestGetUserProfile_Success(t *testing.T) {
 	mockRepo := new(MockUserRepository)
-	s := NewAuthService(nil, nil, mockRepo, nil)
+	s := NewAuthService(nil, nil, mockRepo, nil, nil)
 
 	userID := "user-123"
 	expectedUser := &models.UserEntity{

@@ -1,5 +1,7 @@
 package models
 
+import "github.com/google/uuid"
+
 // request
 
 type UserRegisReq struct {
@@ -7,7 +9,7 @@ type UserRegisReq struct {
 
 type RegisterKCReq struct {
 	Username     string   `json:"username" validate:"required" example:"test1"`
-	Password     string   `json:"password" validate:"required,min=6" example:"test1"`
+	Password     string   `json:"password" validate:"required,min=6" example:"test1"` // #nosec G117 -- login request DTO
 	Email        string   `json:"email" validate:"required,email" example:"test@example.com"`
 	FirstName    string   `json:"first_name" validate:"required" example:"test1"`
 	LastName     string   `json:"last_name" validate:"required" example:"test1"`
@@ -17,7 +19,7 @@ type RegisterKCReq struct {
 
 type LoginReq struct {
 	Username string `json:"username" validate:"required" example:"test1"`
-	Password string `json:"password" validate:"required" example:"test1"`
+	Password string `json:"password" validate:"required" example:"test1"` // #nosec G117 -- login request DTO
 }
 
 type ChangePasswordReq struct {
@@ -32,18 +34,20 @@ type AdminResetPasswordReq struct {
 
 // res/////////////////////////////////////////////////////////
 type UserInfo struct {
-	ID             string               `json:"id"`
-	Username       string               `json:"username"`
-	Name           string               `json:"name"`
-	NameTh         string               `json:"name_th"`
-	Email          string               `json:"email"`
-	Roles          []string             `json:"roles,omitempty"` // System-level roles (Keycloak)
-	Company        string               `json:"company,omitempty"`
-	Branch         string               `json:"branch,omitempty"`
-	Department     string               `json:"department,omitempty"`
-	DepartmentCode string               `json:"department_code,omitempty"`
-	MappedDepartment string             `json:"mapped_department,omitempty"`
-	Permissions    []UserPermissionInfo `json:"permissions,omitempty"` // Explicit Dept Permissions
+	ID               string               `json:"id"`
+	Username         string               `json:"username"`
+	Name             string               `json:"name"`
+	NameTh           string               `json:"name_th"`
+	Email            string               `json:"email"`
+	Roles            []string             `json:"roles,omitempty"` // System-level roles (Keycloak)
+	Company          string               `json:"company,omitempty"`
+	CompanyID        *uuid.UUID           `json:"company_id,omitempty"` // Internal: drives BRANCH_DELEGATE scope
+	Branch           string               `json:"branch,omitempty"`
+	BranchCodes      []string             `json:"branch_codes,omitempty"` // Resolved via company_branch_code_mappings (1 company → many codes)
+	Department       string               `json:"department,omitempty"`
+	DepartmentCode   string               `json:"department_code,omitempty"`
+	MappedDepartment string               `json:"mapped_department,omitempty"`
+	Permissions      []UserPermissionInfo `json:"permissions,omitempty"` // Explicit Dept Permissions
 }
 
 type UserPermissionInfo struct {
@@ -71,4 +75,14 @@ type ResponseData struct {
 }
 
 type UserRes struct {
+}
+
+type AuditRejectBasketReq struct {
+	TransactionID uuid.UUID `json:"transaction_id"`
+	UserID        uuid.UUID `json:"user_id"`
+}
+type AuditRejectBasketRes struct {
+	ID            uuid.UUID `json:"id"`
+	TransactionID uuid.UUID `json:"transaction_id"`
+	UserID        uuid.UUID `json:"user_id"`
 }

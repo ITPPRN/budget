@@ -7,19 +7,72 @@ import (
 
 	"p2p-back-end/logs"
 	"p2p-back-end/modules/entities/events"
+	"p2p-back-end/modules/entities/models"
+
+	"github.com/google/uuid"
 )
+
+// skippedTier1Count tracks consecutive Tier 1 skips (stale lock indicator)
+var skippedTier1Count int
+
+// recordSyncRun helper — บันทึก sync_run แบบ convenient
+// ถ้า tracking ไม่ถูกตั้งค่าจะคืน uuid.Nil และไม่ error
+func (s *server) recordSyncRunStart(jobType, year, month, triggeredBy string) uuid.UUID {
+	if s.Shd.SyncTrackingRepo == nil {
+		return uuid.Nil
+	}
+	run := &models.SyncRunEntity{
+		JobType:     jobType,
+		Year:        year,
+		Month:       month,
+		TriggeredBy: triggeredBy,
+	}
+	if err := s.Shd.SyncTrackingRepo.CreateRun(context.Background(), run); err != nil {
+		logs.Errorf("Failed to record sync run: %v", err)
+		return uuid.Nil
+	}
+	return run.ID
+}
+
+func (s *server) recordSyncRunComplete(id uuid.UUID, err error) {
+	if s.Shd.SyncTrackingRepo == nil || id == uuid.Nil {
+		return
+	}
+	status := models.SyncStatusSuccess
+	errMsg := ""
+	if err != nil {
+		status = models.SyncStatusFailed
+		errMsg = err.Error()
+	}
+	_ = s.Shd.SyncTrackingRepo.CompleteRun(context.Background(), id, status, 0, 0, 0, errMsg)
+}
 
 func (s *server) StartCronJob() {
 	logs.Info("⏰ Initializing Cron Jobs...")
+
+	// Startup: clear stale RUNNING sync_runs ที่ค้างจาก previous crash (>2 hours old)
+	if s.Shd.SyncTrackingRepo != nil {
+		if cleared, err := s.Shd.SyncTrackingRepo.ClearStaleRunningRuns(context.Background(), 2*time.Hour); err != nil {
+			logs.Errorf("Startup: Failed to clear stale sync runs: %v", err)
+		} else if cleared > 0 {
+			logs.Warnf("⚠️ Startup: Cleared %d stale RUNNING sync_runs (previous server crash)", cleared)
+		}
+	}
 
 	// 1. Job: Tier 1 - Fast Sync (Every 5 mins)
 	// Sync only the current month of the current year for real-time reactivity.
 	if _, err := s.Cron.AddFunc("0/5 * * * *", func() {
 		// TryLock: ถ้ามี sync ใหญ่กำลังรันอยู่ ให้ skip รอบนี้ไป ไม่ต้องรอ queue
 		if !s.SyncMutex.TryLock() {
+			skippedTier1Count++
 			logs.Info("⏰ Tier 1 Job: Skipped (another sync is running)")
+			// Alert if too many consecutive skips (possible stuck lock)
+			if skippedTier1Count >= 12 { // 12 × 5min = 1 hour of skipping
+				logs.Warnf("⚠️ Tier 1 Job: Skipped %d times consecutively — possible stuck sync mutex!", skippedTier1Count)
+			}
 			return
 		}
+		skippedTier1Count = 0
 		defer s.SyncMutex.Unlock()
 
 		now := time.Now()
@@ -32,9 +85,14 @@ func (s *server) StartCronJob() {
 		}
 		mName := monthMap[monCode]
 
+		runID := s.recordSyncRunStart(models.SyncJobTier1Fast, yearStr, mName, "CRON")
+
 		logs.Infof("⏰ Tier 1 Job: Fast-Sync Current Month (%s %s) Started", mName, yearStr)
-		if err := s.Shd.ActualService.SyncActuals(context.Background(), yearStr, []string{mName}); err != nil {
+		err := s.Shd.ActualService.SyncActuals(context.Background(), yearStr, []string{mName})
+		s.recordSyncRunComplete(runID, err)
+		if err != nil {
 			logs.Errorf("Tier 1 Job: Fast-Sync Failed: %v", err)
+			return
 		}
 		logs.Info("⏰ Tier 1 Job: Fast-Sync Completed Successfully")
 	}); err != nil {
@@ -52,6 +110,9 @@ func (s *server) StartCronJob() {
 		currentYear := time.Now().Year()
 		startYear := currentYear - 1
 
+		runID := s.recordSyncRunStart(models.SyncJobTier2Full, fmt.Sprintf("%d-%d", startYear, currentYear), "", "CRON")
+
+		var syncErr error
 		for year := startYear; year <= currentYear; year++ {
 			yearStr := fmt.Sprintf("%d", year)
 			logs.Infof("⏰ Tier 2 Job: Syncing Full Year %s...", yearStr)
@@ -59,11 +120,65 @@ func (s *server) StartCronJob() {
 			// SyncActuals handles months internally batch-by-batch if passed empty months
 			if err := s.Shd.ActualService.SyncActuals(context.Background(), yearStr, []string{}); err != nil {
 				logs.Errorf("Tier 2 Job: Failed to sync year %s: %v", yearStr, err)
+				syncErr = err
 			}
+		}
+		s.recordSyncRunComplete(runID, syncErr)
+		if syncErr != nil {
+			logs.Error("⏰ Tier 2 Job: Full Maintenance Sync Completed with Errors")
+			return
 		}
 		logs.Info("⏰ Tier 2 Job: Full Maintenance Sync Completed")
 	}); err != nil {
 		logs.Fatal(fmt.Sprintf("Failed to register Tier 2 Cron Job: %v", err))
+	}
+
+	// 3. Retry Job — ทุก 30 นาที: ดึง FAILED runs ใน 24 ชม. ที่ retry < 3 มาทำใหม่
+	if s.Shd.SyncTrackingRepo != nil {
+		if _, err := s.Cron.AddFunc("*/30 * * * *", func() {
+			if !s.SyncMutex.TryLock() {
+				return // skip if main sync running
+			}
+			defer s.SyncMutex.Unlock()
+
+			failed, err := s.Shd.SyncTrackingRepo.GetFailedRunsForRetry(context.Background(), 24*time.Hour, 3)
+			if err != nil || len(failed) == 0 {
+				return
+			}
+
+			logs.Infof("🔁 Retry Job: found %d failed run(s) eligible for retry", len(failed))
+			for _, run := range failed {
+				logs.Infof("🔁 Retry: %s year=%s month=%s retry=%d", run.JobType, run.Year, run.Month, run.RetryCount+1)
+				_ = s.Shd.SyncTrackingRepo.IncrementRetry(context.Background(), run.ID)
+
+				retryID := s.recordSyncRunStart(run.JobType, run.Year, run.Month, "RETRY:"+run.ID.String()[:8])
+
+				var retryErr error
+				switch run.JobType {
+				case models.SyncJobTier1Fast:
+					if run.Year != "" && run.Month != "" {
+						retryErr = s.Shd.ActualService.SyncActuals(context.Background(), run.Year, []string{run.Month})
+					}
+				case models.SyncJobTier2Full, models.SyncJobActualFact:
+					if run.Year != "" {
+						retryErr = s.Shd.ActualService.SyncActuals(context.Background(), run.Year, []string{})
+					}
+				case models.SyncJobDW:
+					if s.Shd.ExternalSyncService != nil {
+						retryErr = s.Shd.ExternalSyncService.SyncFromDW(context.Background())
+					}
+				}
+
+				s.recordSyncRunComplete(retryID, retryErr)
+				if retryErr != nil {
+					logs.Errorf("🔁 Retry Failed: %s: %v", run.JobType, retryErr)
+				} else {
+					logs.Infof("🔁 Retry Success: %s", run.JobType)
+				}
+			}
+		}); err != nil {
+			logs.Fatal(fmt.Sprintf("Failed to register Retry Cron Job: %v", err))
+		}
 	}
 
 	// 2. Job: Department Seeding (Run once at startup, or could be a job)
@@ -108,11 +223,13 @@ func (s *server) StartCronJob() {
 			logs.Info("⏰ Job: DW Auto-Sync Started (Daily @ Midnight)")
 			if err := s.Shd.ExternalSyncService.SyncFromDW(context.Background()); err != nil {
 				logs.Errorf("Job: DW Auto-Sync Failed: %v", err)
+				return
 			}
 
 			// Finalize: Refresh Data Inventory Metadata for Admin UI
 			if err := s.Shd.ActualService.RefreshDataInventory(context.Background()); err != nil {
 				logs.Errorf("Job: DW Auto-Sync Failed to refresh inventory: %v", err)
+				return
 			}
 			logs.Info("⏰ Job: DW Auto-Sync Completed")
 		}); err != nil {
@@ -125,27 +242,32 @@ func (s *server) StartCronJob() {
 		go func() {
 			s.SyncMutex.Lock()
 			defer s.SyncMutex.Unlock()
-		
+
 			ctx := context.Background()
 			logs.Info("🚀 IMMEDIATE STARTUP SYNC: STARTING NOW (DW -> MAPPING)...")
-		
+
 			// 1. Sync from Data Warehouse (Raw CLIK/ACHHMW data)
-			// if err := s.Shd.ExternalSyncService.SyncFromDW(ctx); err != nil {
-			// 	logs.Errorf("🚀 Startup Sync: DW Failed: %v", err)
-			// }
-		
+			if err := s.Shd.ExternalSyncService.SyncFromDW(ctx); err != nil {
+				logs.Errorf("🚀 Startup Sync: DW Failed: %v", err)
+				return
+			}
+
 			// 2. Refresh Mapping & Facts
 			now := time.Now()
-			for y := now.Year() ; y <= now.Year(); y++ {
+			for y := now.Year(); y <= now.Year(); y++ {
 				yStr := fmt.Sprintf("%d", y)
 				logs.Infof("🚀 Startup Sync: Mapping Year %s...", yStr)
 				if err := s.Shd.ActualService.SyncActuals(ctx, yStr, []string{}); err != nil {
 					logs.Errorf("🚀 Startup Sync: Mapping %s Failed: %v", yStr, err)
+					return
 				}
 			}
-		
+
 			// 3. Finalize Metadata
-			s.Shd.ActualService.RefreshDataInventory(ctx)
+			if err := s.Shd.ActualService.RefreshDataInventory(ctx); err != nil {
+				logs.Errorf("🚀 Startup Sync: RefreshDataInventory Failed: %v", err)
+				return
+			}
 			logs.Info("🚀 IMMEDIATE STARTUP SYNC: COMPLETED SUCCESSFULLY")
 		}()
 		// 🚀 --- END TEMPORARY BLOCK ---
@@ -155,3 +277,70 @@ func (s *server) StartCronJob() {
 	s.Cron.Start()
 	logs.Info("⏰ Cron Scheduler Started")
 }
+
+
+// func (s *server) StartCronJob() {
+//     logs.Info("⚠️  DEBUG MODE: Cron Jobs are DISABLED. Running Targeted Sync Debug...")
+
+//     // 1. รัน Debug ใน Goroutine แยก
+//     go func() {
+//         // ใช้เวลาหลับสัก 5 วินาที เพื่อรอให้ระบบอื่นๆ (เช่น RabbitMQ/DB) นิ่งก่อน
+//         time.Sleep(5 * time.Second)
+
+//         s.SyncMutex.Lock()
+//         defer s.SyncMutex.Unlock()
+
+//         ctx := context.Background()
+
+//         // 🎯 ระบุเลขบิลเป้าหมาย (เช็คปี 2026 เดือน APR ในฟังก์ชัน Debug ด้วยนะครับ!)
+//         targetDoc := "C00-PVL2602-0082"
+
+//         logs.Infof("🚀 [DEBUG-ONLY] STARTING: Checking Document No. %s...", targetDoc)
+
+//         // เรียกฟังก์ชันที่เราโคลนไว้
+//         if err := s.Shd.ActualService.SyncActualsDebug(ctx, targetDoc); err != nil {
+//             logs.Errorf("❌ [DEBUG-ONLY] FAILED: %v", err)
+//         }
+
+//         logs.Info("🏁 [DEBUG-ONLY] COMPLETED: ตรวจสอบ Log ด้านบนเพื่อหาจุดที่ 'continue' (ข้าม)")
+//     }()
+
+//     // 🛑 บรรทัด s.Cron.Start() ต้องถูกคอมเมนต์ไว้ "เท่านั้น" ในตอนดีบัก!
+//     logs.Warn("⏰ CRON SCHEDULER IS STOPPED: ระบบจะไม่รัน Sync ปกติจนกว่าจะเปิดบรรทัดนี้")
+//     // s.Cron.Start() // <--- ห้ามเปิดเด็ดขาดตอนดีบัก!
+// }
+
+
+
+
+
+// func (s *server) StartCronJob() {
+//     logs.Info("⚠️  DEBUG MODE: Cron Jobs are DISABLED. Running Targeted Sync Debug...")
+
+//     go func() {
+//         // รอให้ระบบ Network/DB Ready
+//         time.Sleep(5 * time.Second)
+
+//         // ล็อค Mutex เพื่อจำลองสภาวะการทำงานจริงของ Sync
+//         s.SyncMutex.Lock()
+//         defer s.SyncMutex.Unlock()
+
+//         ctx := context.Background()
+
+//         // 🎯 TARGET: บิลใบนี้คือปี 2026 เดือน 02 (FEB)
+//         targetDoc := "C00-PVL2602-0082"
+
+//         logs.Infof("🚀 [DEBUG-ONLY] STARTING: Checking Document No. %s...", targetDoc)
+//         logs.Info("📅 [DEBUG-INFO] ระบบจะค้นหาใน Year: 2026 | Month: FEB (อ้างอิงตามเลขบิล)")
+
+//         if err := s.Shd.ActualService.SyncActualsDebug(ctx, targetDoc); err != nil {
+//             logs.Errorf("❌ [DEBUG-ONLY] FAILED: %v", err)
+//         }
+
+//         logs.Info("🏁 [DEBUG-ONLY] COMPLETED: ตรวจสอบ Log ด้านบนเพื่อดูผลลัพธ์ STEP 1 และ STEP 2")
+//     }()
+
+//     // 🛑 ปิด Cron ปกติไว้เพื่อไม่ให้ Log ตีกัน
+//     logs.Warn("⏰ CRON SCHEDULER IS STOPPED: Running ONLY Targeted Debug Mode")
+//     // s.Cron.Start() 
+// }

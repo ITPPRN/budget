@@ -3,10 +3,11 @@ package service
 import (
 	"context"
 	"fmt"
-	"p2p-back-end/modules/exports/capex_budget_vs_actual_export_admin/repository"
-	"p2p-back-end/pkg/utils"
 
 	"github.com/shopspring/decimal"
+
+	"p2p-back-end/modules/exports/capex_budget_vs_actual_export_admin/repository"
+	"p2p-back-end/pkg/utils"
 )
 
 type CapexVsActualService interface {
@@ -40,7 +41,7 @@ func (s *service) ExportCapexVsActualExcel(ctx context.Context, filter map[strin
 
 	// Define Headers
 	headers := []string{
-		"Entity", "Department", "CAPEX NO.", "CAPEX Name", "CAPEX Category", "Type",
+		"Entity", "Branch", "Department", "CAPEX NO.", "CAPEX Name", "CAPEX Category", "Type",
 		"JAN", "FEB", "MAR", "APR", "MAY", "JUN",
 		"JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
 		"YEARTOTAL",
@@ -54,25 +55,26 @@ func (s *service) ExportCapexVsActualExcel(ctx context.Context, filter map[strin
 	months := []string{"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"}
 	rowIdx := 2
 	for _, row := range data {
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("A%d", rowIdx), row.Entity)
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("B%d", rowIdx), row.Department)
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("C%d", rowIdx), row.CapexNo)
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("D%d", rowIdx), row.CapexName)
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("E%d", rowIdx), row.CapexCategory)
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("F%d", rowIdx), row.Type)
+		_ = helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("A%d", rowIdx), row.Entity)
+		_ = helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("B%d", rowIdx), row.Branch)
+		_ = helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("C%d", rowIdx), row.Department)
+		_ = helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("D%d", rowIdx), row.CapexNo)
+		_ = helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("E%d", rowIdx), row.CapexName)
+		_ = helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("F%d", rowIdx), row.CapexCategory)
+		_ = helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("G%d", rowIdx), row.Type)
 
 		// Monthly Amounts
 		for i, m := range months {
-			colName, _ := excelizeColumnName(7 + i)
+			colName, _ := excelizeColumnName(8 + i)
 			val := decimal.Zero
 			if amt, ok := row.MonthsAmounts[m].(decimal.Decimal); ok {
 				val = amt
 			}
-			helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("%s%d", colName, rowIdx), val.InexactFloat64())
+			_ = helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("%s%d", colName, rowIdx), val.InexactFloat64())
 		}
 
 		// Year Total
-		helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("S%d", rowIdx), row.YearTotal.InexactFloat64())
+		_ = helper.File.SetCellValue(helper.Sheet, fmt.Sprintf("T%d", rowIdx), row.YearTotal.InexactFloat64())
 		rowIdx++
 	}
 

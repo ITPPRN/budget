@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"p2p-back-end/logs"
 	"p2p-back-end/modules/entities/models"
@@ -399,6 +400,7 @@ func (r *ownerRepository) GetDashboardAggregates(ctx context.Context, filter map
 func (r *ownerRepository) GetActualTransactions(ctx context.Context, filter map[string]interface{}) (*models.PaginatedActualTransactionDTO, error) {
 	query := r.db.WithContext(ctx).Table("actual_transaction_entities").
 		Select(`
+			actual_transaction_entities.id,
 			actual_transaction_entities.source,
 			actual_transaction_entities.posting_date,
 			actual_transaction_entities.doc_no as doc_no,
@@ -410,9 +412,18 @@ func (r *ownerRepository) GetActualTransactions(ctx context.Context, filter map[
 			actual_transaction_entities.amount,
 			actual_transaction_entities.department,
 			actual_transaction_entities.entity as company,
-			actual_transaction_entities.branch
+			actual_transaction_entities.branch,
+			CASE
+				WHEN basket.id IS NOT NULL THEN 'In Basket'
+				WHEN actual_transaction_entities.status = 'CONFIRMED' THEN 'Confirmed'
+				WHEN actual_transaction_entities.status = 'COMPLETE' THEN 'Complete'
+				WHEN actual_transaction_entities.status = 'REPORTED' THEN 'Reported'
+				WHEN actual_transaction_entities.status = 'DRAFT' THEN 'Draft'
+				ELSE 'Pending'
+			END as status
 		`).
-		Joins("LEFT JOIN gl_grouping_entities mapping ON actual_transaction_entities.entity_gl = mapping.entity_gl AND actual_transaction_entities.entity = mapping.entity")
+		Joins("LEFT JOIN gl_grouping_entities mapping ON actual_transaction_entities.entity_gl = mapping.entity_gl AND actual_transaction_entities.entity = mapping.entity").
+		Joins("LEFT JOIN audit_rejection_baskets basket ON basket.transaction_id = actual_transaction_entities.id AND basket.user_id::text = ?", filter["user_id"])
 
 	// 2. Filters (Standardized Alignment)
 	if val, ok := filter["entities"]; ok {
@@ -479,8 +490,7 @@ func (r *ownerRepository) GetActualTransactions(ctx context.Context, filter map[
 		query = query.Where("actual_transaction_entities.year = ?", strings.ReplaceAll(val, "FY", ""))
 	}
 
-	// 🛡️ Owner Workflow Filter: Only show items that are still actionable (Pending or in Basket/Draft)
-	query = query.Where("actual_transaction_entities.status IN (?, ?)", models.TxStatusPending, models.TxStatusDraft)
+	// Show all statuses (no status filter)
 
 	// 3. Pagination & Count
 	page := 1
@@ -541,4 +551,28 @@ func (r *ownerRepository) GetActualYears(ctx context.Context) ([]string, error) 
 		return nil, fmt.Errorf("ownerRepo.GetActualYears: %w", err)
 	}
 	return years, nil
+}
+
+// GetAdminPermittedMonths อ่าน selectedMonths จาก global admin config
+// คืน array ของเดือน format "APR" ตามที่ DataManage เซฟ
+// ถ้ายังไม่เคยตั้งค่า → คืน nil
+func (r *ownerRepository) GetAdminPermittedMonths(ctx context.Context) []string {
+	var row struct {
+		Value string
+	}
+	err := r.db.WithContext(ctx).
+		Table("user_config_entities").
+		Where("user_id = ? AND (config_key = ? OR config_key = ?)",
+			"GLOBAL_ADMIN_SETTINGS", "selectedMonths", "selected_months").
+		Select("value").
+		Limit(1).
+		Scan(&row).Error
+	if err != nil || row.Value == "" {
+		return nil
+	}
+	var months []string
+	if err := json.Unmarshal([]byte(row.Value), &months); err == nil {
+		return months
+	}
+	return []string{strings.ToUpper(strings.TrimSpace(row.Value))}
 }

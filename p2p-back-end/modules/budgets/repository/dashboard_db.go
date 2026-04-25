@@ -2,13 +2,14 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
 
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 
-	"github.com/shopspring/decimal"
 	"p2p-back-end/logs"
 	"p2p-back-end/modules/entities/models"
 )
@@ -108,16 +109,10 @@ func (r *dashboardRepository) GetBudgetDetails(ctx context.Context, filter map[s
 		Amount  decimal.Decimal
 	}
 
-	if val, ok := filter["months"]; ok {
-		mstrs := toStringSlice(val)
-		if len(mstrs) > 0 {
-			query = query.Joins("JOIN budget_amount_entities ba2 ON ba2.budget_fact_id = budget_fact_entities.id").
-				Where("ba2.month IN ?", mstrs)
-		} else {
-			// Strict Month Filter: If months list is empty, return no data
-			query = query.Where("1 = 0")
-		}
-	}
+	// Months filter intentionally disabled — Budget Detail must show full-year parity
+	// with the downloaded export (see budget_detail_export/repository.go §5). The previous
+	// ba2 JOIN caused row fanout: SUM(ba.amount) was multiplied by the number of months
+	// matching the filter.
 
 	if val, ok := filter["budget_file_id"]; ok && val != "" {
 		query = query.Where("budget_fact_entities.file_budget_id = ?", val)
@@ -235,14 +230,14 @@ func (r *dashboardRepository) GetActualTransactions(ctx context.Context, filter 
 			actual_transaction_entities.department,
 			actual_transaction_entities.entity as company,
 			actual_transaction_entities.branch,
-			CASE 
+			CASE
 				WHEN alrie.id IS NOT NULL THEN 'Request Change'
 				WHEN al.status = 'CONFIRMED' THEN 'Approved'
 				ELSE 'None'
-			END as audit_status
+			END as status
 		`).
 		Joins("LEFT JOIN audit_log_rejected_item_entities alrie ON alrie.transaction_id = actual_transaction_entities.id").
-		Joins("LEFT JOIN audit_log_entities al ON al.entity = actual_transaction_entities.entity AND al.branch = actual_transaction_entities.branch AND al.department = actual_transaction_entities.department AND al.year = actual_transaction_entities.year AND al.month = UPPER(TO_CHAR(actual_transaction_entities.posting_date::DATE, 'MON')) AND al.status = 'CONFIRMED'").
+		Joins("LEFT JOIN audit_log_entities al ON (al.entity = actual_transaction_entities.entity OR al.entity = '' OR al.entity IS NULL) AND (al.branch = actual_transaction_entities.branch OR al.branch = '' OR al.branch IS NULL) AND al.department = actual_transaction_entities.department AND al.year = actual_transaction_entities.year AND al.month = UPPER(TO_CHAR(actual_transaction_entities.posting_date::DATE, 'MON')) AND al.status = 'CONFIRMED'").
 		Joins("LEFT JOIN gl_grouping_entities mapping ON actual_transaction_entities.entity_gl = mapping.entity_gl AND actual_transaction_entities.entity = mapping.entity")
 
 	// 2. Filters (Only apply if not empty)
@@ -382,7 +377,7 @@ func (r *dashboardRepository) GetDashboardAggregates(ctx context.Context, filter
 					if len(filteredStrs) > 0 {
 						tx = tx.Where("("+tableName+".department IN ? OR "+tableName+".department = '' OR "+tableName+".department IS NULL OR "+tableName+".department = 'None')", filteredStrs)
 					} else {
-						tx = tx.Where("("+tableName+".department = '' OR "+tableName+".department IS NULL OR "+tableName+".department = 'None')")
+						tx = tx.Where("(" + tableName + ".department = '' OR " + tableName + ".department IS NULL OR " + tableName + ".department = 'None')")
 					}
 				} else {
 					tx = tx.Where(tableName+".department IN ?", strs)
@@ -461,19 +456,19 @@ func (r *dashboardRepository) GetDashboardAggregates(ctx context.Context, filter
 		}
 
 		// Added: Restricted flag (Extra safety)
-		if val, ok := filter["is_restricted"].(bool); ok && val {
-			if _, hasDept := filter["departments"]; !hasDept {
-				// If restricted but no departments given, and not admin (handled in service),
-				// we should probably enforce a non-match.
-				// But service should handle this.
-			}
-		}
+		// if val, ok := filter["is_restricted"].(bool); ok && val {
+		// 	if _, hasDept := filter["departments"]; !hasDept {
+		// 		// If restricted but no departments given, and not admin (handled in service),
+		// 		// we should probably enforce a non-match.
+		// 		// But service should handle this.
+		// 	}
+		// }
 		return tx
 	}
 
 	// Determine Grouping Strategy (Drill-down vs Summary)
-	groupBy := "COALESCE(NULLIF(department, ''), nav_code)"
-	selectCol := "COALESCE(NULLIF(department, ''), nav_code) as department"
+	groupBy := "COALESCE(NULLIF(NULLIF(department, ''), 'None'), NULLIF(nav_code, ''), 'None')"
+	selectCol := "COALESCE(NULLIF(NULLIF(department, ''), 'None'), NULLIF(nav_code, ''), 'None') as department"
 
 	if val, ok := filter["departments"]; ok {
 		if strs := toStringSlice(val); len(strs) > 0 {
@@ -487,8 +482,8 @@ func (r *dashboardRepository) GetDashboardAggregates(ctx context.Context, filter
 			}
 
 			if shouldDrillDown {
-				groupBy = "nav_code"
-				selectCol = "nav_code as department"
+				groupBy = "COALESCE(NULLIF(nav_code, ''), 'None')"
+				selectCol = "COALESCE(NULLIF(nav_code, ''), 'None') as department"
 			}
 		}
 	}
@@ -501,7 +496,7 @@ func (r *dashboardRepository) GetDashboardAggregates(ctx context.Context, filter
 	}
 	var budgetDept []DeptResult
 	tx1 := r.db.Model(&models.BudgetFactEntity{}).
-		Select(selectCol+", SUM(ba.amount) as total").
+		Select(selectCol + ", SUM(ba.amount) as total").
 		Joins("JOIN budget_amount_entities ba ON ba.budget_fact_id = budget_fact_entities.id AND ba.deleted_at IS NULL")
 
 	tx1 = applyFilter(tx1, "budget_fact_entities")
@@ -513,7 +508,7 @@ func (r *dashboardRepository) GetDashboardAggregates(ctx context.Context, filter
 	// Actual - ALWAYS JOIN AMOUNT FOR PARITY
 	var actualDept []DeptResult
 	tx2 := r.db.Model(&models.ActualFactEntity{}).
-		Select(selectCol+", SUM(aa.amount) as total").
+		Select(selectCol + ", SUM(aa.amount) as total").
 		Joins("JOIN actual_amount_entities aa ON aa.actual_fact_id = actual_fact_entities.id AND aa.deleted_at IS NULL")
 
 	// If months filter is provided, it's already using join-summing, but we've unified it above.
@@ -739,6 +734,32 @@ func (r *dashboardRepository) GetActualYears(ctx context.Context) ([]string, err
 		return nil, fmt.Errorf("dashboardRepo.GetActualYears: %w", err)
 	}
 	return years, nil
+}
+
+// GetAdminPermittedMonths อ่าน selectedMonths จาก global admin config
+// คืน array ของเดือน format "APR" (ตามที่ DataManage เซฟ)
+// ถ้ายังไม่เคยตั้งค่า → คืน nil
+func (r *dashboardRepository) GetAdminPermittedMonths(ctx context.Context) []string {
+	var row struct {
+		Value string
+	}
+	err := r.db.WithContext(ctx).
+		Table("user_config_entities").
+		Where("user_id = ? AND (config_key = ? OR config_key = ?)",
+			"GLOBAL_ADMIN_SETTINGS", "selectedMonths", "selected_months").
+		Select("value").
+		Limit(1).
+		Scan(&row).Error
+	if err != nil || row.Value == "" {
+		return nil
+	}
+
+	// ค่าอาจเก็บเป็น JSON array เช่น `["JAN","FEB"]` หรือ string ธรรมดา
+	var months []string
+	if err := json.Unmarshal([]byte(row.Value), &months); err == nil {
+		return months
+	}
+	return []string{strings.ToUpper(strings.TrimSpace(row.Value))}
 }
 
 func (r *dashboardRepository) GetAvailableMonths(ctx context.Context, year string) ([]string, error) {

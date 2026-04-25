@@ -108,9 +108,18 @@ func (r *repository) GetOwnerActualExportDetails(ctx context.Context, user *mode
 			actual_transaction_entities.amount,
 			actual_transaction_entities.vendor_name,
 			actual_transaction_entities.description,
-			actual_transaction_entities.posting_date
+			actual_transaction_entities.posting_date,
+			CASE
+				WHEN basket.id IS NOT NULL THEN 'In Basket'
+				WHEN actual_transaction_entities.status = 'CONFIRMED' THEN 'Confirmed'
+				WHEN actual_transaction_entities.status = 'COMPLETE' THEN 'Complete'
+				WHEN actual_transaction_entities.status = 'REPORTED' THEN 'Reported'
+				WHEN actual_transaction_entities.status = 'DRAFT' THEN 'Draft'
+				ELSE 'Pending'
+			END as status
 		`).
-		Joins("LEFT JOIN gl_grouping_entities mapping ON actual_transaction_entities.entity_gl = mapping.entity_gl AND actual_transaction_entities.entity = mapping.entity")
+		Joins("LEFT JOIN gl_grouping_entities mapping ON actual_transaction_entities.entity_gl = mapping.entity_gl AND actual_transaction_entities.entity = mapping.entity").
+		Joins("LEFT JOIN audit_rejection_baskets basket ON basket.transaction_id = actual_transaction_entities.id AND basket.user_id::text = ?", user.ID)
 
 	// 1. Entities
 	if val, ok := filter["entities"]; ok {
@@ -180,14 +189,8 @@ func (r *repository) GetOwnerActualExportDetails(ctx context.Context, user *mode
 		query = query.Where("actual_transaction_entities.year = ?", strings.ReplaceAll(val, "FY", ""))
 	}
 
-	// 7. Months
-	if val, ok := filter["months"]; ok {
-		mstrs := toStringSlice(val)
-		if len(mstrs) > 0 {
-			// Extract month from posting_date for comparison
-			query = query.Where("UPPER(TO_CHAR(actual_transaction_entities.posting_date::DATE, 'MON')) IN ?", mstrs)
-		}
-	}
+	// 7. Months — ไม่ filter เพื่อให้ export ได้ทุกรายการในปีที่ user มีสิทธิ์เข้าถึง
+	// (scope ยังถูกจำกัดด้วย departments/entities/branches ตามสิทธิ์อยู่)
 
 	err := query.Order("actual_transaction_entities.posting_date DESC, actual_transaction_entities.entity").
 		Scan(&results).Error

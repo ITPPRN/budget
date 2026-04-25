@@ -17,7 +17,9 @@ type externalSyncRepository struct {
 func NewExternalSyncRepository(localDb *gorm.DB, dwDb *gorm.DB) models.ExternalSyncRepository {
 	// Robustness: Ensure local tables have correct schema/PK.
 	// We previously dropped these once to clear legacy ghost columns.
-	localDb.AutoMigrate(&models.AchHmwGleEntity{}, &models.ClikGleEntity{})
+	if err := localDb.AutoMigrate(&models.AchHmwGleEntity{}, &models.ClikGleEntity{}); err != nil {
+		fmt.Printf("[WARN] AutoMigrate failed: %v\n", err)
+	}
 
 	return &externalSyncRepository{
 		localDb: localDb,
@@ -82,15 +84,46 @@ func (r *externalSyncRepository) FetchCLIKInBatches(ctx context.Context, year in
 	return nil
 }
 
+// DeleteHMWByYearMonth ลบข้อมูล HMW raw ของเดือน/ปีที่ระบุก่อน insert ใหม่
+// เพื่อป้องกัน duplicate rows (idempotent sync)
+func (r *externalSyncRepository) DeleteHMWByYearMonth(ctx context.Context, year int, month int) error {
+	err := r.localDb.WithContext(ctx).
+		Exec(`DELETE FROM achhmw_gle_api
+			WHERE EXTRACT(YEAR FROM "Posting_Date") = ?
+			  AND EXTRACT(MONTH FROM "Posting_Date") = ?`, year, month).Error
+	if err != nil {
+		return fmt.Errorf("extSyncRepo.DeleteHMWByYearMonth: %w", err)
+	}
+	return nil
+}
+
+// DeleteCLIKByYearMonth ลบข้อมูล CLIK raw ของเดือน/ปีที่ระบุก่อน insert ใหม่
+func (r *externalSyncRepository) DeleteCLIKByYearMonth(ctx context.Context, year int, month int) error {
+	err := r.localDb.WithContext(ctx).
+		Exec(`DELETE FROM general_ledger_entries_clik
+			WHERE EXTRACT(YEAR FROM "Posting_Date") = ?
+			  AND EXTRACT(MONTH FROM "Posting_Date") = ?`, year, month).Error
+	if err != nil {
+		return fmt.Errorf("extSyncRepo.DeleteCLIKByYearMonth: %w", err)
+	}
+	return nil
+}
+
+// UpsertHMWLocal inserts HMW rows. Caller must DELETE the target year-month first
+// (via DeleteHMWByYearMonth) to guarantee idempotency / no duplicates.
+// Uses DoNothing on conflict as last-resort safety net (PK id collision should not happen
+// with auto-increment, but if it does we don't overwrite data silently).
 func (r *externalSyncRepository) UpsertHMWLocal(ctx context.Context, data []models.AchHmwGleEntity) error {
 	if len(data) == 0 {
 		return nil
 	}
+	// Reset PK so DB generates new ids; prevents accidental PK reuse if DW returns duplicate id fields.
+	for i := range data {
+		data[i].ID = 0
+	}
 	err := r.localDb.WithContext(ctx).
 		Table("achhmw_gle_api").
-		Clauses(clause.OnConflict{
-			UpdateAll: true,
-		}).
+		Clauses(clause.OnConflict{DoNothing: true}).
 		CreateInBatches(data, 500).Error
 	if err != nil {
 		return fmt.Errorf("extSyncRepo.UpsertHMWLocal: %w", err)
@@ -98,21 +131,18 @@ func (r *externalSyncRepository) UpsertHMWLocal(ctx context.Context, data []mode
 	return nil
 }
 
+// UpsertCLIKLocal inserts CLIK rows. Same semantics as UpsertHMWLocal.
 func (r *externalSyncRepository) UpsertCLIKLocal(ctx context.Context, data []models.ClikGleEntity) error {
 	if len(data) == 0 {
 		return nil
 	}
-
-	// Ensure Company is set to 'CLIK' for all rows
 	for i := range data {
+		data[i].ID = 0
 		data[i].Company = "CLIK"
 	}
-
 	err := r.localDb.WithContext(ctx).
 		Table("general_ledger_entries_clik").
-		Clauses(clause.OnConflict{
-			UpdateAll: true,
-		}).
+		Clauses(clause.OnConflict{DoNothing: true}).
 		CreateInBatches(data, 500).Error
 	if err != nil {
 		return fmt.Errorf("extSyncRepo.UpsertCLIKLocal: %w", err)

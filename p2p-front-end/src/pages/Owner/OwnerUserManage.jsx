@@ -47,8 +47,8 @@ const OwnerUserManagePage = () => {
     const isDelegate = currentUserRole === 'DELEGATE';
 
     const getAllowedRoles = () => {
-        // Owner can assign Delegate
-        if (currentUserRole === 'OWNER') return ['DELEGATE'];
+        // Owner can assign Delegate or Branch Delegate
+        if (currentUserRole === 'OWNER') return ['DELEGATE', 'BRANCH_DELEGATE'];
         // Delegate cannot assign roles (usually)
         return [];
     };
@@ -165,8 +165,8 @@ const OwnerUserManagePage = () => {
         selectedUser?.permissions?.some(p => p.is_active && p.role?.toUpperCase() === 'ADMIN');
     const isTargetOwner = selectedUser?.roles?.some(r => r.toUpperCase() === 'OWNER') ||
         selectedUser?.permissions?.some(p => p.is_active && p.role?.toUpperCase() === 'OWNER');
-    const isTargetDelegate = selectedUser?.roles?.some(r => r.toUpperCase() === 'DELEGATE') ||
-        selectedUser?.permissions?.some(p => p.is_active && p.role?.toUpperCase() === 'DELEGATE');
+    const isTargetDelegate = selectedUser?.roles?.some(r => ['DELEGATE', 'BRANCH_DELEGATE'].includes(r.toUpperCase())) ||
+        selectedUser?.permissions?.some(p => p.is_active && ['DELEGATE', 'BRANCH_DELEGATE'].includes(p.role?.toUpperCase()));
 
     let canModifyModal = false;
     if (!isDelegate && selectedUser) {
@@ -258,6 +258,7 @@ const OwnerUserManagePage = () => {
                             <MenuItem value="ADMIN">ADMIN</MenuItem>
                             <MenuItem value="OWNER">OWNER</MenuItem>
                             <MenuItem value="DELEGATE">DELEGATE</MenuItem>
+                            <MenuItem value="BRANCH_DELEGATE">BRANCH DELEGATE</MenuItem>
                         </Select>
                     </Grid>
 
@@ -314,8 +315,8 @@ const OwnerUserManagePage = () => {
                                             user.permissions?.some(p => p.is_active && p.role?.toUpperCase() === 'ADMIN');
                                         const isTargetOwner = user.roles?.some(r => r.toUpperCase() === 'OWNER') ||
                                             user.permissions?.some(p => p.is_active && p.role?.toUpperCase() === 'OWNER');
-                                        const isTargetDelegate = (user.roles?.some(r => r.toUpperCase() === 'DELEGATE')) ||
-                                            (user.permissions?.some(p => p.is_active && p.role?.toUpperCase() === 'DELEGATE'));
+                                        const isTargetDelegate = (user.roles?.some(r => ['DELEGATE', 'BRANCH_DELEGATE'].includes(r.toUpperCase()))) ||
+                                            (user.permissions?.some(p => p.is_active && ['DELEGATE', 'BRANCH_DELEGATE'].includes(p.role?.toUpperCase())));
                                         const isSelf = user.id === currentUser?.id;
 
                                         // Hierarchical Rules (Synchronized with UserManage.jsx):
@@ -395,6 +396,7 @@ const OwnerUserManagePage = () => {
                                         if (roles.some(r => r.toUpperCase() === 'ADMIN')) displayRole = 'ADMIN';
                                         else if (roles.some(r => r.toUpperCase() === 'OWNER')) displayRole = 'OWNER';
                                         else if (roles.some(r => r.toUpperCase() === 'DELEGATE')) displayRole = 'DELEGATE';
+                                        else if (roles.some(r => r.toUpperCase() === 'BRANCH_DELEGATE')) displayRole = 'BRANCH DELEGATE';
                                         else if (roles.length > 0 && roles[0] !== 'USER') displayRole = roles[0];
 
                                         if (displayRole === 'USER' && roles.includes('USER')) {
@@ -487,6 +489,7 @@ const OwnerUserManagePage = () => {
                                                     <MenuItem value="">เลือกบทบาท...</MenuItem>
                                                     {allowedRoles.includes('OWNER') && <MenuItem value="OWNER">Owner</MenuItem>}
                                                     {allowedRoles.includes('DELEGATE') && <MenuItem value="DELEGATE">Delegate</MenuItem>}
+                                                    {allowedRoles.includes('BRANCH_DELEGATE') && <MenuItem value="BRANCH_DELEGATE">Branch Delegate</MenuItem>}
                                                 </Select>
                                             </TableCell>
                                             <TableCell>

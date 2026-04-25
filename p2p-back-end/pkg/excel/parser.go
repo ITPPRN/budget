@@ -64,15 +64,16 @@ func ParseExcelToJSONStrict(fileHeader *multipart.FileHeader, expectedHeaders []
 	if err != nil {
 		return nil, err
 	}
-	defer src.Close()
+	// defer src.Close()
+	defer func() { _ = src.Close() }()
 
 	f, err := excelize.OpenReader(src)
 	if err != nil {
 		fmt.Printf("[DEBUG] OpenReader failed: %v\n", err)
 		return nil, err
 	}
-	defer f.Close()
-
+	// defer f.Close()
+	defer func() { _ = f.Close() }()
 	sheetName, headerRowIdx, err := findTargetSheetStrict(f, expectedHeaders)
 	if err != nil {
 		fmt.Printf("[DEBUG] Strict Validation Failed: %v\n", err)
