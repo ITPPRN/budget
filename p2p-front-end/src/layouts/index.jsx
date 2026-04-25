@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Box, Toolbar } from '@mui/material';
 import { Outlet } from 'react-router-dom';
+import MonitorHeartIcon from '@mui/icons-material/MonitorHeart';
 import Navbar from '../components/Layout/Navbar'; // แยกไปสร้างเหมือน Sidebar
 import Sidebar from '../components/Layout/sidebar';
 import { useAuth } from '../hooks/useAuth';
@@ -18,7 +19,13 @@ export default function MainLayout() {
   // ถ้าเป็น Owner (และไม่ใช่ Admin) หรือมี department -> เห็นเมนู Owner
   const showOwnerMenu = !isAdmin && (isOwner || !!user?.department_code || !!user?.department);
 
-  const menuItems = showOwnerMenu ? OWNER_MENU_ITEMS : MENU_ITEMS;
+  const baseMenu = showOwnerMenu ? OWNER_MENU_ITEMS : MENU_ITEMS;
+
+  // เมนู Sync Monitor — แสดงเฉพาะ username = "admin" เท่านั้น
+  const isSyncAdmin = user?.username === 'admin';
+  const menuItems = isSyncAdmin
+    ? [...baseMenu, { title: 'Sync Monitor', path: '/sync-monitor', icon: <MonitorHeartIcon /> }]
+    : baseMenu;
 
   return (
     <Box sx={{ display: 'flex', width: '100vw', minHeight: '100vh', overflow: 'hidden' }}>
