@@ -106,9 +106,12 @@ func (r *actualRepository) DeleteAllActualTransactions(ctx context.Context) erro
 }
 
 func (r *actualRepository) DeleteActualTransactionsByYear(ctx context.Context, year string) error {
-	// 🛡️ CRITICAL: Only delete PENDING transactions to preserve Owner work (Drafts, Reported, Complete)
+	// Delete ALL transactions for the year (including non-PENDING).
+	// Audit work (REPORTED/COMPLETE) is preserved separately via GetNonPendingTransactionKeys
+	// → RestoreTransactionStatuses; the row itself is rebuilt from raw to keep it consistent
+	// with actual_amount_entities. Operates inside WithTrx so failure rolls back.
 	if err := r.db.WithContext(ctx).Unscoped().
-		Where("year = ? AND status = ?", year, models.TxStatusPending).
+		Where("year = ?", year).
 		Delete(&models.ActualTransactionEntity{}).Error; err != nil {
 		return fmt.Errorf("actualRepo.DeleteActualTransactionsByYear: %w", err)
 	}
@@ -125,9 +128,9 @@ func (r *actualRepository) DeleteActualTransactionsByMonth(ctx context.Context, 
 		return fmt.Errorf("actualRepo.DeleteActualTransactionsByMonth: invalid month: %s", month)
 	}
 	pattern := fmt.Sprintf("%s-%s-%%", year, mCode)
-	// 🛡️ CRITICAL: Only delete PENDING transactions to preserve Owner work
+	// Delete ALL transactions for the month (see DeleteActualTransactionsByYear comment).
 	if err := r.db.WithContext(ctx).Unscoped().
-		Where("year = ? AND posting_date LIKE ? AND status = ?", year, pattern, models.TxStatusPending).
+		Where("year = ? AND posting_date LIKE ?", year, pattern).
 		Delete(&models.ActualTransactionEntity{}).Error; err != nil {
 		return fmt.Errorf("actualRepo.DeleteActualTransactionsByMonth: %w", err)
 	}
@@ -205,29 +208,16 @@ func (r *actualRepository) RestoreTransactionStatuses(ctx context.Context, statu
 
 	for status, keys := range byStatus {
 		for _, k := range keys {
-			// Update new PENDING record to preserved status
+			// Promote freshly-inserted PENDING rows for this business key to the preserved status.
+			// Multiple rows can share the same key (multi-line documents); all of them get promoted.
+			// We deliberately do NOT delete "duplicates" here — within a sync run protected by
+			// SyncMutex, there are no duplicate inserts, only legitimate multi-line items.
 			if err := r.db.WithContext(ctx).Model(&models.ActualTransactionEntity{}).
 				Where("entity = ? AND entity_gl = ? AND doc_no = ? AND posting_date = ? AND status = ?",
 					k[0], k[1], k[2], k[3], models.TxStatusPending).
 				Update("status", status).Error; err != nil {
 				return fmt.Errorf("actualRepo.RestoreTransactionStatuses: %w", err)
 			}
-
-			// Delete ALL duplicate rows for this business key, keeping only the newest one
-			// (matches behaviour of the new uniq_actual_txn_business_key index)
-			r.db.WithContext(ctx).Exec(`
-				DELETE FROM actual_transaction_entities
-				WHERE id IN (
-					SELECT id FROM (
-						SELECT id, ROW_NUMBER() OVER (
-							PARTITION BY entity, entity_gl, doc_no, posting_date
-							ORDER BY created_at DESC, id DESC
-						) AS rn
-						FROM actual_transaction_entities
-						WHERE entity = ? AND entity_gl = ? AND doc_no = ? AND posting_date = ?
-					) t WHERE rn > 1
-				)`,
-				k[0], k[1], k[2], k[3])
 		}
 	}
 
