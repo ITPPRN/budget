@@ -53,7 +53,8 @@ func (AuditLogRejectedItemEntity) TableName() string { return "audit_log_rejecte
 type AuditRejectBasket struct {
     ID            uuid.UUID `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()" json:"id"`
     TransactionID uuid.UUID `gorm:"type:uuid;uniqueIndex:idx_user_tx" json:"transaction_id"`
-    UserID        uuid.UUID `gorm:"type:uuid;uniqueIndex:idx_user_tx" json:"user_id"`
+    UserID        uuid.UUID `gorm:"type:uuid;uniqueIndex:idx_user_tx" json:"user_id"` // OWNER ที่เป็นเจ้าของตะกร้านี้
+    AddedBy       uuid.UUID `gorm:"type:uuid;index" json:"added_by"`                  // ผู้กดเพิ่ม (OWNER เอง / DELEGATE / BRANCH_DELEGATE)
     Note          string    `gorm:"type:text" json:"note"`
     CreatedAt     time.Time `gorm:"autoCreateTime" json:"created_at"`
 }
@@ -61,10 +62,11 @@ type AuditRejectBasket struct {
 func (AuditRejectBasket) TableName() string { return  "audit_rejection_baskets"}
 
 // BasketItemView is the wire-format DTO for /audit/basket/list — actual transaction
-// fields plus the user-supplied rejection note from the basket join.
+// fields plus the user-supplied rejection note and added_by from the basket join.
 type BasketItemView struct {
 	ActualTransactionEntity
-	Note string `json:"note"`
+	Note    string    `json:"note"`
+	AddedBy uuid.UUID `json:"added_by"`
 }
 
 // BasketAddItem is the per-row payload for POST /audit/basket/add.

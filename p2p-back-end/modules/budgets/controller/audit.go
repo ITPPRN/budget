@@ -76,7 +76,7 @@ func (h *auditController) updateBasketNote(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
 	}
 
-	if err := h.auditSrv.UpdateBasketNote(c.UserContext(), user.ID, transactionID, body.Note); err != nil {
+	if err := h.auditSrv.UpdateBasketNote(c.UserContext(), user, transactionID, body.Note); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to update note: " + err.Error()})
 	}
 
@@ -90,7 +90,7 @@ func (h *auditController) getBasket(c *fiber.Ctx) error {
     }
 
     // เรียก Service เพื่อดึงข้อมูลตะกร้า
-    items, err := h.auditSrv.GetBasketItems(c.UserContext(), user.ID)
+    items, err := h.auditSrv.GetBasketItems(c.UserContext(), user)
     if err != nil {
         return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to get basket: " + err.Error()})
     }
@@ -112,7 +112,7 @@ func (h *auditController) removeBasket(c *fiber.Ctx) error {
     }
 
     // โยนให้ Service จัดการลบทีละ 1 รายการ
-    err := h.auditSrv.RemoveFromBasket(c.UserContext(), user.ID, transactionID)
+    err := h.auditSrv.RemoveFromBasket(c.UserContext(), user, transactionID)
     if err != nil {
         return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to remove from basket: " + err.Error()})
     }

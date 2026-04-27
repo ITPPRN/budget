@@ -65,6 +65,14 @@ func (m *MockUserRepository) GetUserPermissions(ctx context.Context, userID stri
 	return args.Get(0).([]models.UserPermissionEntity), args.Error(1)
 }
 
+func (m *MockUserRepository) GetActiveOwnerIDsByDepartment(ctx context.Context, departmentCode string) ([]string, error) {
+	args := m.Called(ctx, departmentCode)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]string), args.Error(1)
+}
+
 func (m *MockUserRepository) UpdateUserPermissionsAndRoles(ctx context.Context, userID string, permissions []models.UserPermissionEntity, roles []string) error {
 	args := m.Called(ctx, userID, permissions, roles)
 	return args.Error(0)

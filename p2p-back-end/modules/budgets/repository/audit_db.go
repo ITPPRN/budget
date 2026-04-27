@@ -228,9 +228,26 @@ func (r *auditRepository) GetBasketItems(ctx context.Context, userID string) ([]
 
 	err := r.db.WithContext(ctx).
 		Table("actual_transaction_entities AS a").
-		Select("a.*, b.note AS note").
+		Select("a.*, b.note AS note, b.added_by AS added_by").
 		Joins("INNER JOIN audit_rejection_baskets AS b ON a.id = b.transaction_id").
 		Where("b.user_id = ?", userID).
+		Find(&items).Error
+
+	return items, err
+}
+
+// GetBasketItemsAddedBy returns basket items that the given user has added — used
+// for DELEGATE/BRANCH_DELEGATE viewing only their own contributions across the
+// fanned-out OWNER baskets.
+func (r *auditRepository) GetBasketItemsAddedBy(ctx context.Context, addedByUserID string) ([]models.BasketItemView, error) {
+	var items []models.BasketItemView
+
+	err := r.db.WithContext(ctx).
+		Table("actual_transaction_entities AS a").
+		Select("DISTINCT ON (a.id) a.*, b.note AS note, b.added_by AS added_by").
+		Joins("INNER JOIN audit_rejection_baskets AS b ON a.id = b.transaction_id").
+		Where("b.added_by = ?", addedByUserID).
+		Order("a.id, b.created_at").
 		Find(&items).Error
 
 	return items, err
@@ -243,6 +260,18 @@ func (r *auditRepository) UpdateBasketNote(ctx context.Context, userID, transact
 	return r.db.WithContext(ctx).
 		Model(&models.AuditRejectBasket{}).
 		Where("user_id = ? AND transaction_id = ?", userID, transactionID).
+		Update("note", note).Error
+}
+
+// UpdateBasketNoteByAddedBy updates note across every fanned-out copy that the
+// given delegate user added — covers all OWNERs' baskets they contributed to.
+func (r *auditRepository) UpdateBasketNoteByAddedBy(ctx context.Context, addedByUserID, transactionID, note string) error {
+	if addedByUserID == "" || transactionID == "" {
+		return nil
+	}
+	return r.db.WithContext(ctx).
+		Model(&models.AuditRejectBasket{}).
+		Where("added_by = ? AND transaction_id = ?", addedByUserID, transactionID).
 		Update("note", note).Error
 }
 
@@ -269,6 +298,28 @@ func (r *auditRepository) RemoveFromBasket(ctx context.Context, userID string, t
     // ลบเฉพาะรายการที่ตรงกับ UserID และ TransactionID นั้นๆ
     return r.db.WithContext(ctx).
         Where("user_id = ? AND transaction_id = ?", userID, transactionID).
+        Delete(&models.AuditRejectBasket{}).Error
+}
+
+// RemoveFromBasketByAddedBy ลบทุก fanned-out row ของ tx ที่ delegate คนนั้นกดเพิ่มไว้
+// (พ้นไปจากตะกร้าของ OWNER ทุกคน)
+func (r *auditRepository) RemoveFromBasketByAddedBy(ctx context.Context, addedByUserID, transactionID string) error {
+    if addedByUserID == "" || transactionID == "" {
+        return nil
+    }
+    return r.db.WithContext(ctx).
+        Where("added_by = ? AND transaction_id = ?", addedByUserID, transactionID).
+        Delete(&models.AuditRejectBasket{}).Error
+}
+
+// DeleteBasketRowsByTxIDs ลบ row ตะกร้าของทุก OWNER ที่อ้างถึง tx เหล่านี้ — เรียกหลัง
+// approve เพื่อให้ "first OWNER wins" ไม่ทิ้ง row กำพร้าค้างในตะกร้าของ OWNER คนอื่น
+func (r *auditRepository) DeleteBasketRowsByTxIDs(ctx context.Context, transactionIDs []uuid.UUID) error {
+    if len(transactionIDs) == 0 {
+        return nil
+    }
+    return r.db.WithContext(ctx).
+        Where("transaction_id IN ?", transactionIDs).
         Delete(&models.AuditRejectBasket{}).Error
 }
 

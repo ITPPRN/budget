@@ -28,6 +28,7 @@ const BasketModal = ({
     onRemove,
     onApprove,
     onUpdateNote,
+    canApprove = true,
     loading
 }) => {
     // Local draft of notes ที่ผู้ใช้กำลังพิมพ์ — sync กลับเมื่อ blur เพื่อกัน rerender ทุกตัวอักษร
@@ -114,11 +115,11 @@ const BasketModal = ({
                 )}
             </DialogContent>
             
-            {basketItems.length > 0 && (
+            {basketItems.length > 0 && canApprove && (
                 <Box sx={{ p: 2, borderTop: '1px solid #eee', bgcolor: '#fafafa', textAlign: 'right' }}>
-                    <Button 
-                        variant="contained" 
-                        color="success" 
+                    <Button
+                        variant="contained"
+                        color="success"
                         startIcon={<CheckCircleIcon />}
                         onClick={onApprove}
                         disabled={loading}
@@ -126,6 +127,13 @@ const BasketModal = ({
                     >
                         {loading ? "กำลังประมวลผล..." : "ยืนยันและทำรายการ"}
                     </Button>
+                </Box>
+            )}
+            {basketItems.length > 0 && !canApprove && (
+                <Box sx={{ p: 2, borderTop: '1px solid #eee', bgcolor: '#fafafa', textAlign: 'right' }}>
+                    <Typography variant="caption" color="textSecondary">
+                        เฉพาะ OWNER ของแผนกนั้นเท่านั้นที่ยืนยันรายการได้
+                    </Typography>
                 </Box>
             )}
         </Dialog>

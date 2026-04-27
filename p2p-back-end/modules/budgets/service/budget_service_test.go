@@ -373,6 +373,29 @@ func (m *MockAuditRepository) UpdateBasketNote(ctx context.Context, userID, tran
 	return args.Error(0)
 }
 
+func (m *MockAuditRepository) UpdateBasketNoteByAddedBy(ctx context.Context, addedByUserID, transactionID, note string) error {
+	args := m.Called(ctx, addedByUserID, transactionID, note)
+	return args.Error(0)
+}
+
+func (m *MockAuditRepository) GetBasketItemsAddedBy(ctx context.Context, addedByUserID string) ([]models.BasketItemView, error) {
+	args := m.Called(ctx, addedByUserID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]models.BasketItemView), args.Error(1)
+}
+
+func (m *MockAuditRepository) RemoveFromBasketByAddedBy(ctx context.Context, addedByUserID, transactionID string) error {
+	args := m.Called(ctx, addedByUserID, transactionID)
+	return args.Error(0)
+}
+
+func (m *MockAuditRepository) DeleteBasketRowsByTxIDs(ctx context.Context, transactionIDs []uuid.UUID) error {
+	args := m.Called(ctx, transactionIDs)
+	return args.Error(0)
+}
+
 func (m *MockAuditRepository) GetBasketNotes(ctx context.Context, userID string) (map[uuid.UUID]string, error) {
 	args := m.Called(ctx, userID)
 	if args.Get(0) == nil {
@@ -671,6 +694,14 @@ func (m *MockUserRepository) GetUserPermissions(ctx context.Context, userID stri
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]models.UserPermissionEntity), args.Error(1)
+}
+
+func (m *MockUserRepository) GetActiveOwnerIDsByDepartment(ctx context.Context, departmentCode string) ([]string, error) {
+	args := m.Called(ctx, departmentCode)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]string), args.Error(1)
 }
 
 func (m *MockUserRepository) UpdateUserPermissionsAndRoles(ctx context.Context, userID string, permissions []models.UserPermissionEntity, roles []string) error {

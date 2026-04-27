@@ -237,6 +237,27 @@ func (r *userRepositoryDB) GetUserPermissions(ctx context.Context, userID string
 	return perms, nil
 }
 
+// GetActiveOwnerIDsByDepartment returns user IDs of all active OWNERs for a dept.
+// Used to fan-out a delegate's basket-add into every OWNER's basket.
+func (r *userRepositoryDB) GetActiveOwnerIDsByDepartment(ctx context.Context, departmentCode string) ([]string, error) {
+	if departmentCode == "" {
+		return nil, nil
+	}
+	var ids []string
+	err := r.db.WithContext(ctx).
+		Table("user_permission_entities AS p").
+		Joins("INNER JOIN user_entities AS u ON u.id = p.user_id").
+		Where("p.department_code = ? AND p.role = ?", departmentCode, models.RoleOwner).
+		Where("(p.is_active IS NULL OR p.is_active = true)").
+		Where("u.is_active = true AND u.deleted = false").
+		Distinct().
+		Pluck("u.id", &ids).Error
+	if err != nil {
+		return nil, fmt.Errorf("userRepo.GetActiveOwnerIDsByDepartment: %w", err)
+	}
+	return ids, nil
+}
+
 func (r *userRepositoryDB) UpdateUserPermissionsAndRoles(ctx context.Context, userID string, permissions []models.UserPermissionEntity, roles []string) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// 1. Update Roles

@@ -465,7 +465,11 @@ const ActualTable = React.memo(
     filters = {},
   }) => {
     const { user } = useAuth();
-    const isOwner = user?.roles?.some((r) => r.toUpperCase() === "OWNER");
+    const roles = (user?.roles || []).map((r) => r.toUpperCase());
+    const isOwner = roles.includes("OWNER");
+    const isDelegate =
+      roles.includes("DELEGATE") || roles.includes("BRANCH_DELEGATE");
+    const canAudit = isOwner || isDelegate; // OWNER + delegates: เพิ่มเข้าตะกร้าได้
 
     const [openFullScreen, setOpenFullScreen] = useState(false);
     const [auditLoading, setAuditLoading] = useState(false);
@@ -493,7 +497,7 @@ const ActualTable = React.memo(
 
     // 🌟 2. ดึงข้อมูล "ทันที" ที่โหลดหน้าเว็บเสร็จ
     useEffect(() => {
-      if (isOwner) {
+      if (canAudit) {
         fetchBasket();
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -988,30 +992,32 @@ const ActualTable = React.memo(
                 )}
               </Box>
             )}
-            {isOwner && data.length > 0 && (
+            {canAudit && data.length > 0 && (
               <>
-                <Button
-                  variant="contained"
-                  color="success"
-                  size="small"
-                  startIcon={<CheckCircleIcon />}
-                  onClick={() => {
-                    if (rejectedBasket.length === 0) {
-                      console.log(filters.month);
-                      handleOpenApproveDialog(); // ถ้าตะกร้าว่าง ให้เด้ง Modal ยืนยันเลย
-                    } else {
-                      setBasketModalOpen(true); // ถ้าตะกร้ามีของ ให้เปิดดูตะกร้าก่อน
-                    }
-                  }}
-                  disabled={auditLoading || auditComplete}
-                  sx={{
-                    textTransform: "none",
-                    borderRadius: "4px",
-                    fontSize: "0.75rem",
-                  }}
-                >
-                  ยืนยันรายการ
-                </Button>
+                {isOwner && (
+                  <Button
+                    variant="contained"
+                    color="success"
+                    size="small"
+                    startIcon={<CheckCircleIcon />}
+                    onClick={() => {
+                      if (rejectedBasket.length === 0) {
+                        console.log(filters.month);
+                        handleOpenApproveDialog(); // ถ้าตะกร้าว่าง ให้เด้ง Modal ยืนยันเลย
+                      } else {
+                        setBasketModalOpen(true); // ถ้าตะกร้ามีของ ให้เปิดดูตะกร้าก่อน
+                      }
+                    }}
+                    disabled={auditLoading || auditComplete}
+                    sx={{
+                      textTransform: "none",
+                      borderRadius: "4px",
+                      fontSize: "0.75rem",
+                    }}
+                  >
+                    ยืนยันรายการ
+                  </Button>
+                )}
 
                 <Button
                   variant="contained"
@@ -1019,7 +1025,7 @@ const ActualTable = React.memo(
                   size="small"
                   startIcon={<AnnouncementIcon />}
                   onClick={() => setReportModalOpen(true)}
-                  disabled={auditLoading || auditComplete}
+                  disabled={auditLoading || (isOwner && auditComplete)}
                   sx={{
                     textTransform: "none",
                     borderRadius: "4px",
@@ -1033,7 +1039,7 @@ const ActualTable = React.memo(
                 <Tooltip title="ดูตะกร้ารายการปฏิเสธ">
                   <IconButton
                     onClick={() => setBasketModalOpen(true)}
-                    disabled={auditComplete}
+                    disabled={isOwner && auditComplete}
                     color="error"
                     sx={{
                       bgcolor: "#ffebee",
@@ -1311,6 +1317,7 @@ const ActualTable = React.memo(
           onRemove={handleRemoveFromBasket}
           onApprove={handleOpenApproveDialog}
           onUpdateNote={handleUpdateBasketNote}
+          canApprove={isOwner}
           loading={auditLoading}
         />
         <ApproveConfirmModal
