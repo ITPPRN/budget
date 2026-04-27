@@ -15,7 +15,7 @@ import (
 // JobExecutor abstracts the actual sync work so the worker is decoupled from services.
 type JobExecutor interface {
 	SyncActuals(ctx context.Context, year string, months []string) error
-	SyncFromDW(ctx context.Context) error
+	SyncFromDW(ctx context.Context, year string, months []string) error
 }
 
 type executor struct {
@@ -34,11 +34,11 @@ func (e *executor) SyncActuals(ctx context.Context, year string, months []string
 	return e.actualSrv.SyncActuals(ctx, year, months)
 }
 
-func (e *executor) SyncFromDW(ctx context.Context) error {
+func (e *executor) SyncFromDW(ctx context.Context, year string, months []string) error {
 	if e.extSyncSrv == nil {
 		return fmt.Errorf("external sync service not configured")
 	}
-	return e.extSyncSrv.SyncFromDW(ctx)
+	return e.extSyncSrv.SyncFromDW(ctx, year, months)
 }
 
 type WorkerDeps struct {
@@ -149,7 +149,10 @@ func (w *Worker) execute(ctx context.Context, job *Job) error {
 		}
 		return w.deps.Executor.SyncActuals(ctx, job.Year, job.Months)
 	case models.SyncJobDW:
-		return w.deps.Executor.SyncFromDW(ctx)
+		if job.Year == "" {
+			return fmt.Errorf("year is required for %s", job.JobType)
+		}
+		return w.deps.Executor.SyncFromDW(ctx, job.Year, job.Months)
 	default:
 		return fmt.Errorf("unsupported job_type: %s", job.JobType)
 	}

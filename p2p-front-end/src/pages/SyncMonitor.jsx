@@ -16,6 +16,7 @@ import WarningIcon from '@mui/icons-material/Warning';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import CloseIcon from '@mui/icons-material/Close';
 import CancelIcon from '@mui/icons-material/Cancel';
+import ReplayIcon from '@mui/icons-material/Replay';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api/axiosInstance';
 import { toast } from 'react-toastify';
@@ -101,6 +102,7 @@ const SyncMonitor = () => {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [filterJobType, setFilterJobType] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [retryingRunId, setRetryingRunId] = useState(null); // ปุ่ม Retry ที่กำลังยิง POST
 
   const fetchHistory = useCallback(async () => {
     setHistoryLoading(true);
@@ -212,6 +214,61 @@ const SyncMonitor = () => {
       toast.error('Promote ไม่สำเร็จ: ' + (err.response?.data?.error || err.message));
     }
   };
+
+  const handleRetry = async (run) => {
+    setRetryingRunId(run.id);
+    try {
+      const months = run.month ? [run.month] : [];
+      await api.post('/admin/sync/trigger', {
+        job_type: run.job_type,
+        year: run.year,
+        months,
+      });
+      toast.success(`ส่งคำสั่ง retry ${run.job_type} ${run.year}${run.month ? '/' + run.month : ''} แล้ว`);
+      // refresh queue และ history เพื่อสะท้อนสถานะใหม่ทันที (RUNNING/queued)
+      fetchQueue();
+      fetchHistory();
+    } catch (err) {
+      const status = err.response?.status;
+      if (status === 409) {
+        toast.info('Job เดียวกันอยู่ในคิวอยู่แล้ว');
+        fetchQueue();
+      } else {
+        toast.error('Retry ไม่สำเร็จ: ' + (err.response?.data?.error || err.message));
+      }
+    } finally {
+      setRetryingRunId(null);
+    }
+  };
+
+  // canRetry: row นี้ควรโชว์ปุ่ม retry หรือไม่
+  // เงื่อนไข: status = FAILED/PARTIAL + ไม่มี run ใหม่กว่าของคู่ (job_type, year, month) ที่ RUNNING/SUCCESS
+  // + ไม่อยู่ในคิว pending แล้ว + ไม่ใช่ job ที่กำลังรันอยู่ตอนนี้
+  const canRetry = useCallback((run) => {
+    if (!run || (run.status !== 'FAILED' && run.status !== 'PARTIAL')) return false;
+    const sameKey = (a, b) =>
+      a.job_type === b.job_type && a.year === b.year && (a.month || '') === (b.month || '');
+
+    // ถ้ามี run อื่น (job_type, year, month เดียวกัน) ที่ใหม่กว่าและ RUNNING หรือ SUCCESS → ไม่ต้อง retry
+    const runStarted = run.started_at ? new Date(run.started_at).getTime() : 0;
+    for (const other of history) {
+      if (other.id === run.id) continue;
+      if (!sameKey(other, run)) continue;
+      const otherStarted = other.started_at ? new Date(other.started_at).getTime() : 0;
+      if (otherStarted <= runStarted) continue;
+      if (other.status === 'RUNNING' || other.status === 'SUCCESS') return false;
+    }
+
+    // ถ้า job เดียวกันอยู่ในคิว pending หรือกำลังรันใน worker ก็ไม่ต้อง retry
+    if (queue.current && sameKey(queue.current, run)) return false;
+    for (const p of queue.pending || []) {
+      const pMonth = (p.months && p.months.length === 1) ? p.months[0] : '';
+      if (p.job_type === run.job_type && p.year === run.year && pMonth === (run.month || '')) {
+        return false;
+      }
+    }
+    return true;
+  }, [history, queue]);
 
   // ──────────────────── Initial load ────────────────────
   useEffect(() => {
@@ -636,12 +693,13 @@ const SyncMonitor = () => {
                 <TableCell sx={{ fontWeight: 'bold' }} align="center">Retry</TableCell>
                 <TableCell sx={{ fontWeight: 'bold' }}>Triggered By</TableCell>
                 <TableCell sx={{ fontWeight: 'bold' }}>Error</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', width: 60 }} align="center">Action</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {history.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} align="center" sx={{ py: 3, color: 'text.secondary' }}>
+                  <TableCell colSpan={10} align="center" sx={{ py: 3, color: 'text.secondary' }}>
                     ไม่มีประวัติ
                   </TableCell>
                 </TableRow>
@@ -664,6 +722,24 @@ const SyncMonitor = () => {
                     <TableCell sx={{ fontSize: '0.7rem' }}>{r.triggered_by}</TableCell>
                     <TableCell sx={{ fontSize: '0.7rem', maxWidth: 250, color: 'error.main' }}>
                       {r.error_message ? r.error_message.slice(0, 100) : '-'}
+                    </TableCell>
+                    <TableCell align="center">
+                      {canRetry(r) && (
+                        <Tooltip title="Retry job นี้">
+                          <span>
+                            <IconButton
+                              size="small"
+                              color="primary"
+                              onClick={() => handleRetry(r)}
+                              disabled={retryingRunId === r.id}
+                            >
+                              {retryingRunId === r.id
+                                ? <CircularProgress size={16} />
+                                : <ReplayIcon fontSize="small" />}
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))

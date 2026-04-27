@@ -4,10 +4,19 @@ import (
 	"context"
 	"fmt"
 	"p2p-back-end/modules/entities/models"
+	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
+
+// monthRange returns [start, end) covering the given (year, month) — used to
+// avoid EXTRACT(YEAR/MONTH FROM CAST(...)) which prevents index usage on
+// Posting_Date. Date-range comparison is sargable and uses the index.
+func monthRange(year, month int) (time.Time, time.Time) {
+	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
+	return start, start.AddDate(0, 1, 0)
+}
 
 type externalSyncRepository struct {
 	localDb *gorm.DB
@@ -28,25 +37,31 @@ func NewExternalSyncRepository(localDb *gorm.DB, dwDb *gorm.DB) models.ExternalS
 }
 
 func (r *externalSyncRepository) FetchHMWInBatches(ctx context.Context, year int, month int, batchSize int, handle func([]models.AchHmwGleEntity) error) error {
+	if batchSize <= 0 {
+		batchSize = 5000
+	}
+	start, end := monthRange(year, month)
 	var results []models.AchHmwGleEntity
-	// We use CAST(Posting_Date AS DATE) in SELECT to make it scannable to time.Time
+	// CAST(Posting_Date AS DATE) in SELECT keeps it scannable to time.Time; the WHERE
+	// uses date-range so the index on Posting_Date can be used (vs EXTRACT(...) which
+	// disables the index).
 	err := r.dwDb.WithContext(ctx).
 		Table("achhmw_gle_api").
 		Select(`
-			id, "Entry_No", "System_Created_Entry", CAST("Posting_Date" AS DATE) AS "Posting_Date", 
-			"Document_Type", "Document_No", "G_L_Account_No", "G_L_Account_Name", "Description", 
-			"Description_2", "Job_No", "Global_Dimension_1_Code", "Global_Dimension_2_Code", 
-			"Vendor_Bank_Account", "IC_Partner_Code", "Gen_Posting_Type", "Gen_Bus_Posting_Group", 
-			"Gen_Prod_Posting_Group", "Quantity", "Amount", "Debit_Amount", "Credit_Amount", 
-			"Additional_Currency_Amount", "VAT_Amount", "Bal_Account_Type", "Bal_Account_No", 
-			"User_ID", "Source_Code", "Reason_Code", "Reversed", "Reversed_by_Entry_No", 
-			"Car_ID", "Reversed_Entry_No", "FA_Entry_Type", "FA_Entry_No", "Dimension_Set_ID", 
-			"Cutomer_No", "Cutomer_Name", "Vendor_Name", "Serial_No", "Serial_Description", 
+			id, "Entry_No", "System_Created_Entry", CAST("Posting_Date" AS DATE) AS "Posting_Date",
+			"Document_Type", "Document_No", "G_L_Account_No", "G_L_Account_Name", "Description",
+			"Description_2", "Job_No", "Global_Dimension_1_Code", "Global_Dimension_2_Code",
+			"Vendor_Bank_Account", "IC_Partner_Code", "Gen_Posting_Type", "Gen_Bus_Posting_Group",
+			"Gen_Prod_Posting_Group", "Quantity", "Amount", "Debit_Amount", "Credit_Amount",
+			"Additional_Currency_Amount", "VAT_Amount", "Bal_Account_Type", "Bal_Account_No",
+			"User_ID", "Source_Code", "Reason_Code", "Reversed", "Reversed_by_Entry_No",
+			"Car_ID", "Reversed_Entry_No", "FA_Entry_Type", "FA_Entry_No", "Dimension_Set_ID",
+			"Cutomer_No", "Cutomer_Name", "Vendor_Name", "Serial_No", "Serial_Description",
 			company, branch, _id, __v
 		`).
-		Where("EXTRACT(YEAR FROM CAST(\"Posting_Date\" AS DATE)) = ? AND EXTRACT(MONTH FROM CAST(\"Posting_Date\" AS DATE)) = ?", year, month).
+		Where(`"Posting_Date" >= ? AND "Posting_Date" < ?`, start, end).
 		Order("\"achhmw_gle_api\".\"id\"").
-		FindInBatches(&results, 2000, func(tx *gorm.DB, batchCount int) error {
+		FindInBatches(&results, batchSize, func(tx *gorm.DB, batchCount int) error {
 			return handle(results)
 		}).Error
 
@@ -57,24 +72,28 @@ func (r *externalSyncRepository) FetchHMWInBatches(ctx context.Context, year int
 }
 
 func (r *externalSyncRepository) FetchCLIKInBatches(ctx context.Context, year int, month int, batchSize int, handle func([]models.ClikGleEntity) error) error {
+	if batchSize <= 0 {
+		batchSize = 5000
+	}
+	start, end := monthRange(year, month)
 	var results []models.ClikGleEntity
 	err := r.dwDb.WithContext(ctx).
 		Table("general_ledger_entries_clik").
 		Select(`
-			id, "Entry_No", "System_Created_Entry", CAST("Posting_Date" AS DATE) AS "Posting_Date", 
-			"Document_Type", "Document_No", "G_L_Account_No", "G_L_Account_Name", "Description", 
-			"Description_2", "Job_No", "Global_Dimension_1_Code", "Global_Dimension_2_Code", 
-			"Vendor_Bank_Account", "IC_Partner_Code", "Gen_Posting_Type", "Gen_Bus_Posting_Group", 
-			"Gen_Prod_Posting_Group", "Quantity", "Amount", "Debit_Amount", "Credit_Amount", 
-			"Additional_Currency_Amount", "VAT_Amount", "Bal_Account_Type", "Bal_Account_No", 
-			"User_ID", "Source_Code", "Reason_Code", "Reversed", "Reversed_by_Entry_No", 
-			"Car_ID", "Reversed_Entry_No", "FA_Entry_Type", "FA_Entry_No", "Dimension_Set_ID", 
+			id, "Entry_No", "System_Created_Entry", CAST("Posting_Date" AS DATE) AS "Posting_Date",
+			"Document_Type", "Document_No", "G_L_Account_No", "G_L_Account_Name", "Description",
+			"Description_2", "Job_No", "Global_Dimension_1_Code", "Global_Dimension_2_Code",
+			"Vendor_Bank_Account", "IC_Partner_Code", "Gen_Posting_Type", "Gen_Bus_Posting_Group",
+			"Gen_Prod_Posting_Group", "Quantity", "Amount", "Debit_Amount", "Credit_Amount",
+			"Additional_Currency_Amount", "VAT_Amount", "Bal_Account_Type", "Bal_Account_No",
+			"User_ID", "Source_Code", "Reason_Code", "Reversed", "Reversed_by_Entry_No",
+			"Car_ID", "Reversed_Entry_No", "FA_Entry_Type", "FA_Entry_No", "Dimension_Set_ID",
 			"Cutomer_No", "Cutomer_Name", "Vendor_Name", "Serial_No", "Serial_Description",
 			'CLIK' as company
 		`).
-		Where("EXTRACT(YEAR FROM CAST(\"Posting_Date\" AS DATE)) = ? AND EXTRACT(MONTH FROM CAST(\"Posting_Date\" AS DATE)) = ?", year, month).
+		Where(`"Posting_Date" >= ? AND "Posting_Date" < ?`, start, end).
 		Order("\"general_ledger_entries_clik\".\"id\"").
-		FindInBatches(&results, 2000, func(tx *gorm.DB, batchCount int) error {
+		FindInBatches(&results, batchSize, func(tx *gorm.DB, batchCount int) error {
 			return handle(results)
 		}).Error
 
@@ -85,12 +104,11 @@ func (r *externalSyncRepository) FetchCLIKInBatches(ctx context.Context, year in
 }
 
 // DeleteHMWByYearMonth ลบข้อมูล HMW raw ของเดือน/ปีที่ระบุก่อน insert ใหม่
-// เพื่อป้องกัน duplicate rows (idempotent sync)
+// เพื่อป้องกัน duplicate rows (idempotent sync). ใช้ date-range เพื่อให้ใช้ index ได้
 func (r *externalSyncRepository) DeleteHMWByYearMonth(ctx context.Context, year int, month int) error {
+	start, end := monthRange(year, month)
 	err := r.localDb.WithContext(ctx).
-		Exec(`DELETE FROM achhmw_gle_api
-			WHERE EXTRACT(YEAR FROM "Posting_Date") = ?
-			  AND EXTRACT(MONTH FROM "Posting_Date") = ?`, year, month).Error
+		Exec(`DELETE FROM achhmw_gle_api WHERE "Posting_Date" >= ? AND "Posting_Date" < ?`, start, end).Error
 	if err != nil {
 		return fmt.Errorf("extSyncRepo.DeleteHMWByYearMonth: %w", err)
 	}
@@ -99,10 +117,9 @@ func (r *externalSyncRepository) DeleteHMWByYearMonth(ctx context.Context, year 
 
 // DeleteCLIKByYearMonth ลบข้อมูล CLIK raw ของเดือน/ปีที่ระบุก่อน insert ใหม่
 func (r *externalSyncRepository) DeleteCLIKByYearMonth(ctx context.Context, year int, month int) error {
+	start, end := monthRange(year, month)
 	err := r.localDb.WithContext(ctx).
-		Exec(`DELETE FROM general_ledger_entries_clik
-			WHERE EXTRACT(YEAR FROM "Posting_Date") = ?
-			  AND EXTRACT(MONTH FROM "Posting_Date") = ?`, year, month).Error
+		Exec(`DELETE FROM general_ledger_entries_clik WHERE "Posting_Date" >= ? AND "Posting_Date" < ?`, start, end).Error
 	if err != nil {
 		return fmt.Errorf("extSyncRepo.DeleteCLIKByYearMonth: %w", err)
 	}
@@ -124,7 +141,7 @@ func (r *externalSyncRepository) UpsertHMWLocal(ctx context.Context, data []mode
 	err := r.localDb.WithContext(ctx).
 		Table("achhmw_gle_api").
 		Clauses(clause.OnConflict{DoNothing: true}).
-		CreateInBatches(data, 500).Error
+		CreateInBatches(data, 2000).Error
 	if err != nil {
 		return fmt.Errorf("extSyncRepo.UpsertHMWLocal: %w", err)
 	}
@@ -143,7 +160,7 @@ func (r *externalSyncRepository) UpsertCLIKLocal(ctx context.Context, data []mod
 	err := r.localDb.WithContext(ctx).
 		Table("general_ledger_entries_clik").
 		Clauses(clause.OnConflict{DoNothing: true}).
-		CreateInBatches(data, 500).Error
+		CreateInBatches(data, 2000).Error
 	if err != nil {
 		return fmt.Errorf("extSyncRepo.UpsertCLIKLocal: %w", err)
 	}

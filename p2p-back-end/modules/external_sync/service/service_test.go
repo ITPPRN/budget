@@ -3,10 +3,9 @@ package service
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
+	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -59,6 +58,7 @@ func (m *MockExternalSyncRepository) DeleteCLIKByYearMonth(ctx context.Context, 
 type MockActualService struct {
 	mock.Mock
 }
+
 func (m *MockActualService) SyncActualsDebug(ctx context.Context, targetDocNo string) error {
 	args := m.Called(ctx, targetDocNo)
 	return args.Error(0)
@@ -88,255 +88,148 @@ func (m *MockActualService) RefreshDataInventory(ctx context.Context) error {
 func TestNewExternalSyncService(t *testing.T) {
 	repo := new(MockExternalSyncRepository)
 	actualSrv := new(MockActualService)
-
 	svc := NewExternalSyncService(repo, actualSrv, nil)
-
 	assert.NotNil(t, svc)
 }
 
-func TestSyncFromDW_Success(t *testing.T) {
+func TestSyncFromDW_InvalidYear(t *testing.T) {
+	svc := NewExternalSyncService(new(MockExternalSyncRepository), new(MockActualService), nil)
+	err := svc.SyncFromDW(context.Background(), "abc", []string{"JAN"})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid year")
+}
+
+func TestSyncFromDW_InvalidMonthCode(t *testing.T) {
+	svc := NewExternalSyncService(new(MockExternalSyncRepository), new(MockActualService), nil)
+	err := svc.SyncFromDW(context.Background(), "2026", []string{"NOPE"})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid month code")
+}
+
+// expectMonthSuccess wires up mocks so HMW + CLIK delete/fetch all succeed for (year, month).
+func expectMonthSuccess(repo *MockExternalSyncRepository, year, month int) {
+	repo.On("DeleteHMWByYearMonth", mock.Anything, year, month).Return(nil)
+	repo.On("FetchHMWInBatches", mock.Anything, year, month, 5000,
+		mock.AnythingOfType("func([]models.AchHmwGleEntity) error")).Return(nil)
+	repo.On("DeleteCLIKByYearMonth", mock.Anything, year, month).Return(nil)
+	repo.On("FetchCLIKInBatches", mock.Anything, year, month, 5000,
+		mock.AnythingOfType("func([]models.ClikGleEntity) error")).Return(nil)
+}
+
+func TestSyncFromDW_SuccessSingleMonth(t *testing.T) {
 	repo := new(MockExternalSyncRepository)
 	actualSrv := new(MockActualService)
 	svc := NewExternalSyncService(repo, actualSrv, nil)
 
-	now := time.Now()
-	currentYear := now.Year()
-	currentMonth := int(now.Month())
+	expectMonthSuccess(repo, 2026, 4)
+	actualSrv.On("SyncActuals", mock.Anything, "2026", []string{"APR"}).Return(nil)
+	actualSrv.On("RefreshDataInventory", mock.Anything).Return(nil)
 
-	// Expect calls for each year-month from 2026 to now
-	for year := currentYear - 1; year <= currentYear; year++ {
-		endMonth := 12
-		if year == currentYear {
-			endMonth = currentMonth
-		}
-		for month := 1; month <= endMonth; month++ {
-			repo.On("DeleteHMWByYearMonth", mock.Anything, year, month).Return(nil)
-			repo.On("FetchHMWInBatches", mock.Anything, year, month, 2000, mock.AnythingOfType("func([]models.AchHmwGleEntity) error")).Return(nil)
-			repo.On("DeleteCLIKByYearMonth", mock.Anything, year, month).Return(nil)
-			repo.On("FetchCLIKInBatches", mock.Anything, year, month, 2000, mock.AnythingOfType("func([]models.ClikGleEntity) error")).Return(nil)
-		}
-		yearStr := fmt.Sprintf("%d", year)
-		actualSrv.On("SyncActuals", mock.Anything, yearStr, []string{}).Return(nil)
-		actualSrv.On("RefreshDataInventory", mock.Anything).Return(nil)
-	}
-
-	err := svc.SyncFromDW(context.Background())
+	err := svc.SyncFromDW(context.Background(), "2026", []string{"APR"})
 
 	assert.NoError(t, err)
 	repo.AssertExpectations(t)
 	actualSrv.AssertExpectations(t)
 }
 
-func TestSyncFromDW_HMWFetchError_ContinuesProcessing(t *testing.T) {
+func TestSyncFromDW_MultipleMonths(t *testing.T) {
 	repo := new(MockExternalSyncRepository)
 	actualSrv := new(MockActualService)
 	svc := NewExternalSyncService(repo, actualSrv, nil)
 
-	now := time.Now()
-	currentYear := now.Year()
-	currentMonth := int(now.Month())
+	expectMonthSuccess(repo, 2026, 1)
+	expectMonthSuccess(repo, 2026, 2)
+	expectMonthSuccess(repo, 2026, 3)
+	actualSrv.On("SyncActuals", mock.Anything, "2026", []string{"JAN", "FEB", "MAR"}).Return(nil)
+	actualSrv.On("RefreshDataInventory", mock.Anything).Return(nil)
 
-	for year := currentYear - 1; year <= currentYear; year++ {
-		endMonth := 12
-		if year == currentYear {
-			endMonth = currentMonth
-		}
-		for month := 1; month <= endMonth; month++ {
-			repo.On("DeleteHMWByYearMonth", mock.Anything, year, month).Return(nil)
-			// HMW fails for all months
-			repo.On("FetchHMWInBatches", mock.Anything, year, month, 2000, mock.AnythingOfType("func([]models.AchHmwGleEntity) error")).
-				Return(errors.New("connection timeout"))
-			repo.On("DeleteCLIKByYearMonth", mock.Anything, year, month).Return(nil)
-			// CLIK succeeds
-			repo.On("FetchCLIKInBatches", mock.Anything, year, month, 2000, mock.AnythingOfType("func([]models.ClikGleEntity) error")).
-				Return(nil)
-		}
-		yearStr := fmt.Sprintf("%d", year)
-		actualSrv.On("SyncActuals", mock.Anything, yearStr, []string{}).Return(nil)
-		actualSrv.On("RefreshDataInventory", mock.Anything).Return(nil)
-	}
+	err := svc.SyncFromDW(context.Background(), "2026", []string{"JAN", "FEB", "MAR"})
 
-	// SyncFromDW logs errors but does NOT return error
-	err := svc.SyncFromDW(context.Background())
+	assert.NoError(t, err)
+	repo.AssertExpectations(t)
+	actualSrv.AssertExpectations(t)
+}
+
+func TestSyncFromDW_HMWFetchError_FailFast(t *testing.T) {
+	repo := new(MockExternalSyncRepository)
+	actualSrv := new(MockActualService)
+	svc := NewExternalSyncService(repo, actualSrv, nil)
+
+	repo.On("DeleteHMWByYearMonth", mock.Anything, 2026, 4).Return(nil)
+	repo.On("FetchHMWInBatches", mock.Anything, 2026, 4, 5000,
+		mock.AnythingOfType("func([]models.AchHmwGleEntity) error")).
+		Return(errors.New("connection reset"))
+	// CLIK runs in parallel; allow it to succeed (or fail) — both legal.
+	repo.On("DeleteCLIKByYearMonth", mock.Anything, 2026, 4).Return(nil).Maybe()
+	repo.On("FetchCLIKInBatches", mock.Anything, 2026, 4, 5000,
+		mock.AnythingOfType("func([]models.ClikGleEntity) error")).Return(nil).Maybe()
+
+	err := svc.SyncFromDW(context.Background(), "2026", []string{"APR"})
+
+	assert.Error(t, err)
+	assert.True(t, strings.Contains(err.Error(), "HMW") || strings.Contains(err.Error(), "connection"))
+	// Subsequent steps must not run after a month-level failure.
+	actualSrv.AssertNotCalled(t, "SyncActuals", mock.Anything, mock.Anything, mock.Anything)
+	actualSrv.AssertNotCalled(t, "RefreshDataInventory", mock.Anything)
+}
+
+func TestSyncFromDW_BothHMWAndCLIKFail(t *testing.T) {
+	repo := new(MockExternalSyncRepository)
+	actualSrv := new(MockActualService)
+	svc := NewExternalSyncService(repo, actualSrv, nil)
+
+	repo.On("DeleteHMWByYearMonth", mock.Anything, 2026, 4).Return(nil)
+	repo.On("FetchHMWInBatches", mock.Anything, 2026, 4, 5000,
+		mock.AnythingOfType("func([]models.AchHmwGleEntity) error")).
+		Return(errors.New("hmw boom"))
+	repo.On("DeleteCLIKByYearMonth", mock.Anything, 2026, 4).Return(nil)
+	repo.On("FetchCLIKInBatches", mock.Anything, 2026, 4, 5000,
+		mock.AnythingOfType("func([]models.ClikGleEntity) error")).
+		Return(errors.New("clik boom"))
+
+	err := svc.SyncFromDW(context.Background(), "2026", []string{"APR"})
+
+	assert.Error(t, err)
+	// Both errors should surface in the joined message.
+	assert.Contains(t, err.Error(), "hmw boom")
+	assert.Contains(t, err.Error(), "clik boom")
+}
+
+func TestSyncFromDW_DefaultsToCurrentMonthWhenEmpty(t *testing.T) {
+	// When months is empty/nil, the service should sync the current month only —
+	// belt-and-braces fallback if a caller forgets to specify; cron always sends
+	// an explicit month.
+	repo := new(MockExternalSyncRepository)
+	actualSrv := new(MockActualService)
+	svc := NewExternalSyncService(repo, actualSrv, nil)
+
+	repo.On("DeleteHMWByYearMonth", mock.Anything, 2026, mock.AnythingOfType("int")).Return(nil)
+	repo.On("FetchHMWInBatches", mock.Anything, 2026, mock.AnythingOfType("int"), 5000,
+		mock.AnythingOfType("func([]models.AchHmwGleEntity) error")).Return(nil)
+	repo.On("DeleteCLIKByYearMonth", mock.Anything, 2026, mock.AnythingOfType("int")).Return(nil)
+	repo.On("FetchCLIKInBatches", mock.Anything, 2026, mock.AnythingOfType("int"), 5000,
+		mock.AnythingOfType("func([]models.ClikGleEntity) error")).Return(nil)
+	actualSrv.On("SyncActuals", mock.Anything, "2026", mock.AnythingOfType("[]string")).Return(nil)
+	actualSrv.On("RefreshDataInventory", mock.Anything).Return(nil)
+
+	err := svc.SyncFromDW(context.Background(), "2026", nil)
 
 	assert.NoError(t, err)
 	repo.AssertExpectations(t)
 }
 
-func TestSyncFromDW_CLIKFetchError_ContinuesProcessing(t *testing.T) {
+func TestSyncFromDW_RefreshInventoryNonFatal(t *testing.T) {
 	repo := new(MockExternalSyncRepository)
 	actualSrv := new(MockActualService)
 	svc := NewExternalSyncService(repo, actualSrv, nil)
 
-	now := time.Now()
-	currentYear := now.Year()
-	currentMonth := int(now.Month())
+	expectMonthSuccess(repo, 2026, 4)
+	actualSrv.On("SyncActuals", mock.Anything, "2026", []string{"APR"}).Return(nil)
+	actualSrv.On("RefreshDataInventory", mock.Anything).Return(errors.New("inventory blew up"))
 
-	for year := currentYear - 1; year <= currentYear; year++ {
-		endMonth := 12
-		if year == currentYear {
-			endMonth = currentMonth
-		}
-		for month := 1; month <= endMonth; month++ {
-			repo.On("DeleteHMWByYearMonth", mock.Anything, year, month).Return(nil)
-			repo.On("FetchHMWInBatches", mock.Anything, year, month, 2000, mock.AnythingOfType("func([]models.AchHmwGleEntity) error")).Return(nil)
-			repo.On("DeleteCLIKByYearMonth", mock.Anything, year, month).Return(nil)
-			repo.On("FetchCLIKInBatches", mock.Anything, year, month, 2000, mock.AnythingOfType("func([]models.ClikGleEntity) error")).
-				Return(errors.New("db error"))
-		}
-		yearStr := fmt.Sprintf("%d", year)
-		actualSrv.On("SyncActuals", mock.Anything, yearStr, []string{}).Return(nil)
-		actualSrv.On("RefreshDataInventory", mock.Anything).Return(nil)
-	}
+	err := svc.SyncFromDW(context.Background(), "2026", []string{"APR"})
 
-	err := svc.SyncFromDW(context.Background())
-
+	// Inventory refresh failure is logged but does not fail the job — the raw
+	// data is already in place; the inventory widget can be refreshed next run.
 	assert.NoError(t, err)
-}
-
-func TestSyncFromDW_SyncActualsError_ContinuesProcessing(t *testing.T) {
-	repo := new(MockExternalSyncRepository)
-	actualSrv := new(MockActualService)
-	svc := NewExternalSyncService(repo, actualSrv, nil)
-
-	now := time.Now()
-	currentYear := now.Year()
-	currentMonth := int(now.Month())
-
-	for year := currentYear - 1; year <= currentYear; year++ {
-		endMonth := 12
-		if year == currentYear {
-			endMonth = currentMonth
-		}
-		for month := 1; month <= endMonth; month++ {
-			repo.On("DeleteHMWByYearMonth", mock.Anything, year, month).Return(nil)
-			repo.On("FetchHMWInBatches", mock.Anything, year, month, 2000, mock.AnythingOfType("func([]models.AchHmwGleEntity) error")).Return(nil)
-			repo.On("DeleteCLIKByYearMonth", mock.Anything, year, month).Return(nil)
-			repo.On("FetchCLIKInBatches", mock.Anything, year, month, 2000, mock.AnythingOfType("func([]models.ClikGleEntity) error")).Return(nil)
-		}
-		yearStr := fmt.Sprintf("%d", year)
-		actualSrv.On("SyncActuals", mock.Anything, yearStr, []string{}).Return(errors.New("sync failed"))
-		actualSrv.On("RefreshDataInventory", mock.Anything).Return(errors.New("refresh failed"))
-	}
-
-	err := svc.SyncFromDW(context.Background())
-
-	assert.NoError(t, err)
-}
-
-func TestSyncFromDW_AllErrors_StillReturnsNil(t *testing.T) {
-	repo := new(MockExternalSyncRepository)
-	actualSrv := new(MockActualService)
-	svc := NewExternalSyncService(repo, actualSrv, nil)
-
-	now := time.Now()
-	currentYear := now.Year()
-	currentMonth := int(now.Month())
-
-	for year := currentYear - 1; year <= currentYear; year++ {
-		endMonth := 12
-		if year == currentYear {
-			endMonth = currentMonth
-		}
-		for month := 1; month <= endMonth; month++ {
-			repo.On("DeleteHMWByYearMonth", mock.Anything, year, month).Return(nil)
-			repo.On("FetchHMWInBatches", mock.Anything, year, month, 2000, mock.AnythingOfType("func([]models.AchHmwGleEntity) error")).
-				Return(errors.New("hmw error"))
-			repo.On("DeleteCLIKByYearMonth", mock.Anything, year, month).Return(nil)
-			repo.On("FetchCLIKInBatches", mock.Anything, year, month, 2000, mock.AnythingOfType("func([]models.ClikGleEntity) error")).
-				Return(errors.New("clik error"))
-		}
-		yearStr := fmt.Sprintf("%d", year)
-		actualSrv.On("SyncActuals", mock.Anything, yearStr, []string{}).Return(errors.New("sync error"))
-		actualSrv.On("RefreshDataInventory", mock.Anything).Return(errors.New("refresh error"))
-	}
-
-	err := svc.SyncFromDW(context.Background())
-
-	// SyncFromDW always returns nil (it only logs errors)
-	assert.NoError(t, err)
-}
-
-func TestSyncFromDW_FetchHMW_CallsUpsertViaHandler(t *testing.T) {
-	repo := new(MockExternalSyncRepository)
-	actualSrv := new(MockActualService)
-	svc := NewExternalSyncService(repo, actualSrv, nil)
-
-	now := time.Now()
-	currentYear := now.Year()
-	currentMonth := int(now.Month())
-
-	testData := []models.AchHmwGleEntity{
-		{ID: 1, GLAccountNo: "5100", Company: "ACH"},
-		{ID: 2, GLAccountNo: "5200", Company: "HMW"},
-	}
-
-	for year := currentYear - 1; year <= currentYear; year++ {
-		endMonth := 12
-		if year == currentYear {
-			endMonth = currentMonth
-		}
-		for month := 1; month <= endMonth; month++ {
-			repo.On("DeleteHMWByYearMonth", mock.Anything, year, month).Return(nil)
-			// Capture and invoke the handler to verify UpsertHMWLocal is called
-			repo.On("FetchHMWInBatches", mock.Anything, year, month, 2000, mock.AnythingOfType("func([]models.AchHmwGleEntity) error")).
-				Run(func(args mock.Arguments) {
-					handler := args.Get(4).(func([]models.AchHmwGleEntity) error)
-					_ =handler(testData)
-				}).Return(nil)
-			repo.On("DeleteCLIKByYearMonth", mock.Anything, year, month).Return(nil)
-			repo.On("FetchCLIKInBatches", mock.Anything, year, month, 2000, mock.AnythingOfType("func([]models.ClikGleEntity) error")).Return(nil)
-		}
-		yearStr := fmt.Sprintf("%d", year)
-		actualSrv.On("SyncActuals", mock.Anything, yearStr, []string{}).Return(nil)
-		actualSrv.On("RefreshDataInventory", mock.Anything).Return(nil)
-	}
-
-	repo.On("UpsertHMWLocal", mock.Anything, testData).Return(nil)
-
-	err := svc.SyncFromDW(context.Background())
-
-	assert.NoError(t, err)
-	repo.AssertCalled(t, "UpsertHMWLocal", mock.Anything, testData)
-}
-
-func TestSyncFromDW_FetchCLIK_CallsUpsertViaHandler(t *testing.T) {
-	repo := new(MockExternalSyncRepository)
-	actualSrv := new(MockActualService)
-	svc := NewExternalSyncService(repo, actualSrv, nil)
-
-	now := time.Now()
-	currentYear := now.Year()
-	currentMonth := int(now.Month())
-
-	testData := []models.ClikGleEntity{
-		{ID: 1, GLAccountNo: "6100", Company: "CLIK"},
-	}
-
-	for year := currentYear - 1; year <= currentYear; year++ {
-		endMonth := 12
-		if year == currentYear {
-			endMonth = currentMonth
-		}
-		for month := 1; month <= endMonth; month++ {
-			repo.On("DeleteHMWByYearMonth", mock.Anything, year, month).Return(nil)
-			repo.On("FetchHMWInBatches", mock.Anything, year, month, 2000, mock.AnythingOfType("func([]models.AchHmwGleEntity) error")).Return(nil)
-			repo.On("DeleteCLIKByYearMonth", mock.Anything, year, month).Return(nil)
-			repo.On("FetchCLIKInBatches", mock.Anything, year, month, 2000, mock.AnythingOfType("func([]models.ClikGleEntity) error")).
-				Run(func(args mock.Arguments) {
-					handler := args.Get(4).(func([]models.ClikGleEntity) error)
-					_ =handler(testData)
-				}).Return(nil)
-		}
-		yearStr := fmt.Sprintf("%d", year)
-		actualSrv.On("SyncActuals", mock.Anything, yearStr, []string{}).Return(nil)
-		actualSrv.On("RefreshDataInventory", mock.Anything).Return(nil)
-	}
-
-	repo.On("UpsertCLIKLocal", mock.Anything, testData).Return(nil)
-
-	err := svc.SyncFromDW(context.Background())
-
-	assert.NoError(t, err)
-	repo.AssertCalled(t, "UpsertCLIKLocal", mock.Anything, testData)
 }

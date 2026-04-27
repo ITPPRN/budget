@@ -27,8 +27,8 @@ func (m *mockExecutor) SyncActuals(ctx context.Context, year string, months []st
 	return args.Error(0)
 }
 
-func (m *mockExecutor) SyncFromDW(ctx context.Context) error {
-	args := m.Called(ctx)
+func (m *mockExecutor) SyncFromDW(ctx context.Context, year string, months []string) error {
+	args := m.Called(ctx, year, months)
 	return args.Error(0)
 }
 
@@ -123,11 +123,11 @@ func TestWorker_Execute_DWDispatchesToSyncFromDW(t *testing.T) {
 	rdb, _ := setupRedis(t)
 	q := NewRedisQueue(rdb)
 	exec := new(mockExecutor)
-	exec.On("SyncFromDW", mock.Anything).Return(nil)
+	exec.On("SyncFromDW", mock.Anything, "2026", []string{"APR"}).Return(nil)
 
 	w := NewWorker(WorkerDeps{Queue: q, Executor: exec})
 
-	job := &Job{ID: uuid.New(), JobType: models.SyncJobDW, Year: "2026"}
+	job := &Job{ID: uuid.New(), JobType: models.SyncJobDW, Year: "2026", Months: []string{"APR"}}
 	err := w.execute(context.Background(), job)
 
 	assert.NoError(t, err)
@@ -275,7 +275,7 @@ func (r *recordExecutor) SyncActuals(_ context.Context, year string, months []st
 	return nil
 }
 
-func (r *recordExecutor) SyncFromDW(_ context.Context) error {
+func (r *recordExecutor) SyncFromDW(_ context.Context, _ string, _ []string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.calls = append(r.calls, "DW")

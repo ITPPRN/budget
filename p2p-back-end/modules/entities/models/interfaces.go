@@ -230,7 +230,10 @@ type ExternalSyncRepository interface {
 }
 
 type ExternalSyncService interface {
-	SyncFromDW(ctx context.Context) error
+	// SyncFromDW pulls raw HMW + CLIK data for the given (year, months) — months
+	// are 3-letter codes (JAN..DEC). If months is empty/nil, it syncs the current month
+	// only as a safe default. Each call is a single DW pull job.
+	SyncFromDW(ctx context.Context, year string, months []string) error
 }
 
 // 4. Master Data Domain
