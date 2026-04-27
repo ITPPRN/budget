@@ -21,6 +21,7 @@ func NewAuditController(
 
 	router.Post("/audit/basket/add", controller.addBasket)
 	router.Get("/audit/basket/list", controller.getBasket)
+	router.Get("/audit/basket/in-basket-tx-ids", controller.getInBasketTxIDs)
 	router.Patch("/audit/basket/:id", controller.updateBasketNote)
 	router.Delete("/audit/basket/:id", controller.removeBasket)
 	router.Post("/audit/approve", controller.approve)
@@ -97,6 +98,18 @@ func (h *auditController) getBasket(c *fiber.Ctx) error {
 
     // ส่งคืนข้อมูลเป็น Array ของ Object ได้เลย
     return c.JSON(items)
+}
+
+func (h *auditController) getInBasketTxIDs(c *fiber.Ctx) error {
+    user, ok := c.Locals("user").(*models.UserInfo)
+    if !ok {
+        return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Unauthorized"})
+    }
+    ids, err := h.auditSrv.GetInBasketTxIDs(c.UserContext(), user)
+    if err != nil {
+        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to fetch in-basket tx ids: " + err.Error()})
+    }
+    return c.JSON(ids)
 }
 
 func (h *auditController) removeBasket(c *fiber.Ctx) error {

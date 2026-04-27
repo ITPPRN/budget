@@ -170,11 +170,11 @@ func (s *server) StartCronJob() {
 
 		// 🚀 IMMEDIATE STARTUP SYNC — enqueue DW + full-year ACTUAL_FACT sequentially.
 		// Worker drains them serially after the queue Recover() has run.
-		go func() {
-			yearStr := fmt.Sprintf("%d", time.Now().Year())
-			s.enqueueOrLog(models.SyncJobDW, yearStr, []string{}, "STARTUP")
-			s.enqueueOrLog(models.SyncJobActualFact, yearStr, []string{}, "STARTUP")
-		}()
+		// go func() {
+		// 	yearStr := fmt.Sprintf("%d", time.Now().Year())
+		// 	s.enqueueOrLog(models.SyncJobDW, yearStr, []string{}, "STARTUP")
+		// 	s.enqueueOrLog(models.SyncJobActualFact, yearStr, []string{}, "STARTUP")
+		// }()
 	}
 
 	// Start the Cron scheduler

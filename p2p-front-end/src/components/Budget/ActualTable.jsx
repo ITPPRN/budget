@@ -547,12 +547,12 @@ const ActualTable = React.memo(
     };
 
     useEffect(() => {
-      if (isOwner) {
+      if (canAudit) {
         const target = getApproveTarget();
         checkAuditComplete(target.year, target.month);
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isOwner, dateFilter?.startDate]);
+    }, [canAudit, dateFilter?.startDate]);
 
     const handleFilterClick = (event) => {
       setTempDateFilter(dateFilter || { startDate: "", endDate: "" });
@@ -938,7 +938,7 @@ const ActualTable = React.memo(
           }}
         >
           <Box sx={{ pl: 1, display: "flex", gap: 1, alignItems: "center" }}>
-            {isOwner && (
+            {canAudit && (
               <Box
                 sx={{
                   display: "flex",
@@ -1025,7 +1025,7 @@ const ActualTable = React.memo(
                   size="small"
                   startIcon={<AnnouncementIcon />}
                   onClick={() => setReportModalOpen(true)}
-                  disabled={auditLoading || (isOwner && auditComplete)}
+                  disabled={auditLoading || auditComplete}
                   sx={{
                     textTransform: "none",
                     borderRadius: "4px",
@@ -1039,7 +1039,7 @@ const ActualTable = React.memo(
                 <Tooltip title="ดูตะกร้ารายการปฏิเสธ">
                   <IconButton
                     onClick={() => setBasketModalOpen(true)}
-                    disabled={isOwner && auditComplete}
+                    disabled={auditComplete}
                     color="error"
                     sx={{
                       bgcolor: "#ffebee",

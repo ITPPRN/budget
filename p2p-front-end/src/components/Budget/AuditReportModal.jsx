@@ -17,10 +17,11 @@ import api from '../../utils/api/axiosInstance';
 // 🌟 เอา initialItems ออกจาก Props
 const AuditReportModal = ({ open, onClose, filters, onSubmit, loading: submitting, basketItems = [] }) => {
     const [searchQuery, setSearchQuery] = useState('');
-    const [searchResults, setSearchResults] = useState([]); 
+    const [searchResults, setSearchResults] = useState([]);
     const [searching, setSearching] = useState(false);
     const [addedItems, setAddedItems] = useState([]); // ของที่จะรอใส่ตะกร้า (เฉพาะรอบนี้)
-    const [errorMsg, setErrorMsg] = useState(null); 
+    const [errorMsg, setErrorMsg] = useState(null);
+    const [globalBasketIds, setGlobalBasketIds] = useState([]); // tx_ids ที่อยู่ในตะกร้าของใครก็ได้ (ครอบ dept ที่ user เห็น)
 
     // 🌟 Reset ทุกครั้งที่เปิด Modal
     useEffect(() => {
@@ -29,6 +30,12 @@ const AuditReportModal = ({ open, onClose, filters, onSubmit, loading: submittin
             setSearchResults([]);
             setAddedItems([]); // เคลียร์ของเก่าทิ้ง เริ่มต้นใหม่ทุกครั้งที่กดเปิดค้นหา
             setErrorMsg(null);
+
+            // ดึงรายการ tx_ids ที่ใครๆ เพิ่มเข้าตะกร้าไว้แล้ว — เพื่อโชว์ chip "เพิ่มเข้าตะกร้าแล้ว"
+            // กัน user (โดยเฉพาะ delegate คนละคน) เพิ่มซ้ำ
+            api.get('/budgets/audit/basket/in-basket-tx-ids')
+                .then(res => setGlobalBasketIds(res.data || []))
+                .catch(() => setGlobalBasketIds([]));
         }
     }, [open]);
 
@@ -100,10 +107,11 @@ const AuditReportModal = ({ open, onClose, filters, onSubmit, loading: submittin
         onSubmit(addedItems); 
     };
 
-    const basketIds = useMemo(
-        () => new Set((basketItems || []).map(item => item.id)),
-        [basketItems]
-    );
+    const basketIds = useMemo(() => {
+        const set = new Set((basketItems || []).map(item => item.id));
+        for (const id of globalBasketIds) set.add(id);
+        return set;
+    }, [basketItems, globalBasketIds]);
 
     const displayResults = useMemo(() => {
         const addedIds = new Set(addedItems.map(item => item.id));

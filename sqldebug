@@ -80,3 +80,12 @@ amt AS (
 SELECT COALESCE(txn.month, amt.month), txn.sum_txn, amt.sum_amt,
        COALESCE(txn.sum_txn, 0) - COALESCE(amt.sum_amt, 0) AS diff
 FROM txn FULL OUTER JOIN amt ON txn.month = amt.month ORDER BY 1;
+
+
+
+รันเทสทั้งหมด
+CGO_ENABLED=0 go test -v -count=1 ./...
+
+
+หาอัน fail
+CGO_ENABLED=0 go test -count=1 ./...

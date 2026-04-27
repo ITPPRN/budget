@@ -639,6 +639,45 @@ func (s *auditService) UpdateBasketNote(ctx context.Context, user *models.UserIn
     return s.auditRepo.UpdateBasketNoteByAddedBy(ctx, user.ID, transactionID, note)
 }
 
+// GetInBasketTxIDs returns tx IDs that are in any basket whose underlying tx
+// belongs to a department the caller has access to. Frontend uses this to grey
+// out items that are already in someone's basket so users do not duplicate adds.
+func (s *auditService) GetInBasketTxIDs(ctx context.Context, user *models.UserInfo) ([]string, error) {
+	if user == nil || user.ID == "" {
+		return nil, errors.New("user is required")
+	}
+	perms, err := s.userRepo.GetUserPermissions(ctx, user.ID)
+	if err != nil {
+		return nil, err
+	}
+	deptSet := make(map[string]struct{}, len(perms))
+	for _, p := range perms {
+		if p.IsActive != nil && !*p.IsActive {
+			continue
+		}
+		switch p.Role {
+		case models.RoleOwner, models.RoleDelegate, models.RoleBranchDelegate:
+			deptSet[p.DepartmentCode] = struct{}{}
+		}
+	}
+	if len(deptSet) == 0 {
+		return []string{}, nil
+	}
+	depts := make([]string, 0, len(deptSet))
+	for d := range deptSet {
+		depts = append(depts, d)
+	}
+	ids, err := s.auditRepo.GetInBasketTxIDsByDepartments(ctx, depts)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, id.String())
+	}
+	return out, nil
+}
+
 // userHasOwnerPermission returns true if the user holds OWNER on any active permission.
 func (s *auditService) userHasOwnerPermission(ctx context.Context, userID string) (bool, error) {
     perms, err := s.userRepo.GetUserPermissions(ctx, userID)
@@ -708,20 +747,28 @@ func mergeBasketItems(primary, secondary []models.BasketItemView) []models.Baske
 
 
 func (s *auditService) CheckAuditComplete(ctx context.Context, user *models.UserInfo, year, month string) (map[string]interface{}, error) {
-	// 1. ดึง departments ทั้งหมดที่ user เป็น OWNER
+	// 1. ดึง departments ทั้งหมดที่ user มีสิทธิ (OWNER / DELEGATE / BRANCH_DELEGATE)
 	perms, err := s.userRepo.GetUserPermissions(ctx, user.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch user permissions: %w", err)
 	}
 
-	var ownerDepts []string
+	deptSet := make(map[string]struct{}, len(perms))
 	for _, p := range perms {
-		if p.Role == "OWNER" {
-			ownerDepts = append(ownerDepts, p.DepartmentCode)
+		if p.IsActive != nil && !*p.IsActive {
+			continue
+		}
+		switch p.Role {
+		case models.RoleOwner, models.RoleDelegate, models.RoleBranchDelegate:
+			deptSet[p.DepartmentCode] = struct{}{}
 		}
 	}
+	depts := make([]string, 0, len(deptSet))
+	for d := range deptSet {
+		depts = append(depts, d)
+	}
 
-	if len(ownerDepts) == 0 {
+	if len(depts) == 0 {
 		return map[string]interface{}{
 			"is_complete":    true,
 			"pending_count":  0,
@@ -732,13 +779,13 @@ func (s *auditService) CheckAuditComplete(ctx context.Context, user *models.User
 	}
 
 	// 2. นับจำนวน transaction ที่ยัง PENDING/DRAFT ในเดือน/ปีนี้
-	pendingCount, err := s.auditRepo.CountPendingByDepartments(ctx, year, month, ownerDepts)
+	pendingCount, err := s.auditRepo.CountPendingByDepartments(ctx, year, month, depts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to count pending transactions: %w", err)
 	}
 
 	// 3. นับจำนวน transaction ทั้งหมด (ทุก status) เพื่อใช้ใน progress widget
-	totalCount, err := s.auditRepo.CountTotalByDepartments(ctx, year, month, ownerDepts)
+	totalCount, err := s.auditRepo.CountTotalByDepartments(ctx, year, month, depts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to count total transactions: %w", err)
 	}
@@ -753,7 +800,7 @@ func (s *auditService) CheckAuditComplete(ctx context.Context, user *models.User
 		"pending_count":  pendingCount,
 		"total_count":    totalCount,
 		"reviewed_count": reviewedCount,
-		"departments":    ownerDepts,
+		"departments":    depts,
 	}, nil
 }
 

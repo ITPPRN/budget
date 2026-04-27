@@ -396,6 +396,14 @@ func (m *MockAuditRepository) DeleteBasketRowsByTxIDs(ctx context.Context, trans
 	return args.Error(0)
 }
 
+func (m *MockAuditRepository) GetInBasketTxIDsByDepartments(ctx context.Context, departments []string) ([]uuid.UUID, error) {
+	args := m.Called(ctx, departments)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]uuid.UUID), args.Error(1)
+}
+
 func (m *MockAuditRepository) GetBasketNotes(ctx context.Context, userID string) (map[uuid.UUID]string, error) {
 	args := m.Called(ctx, userID)
 	if args.Get(0) == nil {

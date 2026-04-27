@@ -5,6 +5,7 @@ import {
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   CircularProgress, Alert, Divider, IconButton, Tooltip,
   FormControl, InputLabel, Select,
+  Dialog, DialogTitle, DialogContent, DialogActions, Stack,
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
@@ -14,6 +15,7 @@ import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty';
 import WarningIcon from '@mui/icons-material/Warning';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import CloseIcon from '@mui/icons-material/Close';
+import CancelIcon from '@mui/icons-material/Cancel';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api/axiosInstance';
 import { toast } from 'react-toastify';
@@ -168,6 +170,8 @@ const SyncMonitor = () => {
   // ──────────────────── Queue ────────────────────
   const [queue, setQueue] = useState({ current: null, pending: [] });
   const [queueLoading, setQueueLoading] = useState(false);
+  const [cancelTarget, setCancelTarget] = useState(null); // job ที่กำลังจะยกเลิก
+  const [cancelling, setCancelling] = useState(false);
 
   const fetchQueue = useCallback(async () => {
     setQueueLoading(true);
@@ -184,14 +188,18 @@ const SyncMonitor = () => {
     }
   }, []);
 
-  const handleCancel = async (id) => {
-    if (!window.confirm('ยกเลิก job นี้ในคิว?')) return;
+  const confirmCancel = async () => {
+    if (!cancelTarget) return;
+    setCancelling(true);
     try {
-      await api.post(`/admin/sync/queue/cancel/${id}`);
+      await api.post(`/admin/sync/queue/cancel/${cancelTarget.id}`);
       toast.success('ยกเลิกสำเร็จ');
+      setCancelTarget(null);
       fetchQueue();
     } catch (err) {
       toast.error('ยกเลิกไม่สำเร็จ: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setCancelling(false);
     }
   };
 
@@ -474,7 +482,7 @@ const SyncMonitor = () => {
                         </IconButton>
                       </Tooltip>
                       <Tooltip title="ยกเลิก">
-                        <IconButton size="small" color="error" onClick={() => handleCancel(p.id)}>
+                        <IconButton size="small" color="error" onClick={() => setCancelTarget(p)}>
                           <CloseIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
@@ -664,6 +672,59 @@ const SyncMonitor = () => {
           </Table>
         </TableContainer>
       </Paper>
+
+      {/* ──────── Cancel Queue Confirmation ──────── */}
+      <Dialog
+        open={Boolean(cancelTarget)}
+        onClose={() => !cancelling && setCancelTarget(null)}
+        maxWidth="xs"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden' } }}
+      >
+        <DialogTitle sx={{ bgcolor: '#fff5f5', color: '#b91c1c', display: 'flex', alignItems: 'center', gap: 1, py: 2 }}>
+          <CancelIcon />
+          <Typography variant="h6" sx={{ fontWeight: 700 }}>ยกเลิก Job ในคิว</Typography>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            ยืนยันการยกเลิก job ต่อไปนี้? Job ที่ยกเลิกแล้วจะไม่ถูกประมวลผลและย้ายไปประวัติ
+          </Typography>
+          {cancelTarget && (
+            <Box sx={{ p: 2, borderRadius: 2, bgcolor: '#f8fafc', border: '1px solid #e2e8f0' }}>
+              <Stack spacing={1}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Chip label={`P${cancelTarget.priority}`} size="small"
+                    color={cancelTarget.priority === 1 ? 'error' : cancelTarget.priority === 2 ? 'warning' : 'info'} />
+                  <Typography variant="body2" sx={{ fontWeight: 600, fontFamily: 'monospace' }}>
+                    {cancelTarget.job_type}
+                  </Typography>
+                </Box>
+                <Typography variant="caption" color="text.secondary">
+                  ลำดับในคิว: <b>#{cancelTarget.position}</b>
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  ปี/เดือน: <b>{cancelTarget.year || '-'}</b>
+                  {cancelTarget.months?.length > 0 ? ` / ${cancelTarget.months.join(', ')}` : ' / (ทั้งปี)'}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Triggered by: <b>{cancelTarget.triggered_by || '-'}</b>
+                </Typography>
+              </Stack>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2, bgcolor: '#fafafa', borderTop: '1px solid #eee' }}>
+          <Button onClick={() => setCancelTarget(null)} disabled={cancelling}
+            sx={{ textTransform: 'none', borderRadius: 2 }}>
+            ปิด
+          </Button>
+          <Button onClick={confirmCancel} variant="contained" color="error" disabled={cancelling}
+            startIcon={cancelling ? <CircularProgress size={16} color="inherit" /> : <CancelIcon />}
+            sx={{ textTransform: 'none', borderRadius: 2, px: 3 }}>
+            {cancelling ? 'กำลังยกเลิก...' : 'ยืนยันยกเลิก'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

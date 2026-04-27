@@ -200,14 +200,15 @@ func (r *auditRepository) AddToBasket(ctx context.Context, items []models.AuditR
     }
     const batchSize = 1000
 
-    // ON CONFLICT (transaction_id, user_id) DO UPDATE note — เผื่อ user เพิ่มซ้ำพร้อมแก้ note
+    // ON CONFLICT (transaction_id, user_id) DO NOTHING — รักษา note + added_by ของผู้เพิ่มคนแรก
+    // (การแก้ note ทำผ่าน basket modal ซึ่งใช้ UpdateBasketNote / UpdateBasketNoteByAddedBy)
     return r.db.WithContext(ctx).
         Clauses(clause.OnConflict{
             Columns: []clause.Column{
                 {Name: "transaction_id"},
                 {Name: "user_id"},
             },
-            DoUpdates: clause.AssignmentColumns([]string{"note"}),
+            DoNothing: true,
         }).
         CreateInBatches(&items, batchSize).Error
 }
@@ -234,6 +235,27 @@ func (r *auditRepository) GetBasketItems(ctx context.Context, userID string) ([]
 		Find(&items).Error
 
 	return items, err
+}
+
+// GetInBasketTxIDsByDepartments returns distinct tx IDs that are currently in any
+// basket whose underlying transaction belongs to one of the given departments.
+// Used by the AuditReportModal to show "already in basket" chips so a different
+// user (e.g. another delegate) does not re-add the same item.
+func (r *auditRepository) GetInBasketTxIDsByDepartments(ctx context.Context, departments []string) ([]uuid.UUID, error) {
+	if len(departments) == 0 {
+		return nil, nil
+	}
+	var ids []uuid.UUID
+	err := r.db.WithContext(ctx).
+		Table("audit_rejection_baskets AS b").
+		Joins("INNER JOIN actual_transaction_entities AS a ON a.id = b.transaction_id").
+		Where("a.department IN ?", departments).
+		Distinct().
+		Pluck("b.transaction_id", &ids).Error
+	if err != nil {
+		return nil, fmt.Errorf("auditRepo.GetInBasketTxIDsByDepartments: %w", err)
+	}
+	return ids, nil
 }
 
 // GetBasketItemsAddedBy returns basket items that the given user has added — used

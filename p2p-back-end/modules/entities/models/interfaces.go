@@ -330,6 +330,7 @@ type AuditRepository interface {
 	AddToBasket(ctx context.Context, items []AuditRejectBasket) error
 	GetBasketItems(ctx context.Context, userID string) ([]BasketItemView, error)
 	GetBasketItemsAddedBy(ctx context.Context, addedByUserID string) ([]BasketItemView, error)
+	GetInBasketTxIDsByDepartments(ctx context.Context, departments []string) ([]uuid.UUID, error)
 	RemoveFromBasket(ctx context.Context, userID string, transactionID string) error
 	RemoveFromBasketByAddedBy(ctx context.Context, addedByUserID, transactionID string) error
 	UpdateBasketNote(ctx context.Context, userID, transactionID, note string) error
@@ -353,6 +354,7 @@ type AuditService interface {
 	GetRejectedItemDetails(ctx context.Context, logID string) ([]AuditLogRejectedItemEntity, error)
 	GetReportableTransactions(ctx context.Context, user *UserInfo, payload map[string]interface{}) ([]ActualTransactionEntity, error)
 	GetBasketItems(ctx context.Context, user *UserInfo) ([]BasketItemView, error)
+	GetInBasketTxIDs(ctx context.Context, user *UserInfo) ([]string, error)
 	RemoveFromBasket(ctx context.Context, user *UserInfo, transactionID string) error
 	UpdateBasketNote(ctx context.Context, user *UserInfo, transactionID, note string) error
 	CheckAuditComplete(ctx context.Context, user *UserInfo, year, month string) (map[string]interface{}, error)
