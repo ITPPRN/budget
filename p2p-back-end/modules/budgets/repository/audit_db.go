@@ -200,10 +200,12 @@ func (r *auditRepository) AddToBasket(ctx context.Context, items []models.AuditR
     }
     const batchSize = 1000
 
+    // ON CONFLICT (transaction_id, user_id) DO NOTHING — รักษา note + added_by ของผู้เพิ่มคนแรก
+    // (การแก้ note ทำผ่าน basket modal ซึ่งใช้ UpdateBasketNote / UpdateBasketNoteByAddedBy)
     return r.db.WithContext(ctx).
         Clauses(clause.OnConflict{
             Columns: []clause.Column{
-                {Name: "transaction_id"}, 
+                {Name: "transaction_id"},
                 {Name: "user_id"},
             },
             DoNothing: true,
@@ -222,17 +224,92 @@ func (r *auditRepository) AddToBasket(ctx context.Context, items []models.AuditR
 // 		CreateInBatches(&items, batchSize).Error
 // }
 
-func (r *auditRepository) GetBasketItems(ctx context.Context, userID string) ([]models.ActualTransactionEntity, error) {
-	var items []models.ActualTransactionEntity
+func (r *auditRepository) GetBasketItems(ctx context.Context, userID string) ([]models.BasketItemView, error) {
+	var items []models.BasketItemView
 
 	err := r.db.WithContext(ctx).
 		Table("actual_transaction_entities AS a").
-		Select("a.*").
+		Select("a.*, b.note AS note, b.added_by AS added_by").
 		Joins("INNER JOIN audit_rejection_baskets AS b ON a.id = b.transaction_id").
 		Where("b.user_id = ?", userID).
 		Find(&items).Error
 
 	return items, err
+}
+
+// GetInBasketTxIDsByDepartments returns distinct tx IDs that are currently in any
+// basket whose underlying transaction belongs to one of the given departments.
+// Used by the AuditReportModal to show "already in basket" chips so a different
+// user (e.g. another delegate) does not re-add the same item.
+func (r *auditRepository) GetInBasketTxIDsByDepartments(ctx context.Context, departments []string) ([]uuid.UUID, error) {
+	if len(departments) == 0 {
+		return nil, nil
+	}
+	var ids []uuid.UUID
+	err := r.db.WithContext(ctx).
+		Table("audit_rejection_baskets AS b").
+		Joins("INNER JOIN actual_transaction_entities AS a ON a.id = b.transaction_id").
+		Where("a.department IN ?", departments).
+		Distinct().
+		Pluck("b.transaction_id", &ids).Error
+	if err != nil {
+		return nil, fmt.Errorf("auditRepo.GetInBasketTxIDsByDepartments: %w", err)
+	}
+	return ids, nil
+}
+
+// GetBasketItemsAddedBy returns basket items that the given user has added — used
+// for DELEGATE/BRANCH_DELEGATE viewing only their own contributions across the
+// fanned-out OWNER baskets.
+func (r *auditRepository) GetBasketItemsAddedBy(ctx context.Context, addedByUserID string) ([]models.BasketItemView, error) {
+	var items []models.BasketItemView
+
+	err := r.db.WithContext(ctx).
+		Table("actual_transaction_entities AS a").
+		Select("DISTINCT ON (a.id) a.*, b.note AS note, b.added_by AS added_by").
+		Joins("INNER JOIN audit_rejection_baskets AS b ON a.id = b.transaction_id").
+		Where("b.added_by = ?", addedByUserID).
+		Order("a.id, b.created_at").
+		Find(&items).Error
+
+	return items, err
+}
+
+func (r *auditRepository) UpdateBasketNote(ctx context.Context, userID, transactionID, note string) error {
+	if userID == "" || transactionID == "" {
+		return nil
+	}
+	return r.db.WithContext(ctx).
+		Model(&models.AuditRejectBasket{}).
+		Where("user_id = ? AND transaction_id = ?", userID, transactionID).
+		Update("note", note).Error
+}
+
+// UpdateBasketNoteByAddedBy updates note across every fanned-out copy that the
+// given delegate user added — covers all OWNERs' baskets they contributed to.
+func (r *auditRepository) UpdateBasketNoteByAddedBy(ctx context.Context, addedByUserID, transactionID, note string) error {
+	if addedByUserID == "" || transactionID == "" {
+		return nil
+	}
+	return r.db.WithContext(ctx).
+		Model(&models.AuditRejectBasket{}).
+		Where("added_by = ? AND transaction_id = ?", addedByUserID, transactionID).
+		Update("note", note).Error
+}
+
+func (r *auditRepository) GetBasketNotes(ctx context.Context, userID string) (map[uuid.UUID]string, error) {
+	var rows []models.AuditRejectBasket
+	if err := r.db.WithContext(ctx).
+		Select("transaction_id, note").
+		Where("user_id = ?", userID).
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[uuid.UUID]string, len(rows))
+	for _, row := range rows {
+		out[row.TransactionID] = row.Note
+	}
+	return out, nil
 }
 
 func (r *auditRepository) RemoveFromBasket(ctx context.Context, userID string, transactionID string) error {
@@ -243,6 +320,28 @@ func (r *auditRepository) RemoveFromBasket(ctx context.Context, userID string, t
     // ลบเฉพาะรายการที่ตรงกับ UserID และ TransactionID นั้นๆ
     return r.db.WithContext(ctx).
         Where("user_id = ? AND transaction_id = ?", userID, transactionID).
+        Delete(&models.AuditRejectBasket{}).Error
+}
+
+// RemoveFromBasketByAddedBy ลบทุก fanned-out row ของ tx ที่ delegate คนนั้นกดเพิ่มไว้
+// (พ้นไปจากตะกร้าของ OWNER ทุกคน)
+func (r *auditRepository) RemoveFromBasketByAddedBy(ctx context.Context, addedByUserID, transactionID string) error {
+    if addedByUserID == "" || transactionID == "" {
+        return nil
+    }
+    return r.db.WithContext(ctx).
+        Where("added_by = ? AND transaction_id = ?", addedByUserID, transactionID).
+        Delete(&models.AuditRejectBasket{}).Error
+}
+
+// DeleteBasketRowsByTxIDs ลบ row ตะกร้าของทุก OWNER ที่อ้างถึง tx เหล่านี้ — เรียกหลัง
+// approve เพื่อให้ "first OWNER wins" ไม่ทิ้ง row กำพร้าค้างในตะกร้าของ OWNER คนอื่น
+func (r *auditRepository) DeleteBasketRowsByTxIDs(ctx context.Context, transactionIDs []uuid.UUID) error {
+    if len(transactionIDs) == 0 {
+        return nil
+    }
+    return r.db.WithContext(ctx).
+        Where("transaction_id IN ?", transactionIDs).
         Delete(&models.AuditRejectBasket{}).Error
 }
 

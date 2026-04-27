@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -90,6 +91,7 @@ func (s *auditService) Approve(ctx context.Context, user *models.UserInfo, paylo
 
 		// 🌟 จัดการรายการที่ถูก Reject
 		var rejectedTxByDept map[string][]models.ActualTransactionEntity
+		notesByTx := map[uuid.UUID]string{}
 		if len(rejectedTxIDs) > 0 {
 			rejectedTxs, err := trxRepo.GetTransactionsByIDs(ctx, rejectedTxIDs)
 			if err != nil {
@@ -98,6 +100,11 @@ func (s *auditService) Approve(ctx context.Context, user *models.UserInfo, paylo
 			rejectedTxByDept = make(map[string][]models.ActualTransactionEntity, len(rejectedTxs))
 			for _, tx := range rejectedTxs {
 				rejectedTxByDept[tx.Department] = append(rejectedTxByDept[tx.Department], tx)
+			}
+
+			notesByTx, err = trxRepo.GetBasketNotes(ctx, user.ID)
+			if err != nil {
+				return fmt.Errorf("failed to fetch basket notes: %w", err)
 			}
 
 			if err := trxRepo.UpdateTransactionsStatus(ctx, rejectedTxIDs, models.TxStatusReported); err != nil {
@@ -149,6 +156,7 @@ func (s *auditService) Approve(ctx context.Context, user *models.UserInfo, paylo
 						DocNo:         tx.DocNo,
 						Description:   tx.Description,
 						PostingDate:   tx.PostingDate,
+						Note:          notesByTx[tx.ID],
 					})
 				}
 				if err := trxRepo.SaveRejectedItems(ctx, items); err != nil {
@@ -157,9 +165,17 @@ func (s *auditService) Approve(ctx context.Context, user *models.UserInfo, paylo
 			}
 		}
 
-		// 🌟 ล้างตะกร้าให้เกลี้ยง
+		// 🌟 ล้างตะกร้าของ caller (OWNER) เอง
 		if err := trxRepo.ClearBasket(ctx, user.ID); err != nil {
 			return fmt.Errorf("failed to clear user basket: %w", err)
+		}
+
+		// 🌟 First-OWNER-wins: ลบ row เดียวกันออกจากตะกร้าของ OWNER คนอื่นด้วย
+		// (delegate/branch_delegate fanned-out copies จะถูกล้างพร้อมกัน)
+		if len(rejectedTxIDs) > 0 {
+			if err := trxRepo.DeleteBasketRowsByTxIDs(ctx, rejectedTxIDs); err != nil {
+				return fmt.Errorf("failed to clean up cross-baskets: %w", err)
+			}
 		}
 
 		return nil
@@ -345,21 +361,30 @@ func (s *auditService) GetReportableTransactions(ctx context.Context, user *mode
 	department, _ := payload["department"].(string)
 	var targets []string
 
+	// DELEGATE/BRANCH_DELEGATE ก็เห็นได้ตาม dept ที่ตัวเองมีสิทธิ — แค่ approve ไม่ได้
+	perms, err := s.userRepo.GetUserPermissions(ctx, user.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch user permissions: %w", err)
+	}
+	authorizedDepts := make(map[string]struct{}, len(perms))
+	for _, p := range perms {
+		if p.IsActive != nil && !*p.IsActive {
+			continue
+		}
+		switch p.Role {
+		case models.RoleOwner, models.RoleDelegate, models.RoleBranchDelegate:
+			authorizedDepts[p.DepartmentCode] = struct{}{}
+		}
+	}
+
 	if department != "" {
-		if err := s.checkOwnerPermission(ctx, user.ID, department); err != nil {
-			return nil, err
+		if _, ok := authorizedDepts[department]; !ok {
+			return nil, fmt.Errorf("permission Denied: You do not have access to department %s", department)
 		}
 		targets = append(targets, department)
 	} else {
-		// Identify ALL authorized departments for this owner
-		perms, err := s.userRepo.GetUserPermissions(ctx, user.ID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to fetch user permissions: %w", err)
-		}
-		for _, p := range perms {
-			if p.Role == "OWNER" {
-				targets = append(targets, p.DepartmentCode)
-			}
+		for d := range authorizedDepts {
+			targets = append(targets, d)
 		}
 		if len(targets) == 0 {
 			return nil, fmt.Errorf("no authorized departments found for your account")
@@ -413,96 +438,337 @@ func (s *auditService) checkOwnerPermission(ctx context.Context, userID, departm
 	return fmt.Errorf("permission Denied: You are not the owner of department %s", department)
 }
 
-func (s *auditService) AddToBasket(ctx context.Context, user *models.UserInfo, transactionIDs []string) error {
+func (s *auditService) AddToBasket(ctx context.Context, user *models.UserInfo, items []models.BasketAddItem) error {
 
-	if user == nil || len(transactionIDs) == 0 {
-		return errors.New("invalid input: user ID and transaction IDs cannot be empty")
+	if user == nil || len(items) == 0 {
+		return errors.New("invalid input: user ID and items cannot be empty")
 	}
 
-	uid, err := uuid.Parse(user.ID)
+	callerUID, err := uuid.Parse(user.ID)
 	if err != nil {
 		return fmt.Errorf("invalid user ID format: %w", err)
 	}
 
+	noteByTx := make(map[uuid.UUID]string, len(items))
 	var parsedIDs []uuid.UUID
-	for _, txIDStr := range transactionIDs {
-		if txID, err := uuid.Parse(txIDStr); err == nil {
-			parsedIDs = append(parsedIDs, txID)
+	for _, it := range items {
+		txID, err := uuid.Parse(it.TransactionID)
+		if err != nil {
+			continue
 		}
+		parsedIDs = append(parsedIDs, txID)
+		noteByTx[txID] = it.Note
 	}
 
 	if len(parsedIDs) == 0 {
 		return errors.New("no valid transaction IDs provided")
 	}
 
-	// Validate: ต้อง status เป็น PENDING/DRAFT เท่านั้น
-	// กัน user เพิ่มรายการที่ตรวจสอบไปแล้ว (COMPLETE/REPORTED) เข้าตะกร้าซ้ำ
+	// Map dept → role caller has on it. Lets us route each tx to the right basket(s).
+	perms, err := s.userRepo.GetUserPermissions(ctx, user.ID)
+	if err != nil {
+		logs.Error(err)
+		return errs.NewUnexpectedError()
+	}
+	roleByDept := make(map[string]string, len(perms))
+	for _, p := range perms {
+		if p.IsActive != nil && !*p.IsActive {
+			continue
+		}
+		// OWNER beats DELEGATE/BRANCH_DELEGATE if the caller has both for the same dept
+		if existing, ok := roleByDept[p.DepartmentCode]; ok {
+			if existing == models.RoleOwner {
+				continue
+			}
+		}
+		roleByDept[p.DepartmentCode] = p.Role
+	}
+
 	existing, err := s.auditRepo.GetTransactionsByIDs(ctx, parsedIDs)
 	if err != nil {
 		logs.Error(err)
 		return errs.NewUnexpectedError()
 	}
 
-	auditableIDs := make(map[uuid.UUID]struct{}, len(existing))
+	// Index by ID + filter to PENDING/DRAFT only — กัน user เพิ่มรายการที่ตรวจสอบไปแล้ว
+	txByID := make(map[uuid.UUID]models.ActualTransactionEntity, len(existing))
 	for _, tx := range existing {
 		if tx.Status == models.TxStatusPending || tx.Status == models.TxStatusDraft {
-			auditableIDs[tx.ID] = struct{}{}
+			txByID[tx.ID] = tx
 		}
 	}
 
+	// Cache OWNER lookups per dept since multiple txs in one batch usually share a dept.
+	ownersByDept := make(map[string][]string)
+	getOwners := func(dept string) ([]string, error) {
+		if cached, ok := ownersByDept[dept]; ok {
+			return cached, nil
+		}
+		ids, err := s.userRepo.GetActiveOwnerIDsByDepartment(ctx, dept)
+		if err != nil {
+			return nil, err
+		}
+		ownersByDept[dept] = ids
+		return ids, nil
+	}
+
 	var basketItems []models.AuditRejectBasket
-	var alreadyAudited int
+	var alreadyAudited, noPermission, ownerlessDept int
 	for _, txID := range parsedIDs {
-		if _, ok := auditableIDs[txID]; ok {
+		tx, ok := txByID[txID]
+		if !ok {
+			alreadyAudited++
+			continue
+		}
+
+		role, has := roleByDept[tx.Department]
+		if !has {
+			noPermission++
+			continue
+		}
+
+		var targetOwnerUIDs []uuid.UUID
+		if role == models.RoleOwner {
+			targetOwnerUIDs = []uuid.UUID{callerUID}
+		} else {
+			ownerIDs, err := getOwners(tx.Department)
+			if err != nil {
+				logs.Error(err)
+				return errs.NewUnexpectedError()
+			}
+			if len(ownerIDs) == 0 {
+				ownerlessDept++
+				continue
+			}
+			for _, oid := range ownerIDs {
+				parsed, err := uuid.Parse(oid)
+				if err != nil {
+					continue
+				}
+				targetOwnerUIDs = append(targetOwnerUIDs, parsed)
+			}
+		}
+
+		for _, ownerUID := range targetOwnerUIDs {
 			basketItems = append(basketItems, models.AuditRejectBasket{
 				TransactionID: txID,
-				UserID:        uid,
+				UserID:        ownerUID,
+				AddedBy:       callerUID,
+				Note:          noteByTx[txID],
 			})
-		} else {
-			alreadyAudited++
 		}
 	}
 
 	if len(basketItems) == 0 {
-		return fmt.Errorf("รายการทั้งหมดถูกตรวจสอบไปแล้ว ไม่สามารถเพิ่มเข้าตะกร้าได้")
-	}
-	if alreadyAudited > 0 {
-		return fmt.Errorf("มี %d รายการที่ถูกตรวจสอบไปแล้ว ไม่สามารถเพิ่มเข้าตะกร้าได้", alreadyAudited)
+		switch {
+		case noPermission > 0:
+			return fmt.Errorf("ไม่มีสิทธิ์เพิ่มรายการเหล่านี้")
+		case ownerlessDept > 0:
+			return fmt.Errorf("ไม่พบ OWNER ของแผนก ไม่สามารถส่งเข้าตะกร้าได้")
+		default:
+			return fmt.Errorf("รายการทั้งหมดถูกตรวจสอบไปแล้ว ไม่สามารถเพิ่มเข้าตะกร้าได้")
+		}
 	}
 
-	err = s.auditRepo.AddToBasket(ctx, basketItems)
-	if err != nil {
+	if err := s.auditRepo.AddToBasket(ctx, basketItems); err != nil {
 		logs.Error(err)
 		return errs.NewUnexpectedError()
 	}
 
+	if alreadyAudited > 0 {
+		return fmt.Errorf("เพิ่มเข้าตะกร้าแล้ว แต่มี %d รายการที่ถูกตรวจสอบไปแล้วถูกข้าม", alreadyAudited)
+	}
+	if noPermission > 0 {
+		return fmt.Errorf("เพิ่มเข้าตะกร้าแล้ว แต่มี %d รายการที่ไม่มีสิทธิ์ถูกข้าม", noPermission)
+	}
+	if ownerlessDept > 0 {
+		return fmt.Errorf("เพิ่มเข้าตะกร้าแล้ว แต่มี %d รายการที่หา OWNER ของแผนกไม่พบ", ownerlessDept)
+	}
 	return nil
 }
 
-func (s *auditService) GetBasketItems(ctx context.Context, userID string) ([]models.ActualTransactionEntity, error) {
-    if userID == "" {
-        return nil, errors.New("user ID is required")
+// GetBasketItems returns:
+//   - OWNER: every row in their own basket (additions by self + delegates)
+//   - DELEGATE/BRANCH_DELEGATE only: rows they themselves added (across owners)
+//   - mixed roles: union of the two
+func (s *auditService) GetBasketItems(ctx context.Context, user *models.UserInfo) ([]models.BasketItemView, error) {
+    if user == nil || user.ID == "" {
+        return nil, errors.New("user is required")
     }
-    
-    return s.auditRepo.GetBasketItems(ctx, userID)
+
+    isOwner, err := s.userHasOwnerPermission(ctx, user.ID)
+    if err != nil {
+        return nil, err
+    }
+
+    if isOwner {
+        items, err := s.auditRepo.GetBasketItems(ctx, user.ID)
+        if err != nil {
+            return nil, err
+        }
+        // OWNER ที่บังเอิญเป็น DELEGATE ของ dept อื่นด้วย — รวมรายการที่ตัวเองไป add ใน OWNER คนอื่น
+        if hasDelegateRole(user.Roles) {
+            extra, err := s.auditRepo.GetBasketItemsAddedBy(ctx, user.ID)
+            if err != nil {
+                return nil, err
+            }
+            items = mergeBasketItems(items, extra)
+        }
+        return items, nil
+    }
+
+    return s.auditRepo.GetBasketItemsAddedBy(ctx, user.ID)
+}
+
+func (s *auditService) UpdateBasketNote(ctx context.Context, user *models.UserInfo, transactionID, note string) error {
+    if user == nil || user.ID == "" {
+        return errors.New("user is required")
+    }
+    if transactionID == "" {
+        return errors.New("transaction ID is required")
+    }
+
+    isOwnerOnTx, err := s.callerIsOwnerOfTx(ctx, user.ID, transactionID)
+    if err != nil {
+        return err
+    }
+    if isOwnerOnTx {
+        return s.auditRepo.UpdateBasketNote(ctx, user.ID, transactionID, note)
+    }
+    // DELEGATE/BRANCH_DELEGATE: แก้ได้เฉพาะที่ตัวเองเพิ่ม — sweep ทุก row ของ tx นี้ที่ added_by = ตัวเอง
+    return s.auditRepo.UpdateBasketNoteByAddedBy(ctx, user.ID, transactionID, note)
+}
+
+// GetInBasketTxIDs returns tx IDs that are in any basket whose underlying tx
+// belongs to a department the caller has access to. Frontend uses this to grey
+// out items that are already in someone's basket so users do not duplicate adds.
+func (s *auditService) GetInBasketTxIDs(ctx context.Context, user *models.UserInfo) ([]string, error) {
+	if user == nil || user.ID == "" {
+		return nil, errors.New("user is required")
+	}
+	perms, err := s.userRepo.GetUserPermissions(ctx, user.ID)
+	if err != nil {
+		return nil, err
+	}
+	deptSet := make(map[string]struct{}, len(perms))
+	for _, p := range perms {
+		if p.IsActive != nil && !*p.IsActive {
+			continue
+		}
+		switch p.Role {
+		case models.RoleOwner, models.RoleDelegate, models.RoleBranchDelegate:
+			deptSet[p.DepartmentCode] = struct{}{}
+		}
+	}
+	if len(deptSet) == 0 {
+		return []string{}, nil
+	}
+	depts := make([]string, 0, len(deptSet))
+	for d := range deptSet {
+		depts = append(depts, d)
+	}
+	ids, err := s.auditRepo.GetInBasketTxIDsByDepartments(ctx, depts)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, id.String())
+	}
+	return out, nil
+}
+
+// userHasOwnerPermission returns true if the user holds OWNER on any active permission.
+func (s *auditService) userHasOwnerPermission(ctx context.Context, userID string) (bool, error) {
+    perms, err := s.userRepo.GetUserPermissions(ctx, userID)
+    if err != nil {
+        return false, fmt.Errorf("failed to fetch permissions: %w", err)
+    }
+    for _, p := range perms {
+        if p.Role == models.RoleOwner && (p.IsActive == nil || *p.IsActive) {
+            return true, nil
+        }
+    }
+    return false, nil
+}
+
+// callerIsOwnerOfTx returns true if caller is OWNER of the tx's department.
+func (s *auditService) callerIsOwnerOfTx(ctx context.Context, userID, transactionID string) (bool, error) {
+    txID, err := uuid.Parse(transactionID)
+    if err != nil {
+        return false, nil
+    }
+    txs, err := s.auditRepo.GetTransactionsByIDs(ctx, []uuid.UUID{txID})
+    if err != nil {
+        return false, err
+    }
+    if len(txs) == 0 {
+        return false, nil
+    }
+    perms, err := s.userRepo.GetUserPermissions(ctx, userID)
+    if err != nil {
+        return false, err
+    }
+    for _, p := range perms {
+        if p.DepartmentCode == txs[0].Department && p.Role == models.RoleOwner && (p.IsActive == nil || *p.IsActive) {
+            return true, nil
+        }
+    }
+    return false, nil
+}
+
+func hasDelegateRole(roles []string) bool {
+    for _, r := range roles {
+        if strings.EqualFold(r, models.RoleDelegate) || strings.EqualFold(r, models.RoleBranchDelegate) {
+            return true
+        }
+    }
+    return false
+}
+
+// mergeBasketItems unions two slices of basket items, deduplicating by tx ID.
+// OWNER's own basket row wins over the added_by row when both exist.
+func mergeBasketItems(primary, secondary []models.BasketItemView) []models.BasketItemView {
+    seen := make(map[uuid.UUID]struct{}, len(primary)+len(secondary))
+    out := make([]models.BasketItemView, 0, len(primary)+len(secondary))
+    for _, it := range primary {
+        seen[it.ID] = struct{}{}
+        out = append(out, it)
+    }
+    for _, it := range secondary {
+        if _, ok := seen[it.ID]; ok {
+            continue
+        }
+        seen[it.ID] = struct{}{}
+        out = append(out, it)
+    }
+    return out
 }
 
 
 func (s *auditService) CheckAuditComplete(ctx context.Context, user *models.UserInfo, year, month string) (map[string]interface{}, error) {
-	// 1. ดึง departments ทั้งหมดที่ user เป็น OWNER
+	// 1. ดึง departments ทั้งหมดที่ user มีสิทธิ (OWNER / DELEGATE / BRANCH_DELEGATE)
 	perms, err := s.userRepo.GetUserPermissions(ctx, user.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch user permissions: %w", err)
 	}
 
-	var ownerDepts []string
+	deptSet := make(map[string]struct{}, len(perms))
 	for _, p := range perms {
-		if p.Role == "OWNER" {
-			ownerDepts = append(ownerDepts, p.DepartmentCode)
+		if p.IsActive != nil && !*p.IsActive {
+			continue
+		}
+		switch p.Role {
+		case models.RoleOwner, models.RoleDelegate, models.RoleBranchDelegate:
+			deptSet[p.DepartmentCode] = struct{}{}
 		}
 	}
+	depts := make([]string, 0, len(deptSet))
+	for d := range deptSet {
+		depts = append(depts, d)
+	}
 
-	if len(ownerDepts) == 0 {
+	if len(depts) == 0 {
 		return map[string]interface{}{
 			"is_complete":    true,
 			"pending_count":  0,
@@ -513,13 +779,13 @@ func (s *auditService) CheckAuditComplete(ctx context.Context, user *models.User
 	}
 
 	// 2. นับจำนวน transaction ที่ยัง PENDING/DRAFT ในเดือน/ปีนี้
-	pendingCount, err := s.auditRepo.CountPendingByDepartments(ctx, year, month, ownerDepts)
+	pendingCount, err := s.auditRepo.CountPendingByDepartments(ctx, year, month, depts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to count pending transactions: %w", err)
 	}
 
 	// 3. นับจำนวน transaction ทั้งหมด (ทุก status) เพื่อใช้ใน progress widget
-	totalCount, err := s.auditRepo.CountTotalByDepartments(ctx, year, month, ownerDepts)
+	totalCount, err := s.auditRepo.CountTotalByDepartments(ctx, year, month, depts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to count total transactions: %w", err)
 	}
@@ -534,17 +800,25 @@ func (s *auditService) CheckAuditComplete(ctx context.Context, user *models.User
 		"pending_count":  pendingCount,
 		"total_count":    totalCount,
 		"reviewed_count": reviewedCount,
-		"departments":    ownerDepts,
+		"departments":    depts,
 	}, nil
 }
 
-func (s *auditService) RemoveFromBasket(ctx context.Context, userID string, transactionID string) error {
-    if userID == "" {
-        return errors.New("user ID is required")
+func (s *auditService) RemoveFromBasket(ctx context.Context, user *models.UserInfo, transactionID string) error {
+    if user == nil || user.ID == "" {
+        return errors.New("user is required")
     }
     if transactionID == "" {
         return errors.New("transaction ID to remove cannot be empty")
     }
-    
-    return s.auditRepo.RemoveFromBasket(ctx, userID, transactionID)
+
+    isOwnerOnTx, err := s.callerIsOwnerOfTx(ctx, user.ID, transactionID)
+    if err != nil {
+        return err
+    }
+    if isOwnerOnTx {
+        return s.auditRepo.RemoveFromBasket(ctx, user.ID, transactionID)
+    }
+    // DELEGATE/BRANCH_DELEGATE: ลบเฉพาะที่ตัวเองเพิ่ม → ลบครบทุก fanned-out row ของ tx นี้
+    return s.auditRepo.RemoveFromBasketByAddedBy(ctx, user.ID, transactionID)
 }

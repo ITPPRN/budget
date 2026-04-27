@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     Dialog,
     DialogTitle,
@@ -13,21 +13,40 @@ import {
     TableCell,
     TableBody,
     Paper,
-    Button
+    Button,
+    TextField
 } from '@mui/material';
 import ShoppingBasketIcon from '@mui/icons-material/ShoppingBasket';
 import CloseIcon from '@mui/icons-material/Close';
 import DeleteIcon from '@mui/icons-material/Delete';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 
-const BasketModal = ({ 
-    open, 
-    onClose, 
-    basketItems = [], 
-    onRemove, 
-    onApprove, 
-    loading 
+const BasketModal = ({
+    open,
+    onClose,
+    basketItems = [],
+    onRemove,
+    onApprove,
+    onUpdateNote,
+    canApprove = true,
+    loading
 }) => {
+    // Local draft of notes ที่ผู้ใช้กำลังพิมพ์ — sync กลับเมื่อ blur เพื่อกัน rerender ทุกตัวอักษร
+    const [noteDraft, setNoteDraft] = useState({});
+
+    useEffect(() => {
+        const next = {};
+        for (const item of basketItems) next[item.id] = item.note || '';
+        setNoteDraft(next);
+    }, [basketItems]);
+
+    const handleNoteBlur = (id) => {
+        const newNote = noteDraft[id] ?? '';
+        const original = basketItems.find(i => i.id === id)?.note || '';
+        if (newNote !== original && onUpdateNote) {
+            onUpdateNote(id, newNote);
+        }
+    };
     return (
         <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
             <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', bgcolor: '#f5f5f5' }}>
@@ -52,6 +71,7 @@ const BasketModal = ({
                                     <TableCell sx={{ fontWeight: 'bold' }}>Doc No.</TableCell>
                                     <TableCell sx={{ fontWeight: 'bold' }}>GL Account</TableCell>
                                     <TableCell align="right" sx={{ fontWeight: 'bold' }}>Amount</TableCell>
+                                    <TableCell sx={{ fontWeight: 'bold', minWidth: 220 }}>เหตุผลที่ปฏิเสธ (Note)</TableCell>
                                     <TableCell align="center" sx={{ fontWeight: 'bold' }}>Action</TableCell>
                                 </TableRow>
                             </TableHead>
@@ -63,10 +83,23 @@ const BasketModal = ({
                                         <TableCell align="right" sx={{ color: item.amount < 0 ? 'error.main' : 'success.main', fontWeight: 'bold' }}>
                                             {parseFloat(item.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                                         </TableCell>
+                                        <TableCell>
+                                            <TextField
+                                                value={noteDraft[item.id] ?? ''}
+                                                onChange={(e) => setNoteDraft(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                                onBlur={() => handleNoteBlur(item.id)}
+                                                placeholder="ระบุเหตุผล (ไม่บังคับ)"
+                                                size="small"
+                                                fullWidth
+                                                multiline
+                                                maxRows={3}
+                                                disabled={loading}
+                                            />
+                                        </TableCell>
                                         <TableCell align="center">
-                                            <IconButton 
-                                                size="small" 
-                                                color="error" 
+                                            <IconButton
+                                                size="small"
+                                                color="error"
                                                 onClick={() => onRemove(item.id)}
                                                 title="ลบออกจากตะกร้า"
                                                 disabled={loading}
@@ -82,11 +115,11 @@ const BasketModal = ({
                 )}
             </DialogContent>
             
-            {basketItems.length > 0 && (
+            {basketItems.length > 0 && canApprove && (
                 <Box sx={{ p: 2, borderTop: '1px solid #eee', bgcolor: '#fafafa', textAlign: 'right' }}>
-                    <Button 
-                        variant="contained" 
-                        color="success" 
+                    <Button
+                        variant="contained"
+                        color="success"
                         startIcon={<CheckCircleIcon />}
                         onClick={onApprove}
                         disabled={loading}
@@ -94,6 +127,13 @@ const BasketModal = ({
                     >
                         {loading ? "กำลังประมวลผล..." : "ยืนยันและทำรายการ"}
                     </Button>
+                </Box>
+            )}
+            {basketItems.length > 0 && !canApprove && (
+                <Box sx={{ p: 2, borderTop: '1px solid #eee', bgcolor: '#fafafa', textAlign: 'right' }}>
+                    <Typography variant="caption" color="textSecondary">
+                        เฉพาะ OWNER ของแผนกนั้นเท่านั้นที่ยืนยันรายการได้
+                    </Typography>
                 </Box>
             )}
         </Dialog>

@@ -21,6 +21,8 @@ func NewAuditController(
 
 	router.Post("/audit/basket/add", controller.addBasket)
 	router.Get("/audit/basket/list", controller.getBasket)
+	router.Get("/audit/basket/in-basket-tx-ids", controller.getInBasketTxIDs)
+	router.Patch("/audit/basket/:id", controller.updateBasketNote)
 	router.Delete("/audit/basket/:id", controller.removeBasket)
 	router.Post("/audit/approve", controller.approve)
 	router.Post("/audit/report", controller.report)
@@ -36,16 +38,14 @@ func (h *auditController) addBasket(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Unauthorized"})
 	}
 
-	var itemReq []string
+	var itemReq []models.BasketAddItem
 
-	// Parse JSON array
 	if err := c.BodyParser(&itemReq); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request format: expected an array of strings"})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request format: expected an array of {transaction_id, note}"})
 	}
 
-	// Validate input length
 	if len(itemReq) == 0 {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "no request"})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "no request"})
 	}
 
 	err := h.auditSrv.AddToBasket(c.UserContext(), user, itemReq)
@@ -59,6 +59,31 @@ func (h *auditController) addBasket(c *fiber.Ctx) error {
 	})
 }
 
+func (h *auditController) updateBasketNote(c *fiber.Ctx) error {
+	user, ok := c.Locals("user").(*models.UserInfo)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Unauthorized"})
+	}
+
+	transactionID := c.Params("id")
+	if transactionID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Transaction ID is required"})
+	}
+
+	var body struct {
+		Note string `json:"note"`
+	}
+	if err := c.BodyParser(&body); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
+	}
+
+	if err := h.auditSrv.UpdateBasketNote(c.UserContext(), user, transactionID, body.Note); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to update note: " + err.Error()})
+	}
+
+	return c.JSON(fiber.Map{"status": "success", "message": "Note updated"})
+}
+
 func (h *auditController) getBasket(c *fiber.Ctx) error {
     user, ok := c.Locals("user").(*models.UserInfo)
     if !ok {
@@ -66,13 +91,25 @@ func (h *auditController) getBasket(c *fiber.Ctx) error {
     }
 
     // เรียก Service เพื่อดึงข้อมูลตะกร้า
-    items, err := h.auditSrv.GetBasketItems(c.UserContext(), user.ID)
+    items, err := h.auditSrv.GetBasketItems(c.UserContext(), user)
     if err != nil {
         return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to get basket: " + err.Error()})
     }
 
     // ส่งคืนข้อมูลเป็น Array ของ Object ได้เลย
     return c.JSON(items)
+}
+
+func (h *auditController) getInBasketTxIDs(c *fiber.Ctx) error {
+    user, ok := c.Locals("user").(*models.UserInfo)
+    if !ok {
+        return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Unauthorized"})
+    }
+    ids, err := h.auditSrv.GetInBasketTxIDs(c.UserContext(), user)
+    if err != nil {
+        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to fetch in-basket tx ids: " + err.Error()})
+    }
+    return c.JSON(ids)
 }
 
 func (h *auditController) removeBasket(c *fiber.Ctx) error {
@@ -88,7 +125,7 @@ func (h *auditController) removeBasket(c *fiber.Ctx) error {
     }
 
     // โยนให้ Service จัดการลบทีละ 1 รายการ
-    err := h.auditSrv.RemoveFromBasket(c.UserContext(), user.ID, transactionID)
+    err := h.auditSrv.RemoveFromBasket(c.UserContext(), user, transactionID)
     if err != nil {
         return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to remove from basket: " + err.Error()})
     }

@@ -172,6 +172,9 @@ func (m *MockUserRepo) GetUserContext(c context.Context, id string) (*models.Use
 func (m *MockUserRepo) GetUserPermissions(c context.Context, id string) ([]models.UserPermissionEntity, error) {
 	return nil, nil
 }
+func (m *MockUserRepo) GetActiveOwnerIDsByDepartment(c context.Context, dept string) ([]string, error) {
+	return nil, nil
+}
 func (m *MockUserRepo) UpdateUserPermissionsAndRoles(c context.Context, id string, p []models.UserPermissionEntity, r []string) error {
 	return nil
 }

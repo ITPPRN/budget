@@ -17,10 +17,11 @@ import api from '../../utils/api/axiosInstance';
 // 🌟 เอา initialItems ออกจาก Props
 const AuditReportModal = ({ open, onClose, filters, onSubmit, loading: submitting, basketItems = [] }) => {
     const [searchQuery, setSearchQuery] = useState('');
-    const [searchResults, setSearchResults] = useState([]); 
+    const [searchResults, setSearchResults] = useState([]);
     const [searching, setSearching] = useState(false);
     const [addedItems, setAddedItems] = useState([]); // ของที่จะรอใส่ตะกร้า (เฉพาะรอบนี้)
-    const [errorMsg, setErrorMsg] = useState(null); 
+    const [errorMsg, setErrorMsg] = useState(null);
+    const [globalBasketIds, setGlobalBasketIds] = useState([]); // tx_ids ที่อยู่ในตะกร้าของใครก็ได้ (ครอบ dept ที่ user เห็น)
 
     // 🌟 Reset ทุกครั้งที่เปิด Modal
     useEffect(() => {
@@ -29,6 +30,12 @@ const AuditReportModal = ({ open, onClose, filters, onSubmit, loading: submittin
             setSearchResults([]);
             setAddedItems([]); // เคลียร์ของเก่าทิ้ง เริ่มต้นใหม่ทุกครั้งที่กดเปิดค้นหา
             setErrorMsg(null);
+
+            // ดึงรายการ tx_ids ที่ใครๆ เพิ่มเข้าตะกร้าไว้แล้ว — เพื่อโชว์ chip "เพิ่มเข้าตะกร้าแล้ว"
+            // กัน user (โดยเฉพาะ delegate คนละคน) เพิ่มซ้ำ
+            api.get('/budgets/audit/basket/in-basket-tx-ids')
+                .then(res => setGlobalBasketIds(res.data || []))
+                .catch(() => setGlobalBasketIds([]));
         }
     }, [open]);
 
@@ -80,11 +87,15 @@ const AuditReportModal = ({ open, onClose, filters, onSubmit, loading: submittin
     }, [searchQuery, filters]); 
 
     const handleAddItem = (item) => {
-        setAddedItems(prev => [...prev, item]);
+        setAddedItems(prev => [...prev, { ...item, note: "" }]);
     };
 
     const handleRemoveItem = (id) => {
         setAddedItems(prev => prev.filter(item => item.id !== id));
+    };
+
+    const handleNoteChange = (id, note) => {
+        setAddedItems(prev => prev.map(item => item.id === id ? { ...item, note } : item));
     };
 
     const handleSubmit = () => {
@@ -96,10 +107,11 @@ const AuditReportModal = ({ open, onClose, filters, onSubmit, loading: submittin
         onSubmit(addedItems); 
     };
 
-    const basketIds = useMemo(
-        () => new Set((basketItems || []).map(item => item.id)),
-        [basketItems]
-    );
+    const basketIds = useMemo(() => {
+        const set = new Set((basketItems || []).map(item => item.id));
+        for (const id of globalBasketIds) set.add(id);
+        return set;
+    }, [basketItems, globalBasketIds]);
 
     const displayResults = useMemo(() => {
         const addedIds = new Set(addedItems.map(item => item.id));
@@ -226,6 +238,7 @@ const AuditReportModal = ({ open, onClose, filters, onSubmit, loading: submittin
                                         <TableCell sx={{ bgcolor: '#f5f5f5', fontWeight: 'bold' }}>GL Account</TableCell>
                                         <TableCell align="right" sx={{ bgcolor: '#f5f5f5', fontWeight: 'bold' }}>Amount</TableCell>
                                         <TableCell sx={{ bgcolor: '#f5f5f5', fontWeight: 'bold' }}>Description</TableCell>
+                                        <TableCell sx={{ bgcolor: '#f5f5f5', fontWeight: 'bold', minWidth: 220 }}>เหตุผลที่ปฏิเสธ (Note)</TableCell>
                                         <TableCell align="center" sx={{ bgcolor: '#f5f5f5', fontWeight: 'bold' }}>Action</TableCell>
                                     </TableRow>
                                 </TableHead>
@@ -238,6 +251,17 @@ const AuditReportModal = ({ open, onClose, filters, onSubmit, loading: submittin
                                                 {parseFloat(item.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                                             </TableCell>
                                             <TableCell sx={{ fontSize: '0.75rem' }}>{item.description}</TableCell>
+                                            <TableCell>
+                                                <TextField
+                                                    value={item.note || ''}
+                                                    onChange={(e) => handleNoteChange(item.id, e.target.value)}
+                                                    placeholder="ระบุเหตุผล (ไม่บังคับ)"
+                                                    size="small"
+                                                    fullWidth
+                                                    multiline
+                                                    maxRows={3}
+                                                />
+                                            </TableCell>
                                             <TableCell align="center">
                                                 <IconButton size="small" color="error" onClick={() => handleRemoveItem(item.id)}>
                                                     <DeleteIcon fontSize="small" />

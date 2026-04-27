@@ -15,6 +15,10 @@ type actualRepository struct {
 }
 
 func NewActualRepository(db *gorm.DB) models.ActualRepository {
+	// Drop the legacy too-narrow unique index if it exists — it was incorrectly added
+	// on (entity, entity_gl, doc_no, posting_date) which collides on multi-line documents
+	// where the same GL appears multiple times with different branches/departments.
+	_ = db.Exec(`DROP INDEX IF EXISTS uniq_actual_txn_business_key`).Error
 	return &actualRepository{db: db}
 }
 
@@ -78,17 +82,31 @@ func (r *actualRepository) DeleteActualFactsByMonth(ctx context.Context, year st
 		return fmt.Errorf("actualRepo.DeleteActualFactsByMonth.Amounts: %w", err)
 	}
 
+	// Recompute year_total — keep this portable (no table alias) so it runs on
+	// both Postgres in production and SQLite in tests.
 	if err := r.db.WithContext(ctx).Exec(`
-		UPDATE actual_fact_entities f
-		SET year_total = COALESCE((SELECT SUM(amount) FROM actual_amount_entities a WHERE a.actual_fact_id = f.id), 0)
-		WHERE f.year = ?
+		UPDATE actual_fact_entities
+		SET year_total = COALESCE(
+			(SELECT SUM(amount) FROM actual_amount_entities
+			 WHERE actual_amount_entities.actual_fact_id = actual_fact_entities.id),
+			0)
+		WHERE year = ?
 	`, year).Error; err != nil {
 		return fmt.Errorf("actualRepo.DeleteActualFactsByMonth.UpdateTotal: %w", err)
 	}
 
-	if err := r.db.WithContext(ctx).Unscoped().
-		Where("year = ? AND year_total = 0", year).
-		Delete(&models.ActualFactEntity{}).Error; err != nil {
+	// Cleanup: delete fact entities that have NO amount rows left at all.
+	// Important: don't use year_total=0 here — amounts can legitimately sum to 0 (e.g. debits
+	// cancelling credits) while still being valid rows that must remain joinable.
+	if err := r.db.WithContext(ctx).Exec(`
+		DELETE FROM actual_fact_entities
+		WHERE year = ?
+		  AND NOT EXISTS (
+		      SELECT 1 FROM actual_amount_entities a
+		      WHERE a.actual_fact_id = actual_fact_entities.id
+		        AND a.deleted_at IS NULL
+		  )
+	`, year).Error; err != nil {
 		return fmt.Errorf("actualRepo.DeleteActualFactsByMonth.Cleanup: %w", err)
 	}
 	return nil
@@ -102,9 +120,12 @@ func (r *actualRepository) DeleteAllActualTransactions(ctx context.Context) erro
 }
 
 func (r *actualRepository) DeleteActualTransactionsByYear(ctx context.Context, year string) error {
-	// 🛡️ CRITICAL: Only delete PENDING transactions to preserve Owner work (Drafts, Reported, Complete)
+	// Delete ALL transactions for the year (including non-PENDING).
+	// Audit work (REPORTED/COMPLETE) is preserved separately via GetNonPendingTransactionKeys
+	// → RestoreTransactionStatuses; the row itself is rebuilt from raw to keep it consistent
+	// with actual_amount_entities. Operates inside WithTrx so failure rolls back.
 	if err := r.db.WithContext(ctx).Unscoped().
-		Where("year = ? AND status = ?", year, models.TxStatusPending).
+		Where("year = ?", year).
 		Delete(&models.ActualTransactionEntity{}).Error; err != nil {
 		return fmt.Errorf("actualRepo.DeleteActualTransactionsByYear: %w", err)
 	}
@@ -121,9 +142,9 @@ func (r *actualRepository) DeleteActualTransactionsByMonth(ctx context.Context, 
 		return fmt.Errorf("actualRepo.DeleteActualTransactionsByMonth: invalid month: %s", month)
 	}
 	pattern := fmt.Sprintf("%s-%s-%%", year, mCode)
-	// 🛡️ CRITICAL: Only delete PENDING transactions to preserve Owner work
+	// Delete ALL transactions for the month (see DeleteActualTransactionsByYear comment).
 	if err := r.db.WithContext(ctx).Unscoped().
-		Where("year = ? AND posting_date LIKE ? AND status = ?", year, pattern, models.TxStatusPending).
+		Where("year = ? AND posting_date LIKE ?", year, pattern).
 		Delete(&models.ActualTransactionEntity{}).Error; err != nil {
 		return fmt.Errorf("actualRepo.DeleteActualTransactionsByMonth: %w", err)
 	}
@@ -201,30 +222,16 @@ func (r *actualRepository) RestoreTransactionStatuses(ctx context.Context, statu
 
 	for status, keys := range byStatus {
 		for _, k := range keys {
-			// Update new PENDING record to preserved status
+			// Promote freshly-inserted PENDING rows for this business key to the preserved status.
+			// Multiple rows can share the same key (multi-line documents); all of them get promoted.
+			// We deliberately do NOT delete "duplicates" here — within a sync run protected by
+			// SyncMutex, there are no duplicate inserts, only legitimate multi-line items.
 			if err := r.db.WithContext(ctx).Model(&models.ActualTransactionEntity{}).
 				Where("entity = ? AND entity_gl = ? AND doc_no = ? AND posting_date = ? AND status = ?",
 					k[0], k[1], k[2], k[3], models.TxStatusPending).
 				Update("status", status).Error; err != nil {
 				return fmt.Errorf("actualRepo.RestoreTransactionStatuses: %w", err)
 			}
-
-			// Delete old duplicate (the non-PENDING one that was preserved during delete)
-			// Now the new record has the correct status, so we can safely remove the old one.
-			// We delete by: same key + same old status + older created_at (keep the newer one)
-			r.db.WithContext(ctx).Exec(`
-				DELETE FROM actual_transaction_entities
-				WHERE id IN (
-					SELECT id FROM actual_transaction_entities
-					WHERE entity = ? AND entity_gl = ? AND doc_no = ? AND posting_date = ? AND status = ?
-					ORDER BY created_at ASC
-					LIMIT 1
-				)
-				AND (SELECT COUNT(*) FROM actual_transaction_entities
-					WHERE entity = ? AND entity_gl = ? AND doc_no = ? AND posting_date = ?
-				) > 1`,
-				k[0], k[1], k[2], k[3], status,
-				k[0], k[1], k[2], k[3])
 		}
 	}
 
@@ -285,12 +292,11 @@ func (r *actualRepository) GetAggregatedHMW(ctx context.Context, year string, mo
 	}
 	return results, nil
 }
-
 func (r *actualRepository) GetRawTransactionsHMW(ctx context.Context, year string, months []string) ([]models.ActualTransactionDTO, error) {
-	var results []models.ActualTransactionDTO
+	var rawRows []models.RawTransactionRow // 👈 เปลี่ยนมารับด้วย Struct ตัวแทน
+
 	query := r.db.WithContext(ctx).Table("achhmw_gle_api").
 		Select(`
-			'HMW' as source,
 			TO_CHAR("Posting_Date"::DATE, 'YYYY-MM-DD') as posting_date,
 			"Document_No" as doc_no, 
 			"Description" as description, 
@@ -308,11 +314,61 @@ func (r *actualRepository) GetRawTransactionsHMW(ctx context.Context, year strin
 		query = query.Where("UPPER(TO_CHAR(\"Posting_Date\"::DATE, 'MON')) IN ?", months)
 	}
 
-	if err := query.Scan(&results).Error; err != nil {
+	if err := query.Scan(&rawRows).Error; err != nil {
 		return nil, fmt.Errorf("actualRepo.GetRawTransactionsHMW: %w", err)
+	}
+
+	// 👈 Map ใส่ DTO เอง และยัดคำว่า HMW
+	var results []models.ActualTransactionDTO
+	for _, row := range rawRows {
+		results = append(results, models.ActualTransactionDTO{
+			Source:        "HMW",
+			PostingDate:   row.PostingDate,
+			DocNo:         row.DocNo,
+			Description:   row.Description,
+			EntityGL:      row.EntityGL,
+			GLAccountName: row.GLAccountName,
+			Department:    row.Department,
+			Amount:        row.Amount,
+			Vendor:        row.Vendor,
+			Company:       row.Company,
+			Branch:        row.Branch,
+		})
 	}
 	return results, nil
 }
+
+// func (r *actualRepository) GetRawTransactionsHMW(ctx context.Context, year string, months []string) ([]models.ActualTransactionDTO, error) {
+// 	var results []models.ActualTransactionDTO
+// 	// 'HMW' as source,
+// 	query := r.db.WithContext(ctx).Table("achhmw_gle_api").
+// 		Select(`
+
+// 			TO_CHAR("Posting_Date"::DATE, 'YYYY-MM-DD') as posting_date,
+// 			"Document_No" as doc_no,
+// 			"Description" as description,
+// 			"G_L_Account_No" as entity_gl,
+// 			"G_L_Account_Name" as gl_account_name,
+// 			"Global_Dimension_1_Code" as department,
+// 			"Amount" as amount,
+// 			"Vendor_Name" as vendor,
+// 			company,
+// 			branch
+// 		`).
+// 		Where("TO_CHAR(\"Posting_Date\"::DATE, 'YYYY') = ?", year)
+
+// 	if len(months) > 0 {
+// 		query = query.Where("UPPER(TO_CHAR(\"Posting_Date\"::DATE, 'MON')) IN ?", months)
+// 	}
+
+// 	if err := query.Scan(&results).Error; err != nil {
+// 		return nil, fmt.Errorf("actualRepo.GetRawTransactionsHMW: %w", err)
+// 	}
+// 	for i := range results {
+// 		results[i].Source = "HMW"
+// 	}
+// 	return results, nil
+// }
 
 func (r *actualRepository) GetAllClikGle(ctx context.Context) ([]models.ClikGleEntity, error) {
 	var results []models.ClikGleEntity
@@ -349,10 +405,10 @@ func (r *actualRepository) GetAggregatedCLIK(ctx context.Context, year string, m
 }
 
 func (r *actualRepository) GetRawTransactionsCLIK(ctx context.Context, year string, months []string) ([]models.ActualTransactionDTO, error) {
-	var results []models.ActualTransactionDTO
+	var rawRows []models.RawTransactionRow // 👈 เปลี่ยนมารับด้วย Struct ตัวแทน
+
 	query := r.db.WithContext(ctx).Table("general_ledger_entries_clik").
 		Select(`
-			'CLIK' as source,
 			TO_CHAR("Posting_Date"::DATE, 'YYYY-MM-DD') as posting_date,
 			"Document_No" as doc_no,
 			"Description" as description,
@@ -370,23 +426,152 @@ func (r *actualRepository) GetRawTransactionsCLIK(ctx context.Context, year stri
 		query = query.Where("UPPER(TO_CHAR(\"Posting_Date\"::DATE, 'MON')) IN ?", months)
 	}
 
-	if err := query.Scan(&results).Error; err != nil {
+	if err := query.Scan(&rawRows).Error; err != nil {
 		return nil, fmt.Errorf("actualRepo.GetRawTransactionsCLIK: %w", err)
+	}
+
+	// 👈 Map ใส่ DTO เอง และยัดคำว่า CLIK
+	var results []models.ActualTransactionDTO
+	for _, row := range rawRows {
+		results = append(results, models.ActualTransactionDTO{
+			Source:        "CLIK",
+			PostingDate:   row.PostingDate,
+			DocNo:         row.DocNo,
+			Description:   row.Description,
+			EntityGL:      row.EntityGL,
+			GLAccountName: row.GLAccountName,
+			Department:    row.Department,
+			Amount:        row.Amount,
+			Vendor:        row.Vendor,
+			Company:       row.Company,
+			Branch:        row.Branch,
+		})
 	}
 	return results, nil
 }
 
+// func (r *actualRepository) GetRawTransactionsCLIK(ctx context.Context, year string, months []string) ([]models.ActualTransactionDTO, error) {
+// 	var results []models.ActualTransactionDTO
+// 	// 'CLIK' as source,
+// 	query := r.db.WithContext(ctx).Table("general_ledger_entries_clik").
+// 		Select(`
+// 			TO_CHAR("Posting_Date"::DATE, 'YYYY-MM-DD') as posting_date,
+// 			"Document_No" as doc_no,
+// 			"Description" as description,
+// 			"G_L_Account_No" as entity_gl,
+// 			"G_L_Account_Name" as gl_account_name,
+// 			"Global_Dimension_1_Code" as department,
+// 			"Amount" as amount,
+// 			"Vendor_Name" as vendor,
+// 			company,
+// 			"Global_Dimension_2_Code" as branch
+// 		`).
+// 		Where("TO_CHAR(\"Posting_Date\"::DATE, 'YYYY') = ?", year)
+
+// 	if len(months) > 0 {
+// 		query = query.Where("UPPER(TO_CHAR(\"Posting_Date\"::DATE, 'MON')) IN ?", months)
+// 	}
+
+// 	if err := query.Scan(&results).Error; err != nil {
+// 		return nil, fmt.Errorf("actualRepo.GetRawTransactionsCLIK: %w", err)
+// 	}
+// 	for i := range results {
+// 		results[i].Source = "CLIK"
+// 	}
+// 	return results, nil
+// }
+
 // streamRawRow — wrapper struct ที่มี id (สำหรับ cursor pagination)
 // ทำไมถึงต้องใช้: ActualTransactionDTO ไม่มี id field — ถ้าให้ GORM พยายาม
 // ใช้ FindInBatches กับ DTO โดยตรง จะ fail (พยายามใช้ field แรก = source เป็น PK)
-type streamRawRow struct {
-	ID int64 `gorm:"column:id;primaryKey"`
-	models.ActualTransactionDTO
-}
+// type streamRawRow struct {
+// 	ID            int64           `gorm:"column:id"`
+// 	PostingDate   string          `gorm:"column:posting_date"`
+// 	DocNo         string          `gorm:"column:doc_no"`
+// 	Description   string          `gorm:"column:description"`
+// 	EntityGL      string          `gorm:"column:entity_gl"`
+// 	GLAccountName string          `gorm:"column:gl_account_name"`
+// 	Department    string          `gorm:"column:department"`
+// 	Amount        decimal.Decimal `gorm:"column:amount"`
+// 	Vendor        string          `gorm:"column:vendor"`
+// 	Company       string          `gorm:"column:company"`
+// 	Branch        string          `gorm:"column:branch"`
+// }
 
 // StreamRawTransactionsHMW — streaming version ใช้ cursor pagination ด้วย id
 // อ่านทีละ batchSize rows แทนโหลดทั้งเดือนเข้า memory
 // handler จะถูกเรียกต่อ batch → sync สามารถ flush ลง DB ทันทีลดความเสี่ยง OOM
+// func (r *actualRepository) StreamRawTransactionsHMW(
+// 	ctx context.Context, year string, months []string,
+// 	batchSize int, handler func([]models.ActualTransactionDTO) error,
+// ) error {
+// 	if batchSize <= 0 {
+// 		batchSize = 2000
+// 	}
+
+// 	lastID := int64(0)
+// 	for {
+// 		if err := ctx.Err(); err != nil {
+// 			return err
+// 		}
+// 		var batch []models.StreamRawRow
+// 		// 'HMW' as source,
+// 		query := r.db.WithContext(ctx).Table("achhmw_gle_api").
+// 			Select(`
+// 				id,
+// 				TO_CHAR("Posting_Date"::DATE, 'YYYY-MM-DD') as posting_date,
+// 				"Document_No" as doc_no,
+// 				"Description" as description,
+// 				"G_L_Account_No" as entity_gl,
+// 				"G_L_Account_Name" as gl_account_name,
+// 				"Global_Dimension_1_Code" as department,
+// 				"Amount" as amount,
+// 				"Vendor_Name" as vendor,
+// 				company,
+// 				branch
+// 			`).
+// 			Where("TO_CHAR(\"Posting_Date\"::DATE, 'YYYY') = ?", year).
+// 			Where("id > ?", lastID).
+// 			Order("id").
+// 			Limit(batchSize)
+
+// 		if len(months) > 0 {
+// 			query = query.Where("UPPER(TO_CHAR(\"Posting_Date\"::DATE, 'MON')) IN ?", months)
+// 		}
+
+// 		if err := query.Scan(&batch).Error; err != nil {
+// 			return fmt.Errorf("actualRepo.StreamRawTransactionsHMW: %w", err)
+// 		}
+// 		if len(batch) == 0 {
+// 			return nil
+// 		}
+
+// 		dtos := make([]models.ActualTransactionDTO, len(batch))
+// 		for i, row := range batch {
+// 			dtos[i] = models.ActualTransactionDTO{
+// 				Source:        "HMW",
+// 				PostingDate:   row.PostingDate,
+// 				DocNo:         row.DocNo,
+// 				Description:   row.Description,
+// 				EntityGL:      row.EntityGL,
+// 				GLAccountName: row.GLAccountName,
+// 				Department:    row.Department,
+// 				Amount:        row.Amount,
+// 				Vendor:        row.Vendor,
+// 				Company:       row.Company,
+// 				Branch:        row.Branch,
+// 			}
+// 		}
+// 		if err := handler(dtos); err != nil {
+// 			return err
+// 		}
+
+//			lastID = batch[len(batch)-1].ID
+//			if len(batch) < batchSize {
+//				return nil
+//			}
+//		}
+//	}
 func (r *actualRepository) StreamRawTransactionsHMW(
 	ctx context.Context, year string, months []string,
 	batchSize int, handler func([]models.ActualTransactionDTO) error,
@@ -400,11 +585,11 @@ func (r *actualRepository) StreamRawTransactionsHMW(
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		var batch []streamRawRow
+		var batch []models.StreamRawRow
+
 		query := r.db.WithContext(ctx).Table("achhmw_gle_api").
 			Select(`
 				id,
-				'HMW' as source,
 				TO_CHAR("Posting_Date"::DATE, 'YYYY-MM-DD') as posting_date,
 				"Document_No" as doc_no,
 				"Description" as description,
@@ -434,7 +619,20 @@ func (r *actualRepository) StreamRawTransactionsHMW(
 
 		dtos := make([]models.ActualTransactionDTO, len(batch))
 		for i, row := range batch {
-			dtos[i] = row.ActualTransactionDTO
+			// 👈 Map ใส่ DTO เอง
+			dtos[i] = models.ActualTransactionDTO{
+				Source:        "HMW",
+				PostingDate:   row.PostingDate,
+				DocNo:         row.DocNo,
+				Description:   row.Description,
+				EntityGL:      row.EntityGL,
+				GLAccountName: row.GLAccountName,
+				Department:    row.Department,
+				Amount:        row.Amount,
+				Vendor:        row.Vendor,
+				Company:       row.Company,
+				Branch:        row.Branch,
+			}
 		}
 		if err := handler(dtos); err != nil {
 			return err
@@ -448,6 +646,77 @@ func (r *actualRepository) StreamRawTransactionsHMW(
 }
 
 // StreamRawTransactionsCLIK — streaming variant สำหรับ CLIK table
+// func (r *actualRepository) StreamRawTransactionsCLIK(
+// 	ctx context.Context, year string, months []string,
+// 	batchSize int, handler func([]models.ActualTransactionDTO) error,
+// ) error {
+// 	if batchSize <= 0 {
+// 		batchSize = 2000
+// 	}
+
+// 	lastID := int64(0)
+// 	for {
+// 		if err := ctx.Err(); err != nil {
+// 			return err
+// 		}
+// 		var batch []streamRawRow
+// 		// 'CLIK' as source,
+// 		query := r.db.WithContext(ctx).Table("general_ledger_entries_clik").
+// 			Select(`
+// 				id,
+// 				TO_CHAR("Posting_Date"::DATE, 'YYYY-MM-DD') as posting_date,
+// 				"Document_No" as doc_no,
+// 				"Description" as description,
+// 				"G_L_Account_No" as entity_gl,
+// 				"G_L_Account_Name" as gl_account_name,
+// 				"Global_Dimension_1_Code" as department,
+// 				"Amount" as amount,
+// 				"Vendor_Name" as vendor,
+// 				company,
+// 				"Global_Dimension_2_Code" as branch
+// 			`).
+// 			Where("TO_CHAR(\"Posting_Date\"::DATE, 'YYYY') = ?", year).
+// 			Where("id > ?", lastID).
+// 			Order("id").
+// 			Limit(batchSize)
+
+// 		if len(months) > 0 {
+// 			query = query.Where("UPPER(TO_CHAR(\"Posting_Date\"::DATE, 'MON')) IN ?", months)
+// 		}
+
+// 		if err := query.Scan(&batch).Error; err != nil {
+// 			return fmt.Errorf("actualRepo.StreamRawTransactionsCLIK: %w", err)
+// 		}
+// 		if len(batch) == 0 {
+// 			return nil
+// 		}
+
+// 		dtos := make([]models.ActualTransactionDTO, len(batch))
+// 		for i, row := range batch {
+// 			dtos[i] = models.ActualTransactionDTO{
+// 				Source:        "CLIK",
+// 				PostingDate:   row.PostingDate,
+// 				DocNo:         row.DocNo,
+// 				Description:   row.Description,
+// 				EntityGL:      row.EntityGL,
+// 				GLAccountName: row.GLAccountName,
+// 				Department:    row.Department,
+// 				Amount:        row.Amount,
+// 				Vendor:        row.Vendor,
+// 				Company:       row.Company,
+// 				Branch:        row.Branch,
+// 			}
+// 		}
+// 		if err := handler(dtos); err != nil {
+// 			return err
+// 		}
+
+//			lastID = batch[len(batch)-1].ID
+//			if len(batch) < batchSize {
+//				return nil
+//			}
+//		}
+//	}
 func (r *actualRepository) StreamRawTransactionsCLIK(
 	ctx context.Context, year string, months []string,
 	batchSize int, handler func([]models.ActualTransactionDTO) error,
@@ -461,11 +730,11 @@ func (r *actualRepository) StreamRawTransactionsCLIK(
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		var batch []streamRawRow
+		var batch []models.StreamRawRow
+
 		query := r.db.WithContext(ctx).Table("general_ledger_entries_clik").
 			Select(`
 				id,
-				'CLIK' as source,
 				TO_CHAR("Posting_Date"::DATE, 'YYYY-MM-DD') as posting_date,
 				"Document_No" as doc_no,
 				"Description" as description,
@@ -495,7 +764,20 @@ func (r *actualRepository) StreamRawTransactionsCLIK(
 
 		dtos := make([]models.ActualTransactionDTO, len(batch))
 		for i, row := range batch {
-			dtos[i] = row.ActualTransactionDTO
+			// 👈 Map ใส่ DTO เอง
+			dtos[i] = models.ActualTransactionDTO{
+				Source:        "CLIK",
+				PostingDate:   row.PostingDate,
+				DocNo:         row.DocNo,
+				Description:   row.Description,
+				EntityGL:      row.EntityGL,
+				GLAccountName: row.GLAccountName,
+				Department:    row.Department,
+				Amount:        row.Amount,
+				Vendor:        row.Vendor,
+				Company:       row.Company,
+				Branch:        row.Branch,
+			}
 		}
 		if err := handler(dtos); err != nil {
 			return err
@@ -512,6 +794,10 @@ func (r *actualRepository) CreateActualTransactions(ctx context.Context, txs []m
 	if len(txs) == 0 {
 		return nil
 	}
+	// Plain INSERT — concurrency is prevented by SyncMutex held by callers (cron/manual trigger).
+	// We deliberately do NOT use a unique index/ON CONFLICT here because a single document can
+	// have multiple legitimate line items with the same (entity, entity_gl, doc_no, posting_date)
+	// distinguished only by branch/department.
 	if err := r.db.WithContext(ctx).CreateInBatches(txs, 500).Error; err != nil {
 		return fmt.Errorf("actualRepo.CreateActualTransactions: %w", err)
 	}

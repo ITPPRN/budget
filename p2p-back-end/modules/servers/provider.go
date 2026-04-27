@@ -1,6 +1,8 @@
 package servers
 
 import (
+	"sync"
+
 	_authSer "p2p-back-end/modules/auth/service"
 	_budgetRe "p2p-back-end/modules/budgets/repository"
 	_budgetSer "p2p-back-end/modules/budgets/service"
@@ -19,6 +21,7 @@ import (
 	_userReLo "p2p-back-end/modules/users/repository/local"
 	_userReSou "p2p-back-end/modules/users/repository/source"
 	_userSer "p2p-back-end/modules/users/service"
+	_extSyncQueue "p2p-back-end/modules/external_sync/queue"
 	_extSyncRe "p2p-back-end/modules/external_sync/repository"
 	_extSyncSer "p2p-back-end/modules/external_sync/service"
 )
@@ -40,6 +43,9 @@ type SharedDeps struct {
 	AuditService        models.AuditService
 	BranchCodeMapSrv    models.CompanyBranchCodeMappingService
 	SyncTrackingRepo    _extSyncRe.SyncTrackingRepository
+	SyncMutex           *sync.Mutex
+	SyncQueue           _extSyncQueue.Queue
+	SyncWorker          *_extSyncQueue.Worker
 }
 
 func initSharedDeps(s *server) *SharedDeps {
@@ -108,6 +114,14 @@ func initSharedDeps(s *server) *SharedDeps {
 		consumerController = _consumeContr.NewConsumerController(userService, masterService)
 	}
 
+	// --- Sync Queue + Worker (Redis-backed, single-worker serialization) ---
+	syncQueue := _extSyncQueue.NewRedisQueue(s.Redis)
+	syncWorker := _extSyncQueue.NewWorker(_extSyncQueue.WorkerDeps{
+		Queue:        syncQueue,
+		Executor:     _extSyncQueue.NewExecutor(actualService, externalSyncService),
+		TrackingRepo: syncTrackingRepo,
+	})
+
 	return &SharedDeps{
 		AuthService:        authService,
 		MasterService:      masterService,
@@ -125,5 +139,8 @@ func initSharedDeps(s *server) *SharedDeps {
 		AuditService:        auditService,
 		BranchCodeMapSrv:    branchCodeMapService,
 		SyncTrackingRepo:    syncTrackingRepo,
+		SyncMutex:           &s.SyncMutex,
+		SyncQueue:           syncQueue,
+		SyncWorker:          syncWorker,
 	}
 }

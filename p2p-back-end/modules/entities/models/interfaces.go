@@ -37,6 +37,7 @@ type UserRepository interface {
 	ReactivateUser(ctx context.Context, userID string) error
 	GetUserContext(ctx context.Context, userID string) (*UserEntity, error)
 	GetUserPermissions(ctx context.Context, userID string) ([]UserPermissionEntity, error)
+	GetActiveOwnerIDsByDepartment(ctx context.Context, departmentCode string) ([]string, error)
 	UpdateUserPermissionsAndRoles(ctx context.Context, userID string, permissions []UserPermissionEntity, roles []string) error
 	UpdateUserID(ctx context.Context, oldID, newID string) error
 	ListDepartments(ctx context.Context) ([]Departments, error)
@@ -327,9 +328,16 @@ type AuditRepository interface {
 	UpdateTransactionsStatus(ctx context.Context, ids []uuid.UUID, status string) error
 	// MarkRestAsComplete(ctx context.Context, department, year, month string, excludedIDs []uuid.UUID) error
 	AddToBasket(ctx context.Context, items []AuditRejectBasket) error
-	GetBasketItems(ctx context.Context, userID string) ([]ActualTransactionEntity, error)
+	GetBasketItems(ctx context.Context, userID string) ([]BasketItemView, error)
+	GetBasketItemsAddedBy(ctx context.Context, addedByUserID string) ([]BasketItemView, error)
+	GetInBasketTxIDsByDepartments(ctx context.Context, departments []string) ([]uuid.UUID, error)
 	RemoveFromBasket(ctx context.Context, userID string, transactionID string) error
+	RemoveFromBasketByAddedBy(ctx context.Context, addedByUserID, transactionID string) error
+	UpdateBasketNote(ctx context.Context, userID, transactionID, note string) error
+	UpdateBasketNoteByAddedBy(ctx context.Context, addedByUserID, transactionID, note string) error
+	DeleteBasketRowsByTxIDs(ctx context.Context, transactionIDs []uuid.UUID) error
 	GetBasketTransactionIDs(ctx context.Context, userID string) ([]uuid.UUID, error)
+	GetBasketNotes(ctx context.Context, userID string) (map[uuid.UUID]string, error)
 	ClearBasket(ctx context.Context, userID string) error
 	MarkRestAsComplete(ctx context.Context, department, year, month string, excludedIDs []uuid.UUID, targetStatus string) error
 	ValidateBasketScope(ctx context.Context, ids []uuid.UUID, year string, month string) (bool, error)
@@ -339,14 +347,16 @@ type AuditRepository interface {
 }
 
 type AuditService interface {
-	AddToBasket(context.Context, *UserInfo, []string) error
+	AddToBasket(context.Context, *UserInfo, []BasketAddItem) error
 	Approve(ctx context.Context, user *UserInfo, payload map[string]interface{}) error
 	Report(ctx context.Context, user *UserInfo, payload map[string]interface{}) error
 	ListLogs(ctx context.Context, filter map[string]interface{}) ([]AuditLogEntity, error)
 	GetRejectedItemDetails(ctx context.Context, logID string) ([]AuditLogRejectedItemEntity, error)
 	GetReportableTransactions(ctx context.Context, user *UserInfo, payload map[string]interface{}) ([]ActualTransactionEntity, error)
-	GetBasketItems(ctx context.Context, userID string) ([]ActualTransactionEntity, error)
-	RemoveFromBasket(ctx context.Context, userID string, transactionID string) error
+	GetBasketItems(ctx context.Context, user *UserInfo) ([]BasketItemView, error)
+	GetInBasketTxIDs(ctx context.Context, user *UserInfo) ([]string, error)
+	RemoveFromBasket(ctx context.Context, user *UserInfo, transactionID string) error
+	UpdateBasketNote(ctx context.Context, user *UserInfo, transactionID, note string) error
 	CheckAuditComplete(ctx context.Context, user *UserInfo, year, month string) (map[string]interface{}, error)
 }
 

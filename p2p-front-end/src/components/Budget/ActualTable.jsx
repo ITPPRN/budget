@@ -465,7 +465,11 @@ const ActualTable = React.memo(
     filters = {},
   }) => {
     const { user } = useAuth();
-    const isOwner = user?.roles?.some((r) => r.toUpperCase() === "OWNER");
+    const roles = (user?.roles || []).map((r) => r.toUpperCase());
+    const isOwner = roles.includes("OWNER");
+    const isDelegate =
+      roles.includes("DELEGATE") || roles.includes("BRANCH_DELEGATE");
+    const canAudit = isOwner || isDelegate; // OWNER + delegates: เพิ่มเข้าตะกร้าได้
 
     const [openFullScreen, setOpenFullScreen] = useState(false);
     const [auditLoading, setAuditLoading] = useState(false);
@@ -493,7 +497,7 @@ const ActualTable = React.memo(
 
     // 🌟 2. ดึงข้อมูล "ทันที" ที่โหลดหน้าเว็บเสร็จ
     useEffect(() => {
-      if (isOwner) {
+      if (canAudit) {
         fetchBasket();
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -543,12 +547,12 @@ const ActualTable = React.memo(
     };
 
     useEffect(() => {
-      if (isOwner) {
+      if (canAudit) {
         const target = getApproveTarget();
         checkAuditComplete(target.year, target.month);
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isOwner, dateFilter?.startDate]);
+    }, [canAudit, dateFilter?.startDate]);
 
     const handleFilterClick = (event) => {
       setTempDateFilter(dateFilter || { startDate: "", endDate: "" });
@@ -651,7 +655,10 @@ const ActualTable = React.memo(
     const handleReportSubmit = async (selectedItems) => {
       setAuditLoading(true);
       try {
-        const payload = selectedItems.map((item) => item.id);
+        const payload = selectedItems.map((item) => ({
+          transaction_id: item.id,
+          note: item.note || "",
+        }));
         await api.post("/budgets/audit/basket/add", payload); // ยิงหลังบ้านเซฟลง DB
 
         // 🌟 หัวใจความเรียลไทม์: เซฟเสร็จ สั่งดึงข้อมูลใหม่ทันที
@@ -681,6 +688,22 @@ const ActualTable = React.memo(
         toast.error(
           "ลบข้อมูลไม่สำเร็จ: " + (err.response?.data?.error || err.message)
         );
+      }
+    };
+
+    // 🌟 5. แก้ note ของรายการในตะกร้า — optimistic update + sync DB
+    const handleUpdateBasketNote = async (id, note) => {
+      setRejectedBasket((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, note } : item))
+      );
+      try {
+        await api.patch(`/budgets/audit/basket/${id}`, { note });
+      } catch (err) {
+        toast.error(
+          "บันทึก Note ไม่สำเร็จ: " + (err.response?.data?.error || err.message)
+        );
+        // โหลดใหม่เพื่อย้อน state กลับหากบันทึกพลาด
+        fetchBasket();
       }
     };
 
@@ -915,7 +938,7 @@ const ActualTable = React.memo(
           }}
         >
           <Box sx={{ pl: 1, display: "flex", gap: 1, alignItems: "center" }}>
-            {isOwner && (
+            {canAudit && (
               <Box
                 sx={{
                   display: "flex",
@@ -969,30 +992,32 @@ const ActualTable = React.memo(
                 )}
               </Box>
             )}
-            {isOwner && data.length > 0 && (
+            {canAudit && data.length > 0 && (
               <>
-                <Button
-                  variant="contained"
-                  color="success"
-                  size="small"
-                  startIcon={<CheckCircleIcon />}
-                  onClick={() => {
-                    if (rejectedBasket.length === 0) {
-                      console.log(filters.month);
-                      handleOpenApproveDialog(); // ถ้าตะกร้าว่าง ให้เด้ง Modal ยืนยันเลย
-                    } else {
-                      setBasketModalOpen(true); // ถ้าตะกร้ามีของ ให้เปิดดูตะกร้าก่อน
-                    }
-                  }}
-                  disabled={auditLoading || auditComplete}
-                  sx={{
-                    textTransform: "none",
-                    borderRadius: "4px",
-                    fontSize: "0.75rem",
-                  }}
-                >
-                  ยืนยันรายการ
-                </Button>
+                {isOwner && (
+                  <Button
+                    variant="contained"
+                    color="success"
+                    size="small"
+                    startIcon={<CheckCircleIcon />}
+                    onClick={() => {
+                      if (rejectedBasket.length === 0) {
+                        console.log(filters.month);
+                        handleOpenApproveDialog(); // ถ้าตะกร้าว่าง ให้เด้ง Modal ยืนยันเลย
+                      } else {
+                        setBasketModalOpen(true); // ถ้าตะกร้ามีของ ให้เปิดดูตะกร้าก่อน
+                      }
+                    }}
+                    disabled={auditLoading || auditComplete}
+                    sx={{
+                      textTransform: "none",
+                      borderRadius: "4px",
+                      fontSize: "0.75rem",
+                    }}
+                  >
+                    ยืนยันรายการ
+                  </Button>
+                )}
 
                 <Button
                   variant="contained"
@@ -1291,6 +1316,8 @@ const ActualTable = React.memo(
           basketItems={rejectedBasket}
           onRemove={handleRemoveFromBasket}
           onApprove={handleOpenApproveDialog}
+          onUpdateNote={handleUpdateBasketNote}
+          canApprove={isOwner}
           loading={auditLoading}
         />
         <ApproveConfirmModal
