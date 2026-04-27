@@ -355,17 +355,30 @@ func (m *MockAuditRepository) AddToBasket(ctx context.Context, items []models.Au
 	return args.Error(0)
 }
 
-func (m *MockAuditRepository) GetBasketItems(ctx context.Context, userID string) ([]models.ActualTransactionEntity, error) {
+func (m *MockAuditRepository) GetBasketItems(ctx context.Context, userID string) ([]models.BasketItemView, error) {
 	args := m.Called(ctx, userID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).([]models.ActualTransactionEntity), args.Error(1)
+	return args.Get(0).([]models.BasketItemView), args.Error(1)
 }
 
 func (m *MockAuditRepository) RemoveFromBasket(ctx context.Context, userID string, transactionID string) error {
 	args := m.Called(ctx, userID, transactionID)
 	return args.Error(0)
+}
+
+func (m *MockAuditRepository) UpdateBasketNote(ctx context.Context, userID, transactionID, note string) error {
+	args := m.Called(ctx, userID, transactionID, note)
+	return args.Error(0)
+}
+
+func (m *MockAuditRepository) GetBasketNotes(ctx context.Context, userID string) (map[uuid.UUID]string, error) {
+	args := m.Called(ctx, userID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(map[uuid.UUID]string), args.Error(1)
 }
 
 func (m *MockAuditRepository) SaveRejectedItems(ctx context.Context, items []models.AuditLogRejectedItemEntity) error {

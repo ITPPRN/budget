@@ -200,13 +200,14 @@ func (r *auditRepository) AddToBasket(ctx context.Context, items []models.AuditR
     }
     const batchSize = 1000
 
+    // ON CONFLICT (transaction_id, user_id) DO UPDATE note — เผื่อ user เพิ่มซ้ำพร้อมแก้ note
     return r.db.WithContext(ctx).
         Clauses(clause.OnConflict{
             Columns: []clause.Column{
-                {Name: "transaction_id"}, 
+                {Name: "transaction_id"},
                 {Name: "user_id"},
             },
-            DoNothing: true,
+            DoUpdates: clause.AssignmentColumns([]string{"note"}),
         }).
         CreateInBatches(&items, batchSize).Error
 }
@@ -222,17 +223,42 @@ func (r *auditRepository) AddToBasket(ctx context.Context, items []models.AuditR
 // 		CreateInBatches(&items, batchSize).Error
 // }
 
-func (r *auditRepository) GetBasketItems(ctx context.Context, userID string) ([]models.ActualTransactionEntity, error) {
-	var items []models.ActualTransactionEntity
+func (r *auditRepository) GetBasketItems(ctx context.Context, userID string) ([]models.BasketItemView, error) {
+	var items []models.BasketItemView
 
 	err := r.db.WithContext(ctx).
 		Table("actual_transaction_entities AS a").
-		Select("a.*").
+		Select("a.*, b.note AS note").
 		Joins("INNER JOIN audit_rejection_baskets AS b ON a.id = b.transaction_id").
 		Where("b.user_id = ?", userID).
 		Find(&items).Error
 
 	return items, err
+}
+
+func (r *auditRepository) UpdateBasketNote(ctx context.Context, userID, transactionID, note string) error {
+	if userID == "" || transactionID == "" {
+		return nil
+	}
+	return r.db.WithContext(ctx).
+		Model(&models.AuditRejectBasket{}).
+		Where("user_id = ? AND transaction_id = ?", userID, transactionID).
+		Update("note", note).Error
+}
+
+func (r *auditRepository) GetBasketNotes(ctx context.Context, userID string) (map[uuid.UUID]string, error) {
+	var rows []models.AuditRejectBasket
+	if err := r.db.WithContext(ctx).
+		Select("transaction_id, note").
+		Where("user_id = ?", userID).
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[uuid.UUID]string, len(rows))
+	for _, row := range rows {
+		out[row.TransactionID] = row.Note
+	}
+	return out, nil
 }
 
 func (r *auditRepository) RemoveFromBasket(ctx context.Context, userID string, transactionID string) error {

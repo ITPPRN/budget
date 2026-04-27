@@ -98,6 +98,11 @@ func (s *server) Handlers() error {
 		logs.Info("🐰 RabbitMQ Channel is active and ready for use")
 	}
 
+	// --- Start Sync Queue Worker (single drain goroutine) ---
+	if s.Shd.SyncWorker != nil {
+		s.Shd.SyncWorker.Start()
+	}
+
 	// --- Start Background Tasks (Cron) ---
 	s.StartCronJob()
 
@@ -119,7 +124,7 @@ func (s *server) Handlers() error {
 
 	// --- Admin Sync Observability Module ---
 	adminGroup := v1.Group("/admin")
-	_extSyncCon.NewSyncAdminController(adminGroup, s.Shd.AuthService, s.Shd.SyncTrackingRepo, s.Shd.ExternalSyncService, s.Shd.ActualService, s.Shd.SyncMutex)
+	_extSyncCon.NewSyncAdminController(adminGroup, s.Shd.AuthService, s.Shd.SyncTrackingRepo, s.Shd.SyncQueue)
 
 	// --- Export Module Initialization ---
 	exportGroup := v1.Group("")

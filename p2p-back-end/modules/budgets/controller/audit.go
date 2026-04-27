@@ -21,6 +21,7 @@ func NewAuditController(
 
 	router.Post("/audit/basket/add", controller.addBasket)
 	router.Get("/audit/basket/list", controller.getBasket)
+	router.Patch("/audit/basket/:id", controller.updateBasketNote)
 	router.Delete("/audit/basket/:id", controller.removeBasket)
 	router.Post("/audit/approve", controller.approve)
 	router.Post("/audit/report", controller.report)
@@ -36,16 +37,14 @@ func (h *auditController) addBasket(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Unauthorized"})
 	}
 
-	var itemReq []string
+	var itemReq []models.BasketAddItem
 
-	// Parse JSON array
 	if err := c.BodyParser(&itemReq); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request format: expected an array of strings"})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request format: expected an array of {transaction_id, note}"})
 	}
 
-	// Validate input length
 	if len(itemReq) == 0 {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "no request"})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "no request"})
 	}
 
 	err := h.auditSrv.AddToBasket(c.UserContext(), user, itemReq)
@@ -57,6 +56,31 @@ func (h *auditController) addBasket(c *fiber.Ctx) error {
 		"status":  "success",
 		"message": fmt.Sprintf("Added %d items to basket", len(itemReq)),
 	})
+}
+
+func (h *auditController) updateBasketNote(c *fiber.Ctx) error {
+	user, ok := c.Locals("user").(*models.UserInfo)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Unauthorized"})
+	}
+
+	transactionID := c.Params("id")
+	if transactionID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Transaction ID is required"})
+	}
+
+	var body struct {
+		Note string `json:"note"`
+	}
+	if err := c.BodyParser(&body); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
+	}
+
+	if err := h.auditSrv.UpdateBasketNote(c.UserContext(), user.ID, transactionID, body.Note); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to update note: " + err.Error()})
+	}
+
+	return c.JSON(fiber.Map{"status": "success", "message": "Note updated"})
 }
 
 func (h *auditController) getBasket(c *fiber.Ctx) error {

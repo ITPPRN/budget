@@ -62,3 +62,21 @@ ORDER BY c.comp, c.gl;
 
 
 docker compose -f docker-compose.test.yml up --build
+
+
+
+ไว้ดูค่าว่าสองตารางที่ sync diff มั้ย
+-- run อีก 1 ครั้งหลัง 1-2 ชม. — ต้องยังเป็น 0
+WITH txn AS (
+  SELECT TO_CHAR(posting_date::DATE, 'MON') AS month, SUM(amount) AS sum_txn
+  FROM actual_transaction_entities WHERE year = '2026' GROUP BY 1
+),
+amt AS (
+  SELECT aa.month, SUM(aa.amount) AS sum_amt
+  FROM actual_amount_entities aa
+  JOIN actual_fact_entities af ON aa.actual_fact_id = af.id
+  WHERE af.year = '2026' AND aa.deleted_at IS NULL GROUP BY 1
+)
+SELECT COALESCE(txn.month, amt.month), txn.sum_txn, amt.sum_amt,
+       COALESCE(txn.sum_txn, 0) - COALESCE(amt.sum_amt, 0) AS diff
+FROM txn FULL OUTER JOIN amt ON txn.month = amt.month ORDER BY 1;

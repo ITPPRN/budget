@@ -3,50 +3,47 @@ package controller
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 
 	"p2p-back-end/logs"
 	"p2p-back-end/modules/entities/models"
+	syncQueue "p2p-back-end/modules/external_sync/queue"
 	_repo "p2p-back-end/modules/external_sync/repository"
 	"p2p-back-end/pkg/middlewares"
 )
 
-// SyncAdminController — admin-only endpoints for sync observability + manual trigger
+// SyncAdminController — admin-only endpoints for sync observability + queue management
 type SyncAdminController struct {
 	trackingRepo _repo.SyncTrackingRepository
-	extSyncSrv   models.ExternalSyncService
-	actualSrv    models.ActualService
+	queue        syncQueue.Queue
 	authSrv      models.AuthService
-	syncMutex    *sync.Mutex
 }
 
 func NewSyncAdminController(
 	r fiber.Router,
 	authSrv models.AuthService,
 	trackingRepo _repo.SyncTrackingRepository,
-	extSyncSrv models.ExternalSyncService,
-	actualSrv models.ActualService,
-	syncMutex *sync.Mutex,
+	queue syncQueue.Queue,
 ) {
 	c := &SyncAdminController{
 		trackingRepo: trackingRepo,
-		extSyncSrv:   extSyncSrv,
-		actualSrv:    actualSrv,
+		queue:        queue,
 		authSrv:      authSrv,
-		syncMutex:    syncMutex,
 	}
 
-	// GET /admin/sync/status — latest run + recent history
+	// Observability
 	r.Get("/sync/status", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(c.getStatus, models.RoleAdmin)))
-	// GET /admin/sync/history — paginated history with optional filters
 	r.Get("/sync/history", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(c.getHistory, models.RoleAdmin)))
-	// GET /admin/sync/reconciliation?year=2026 — row count health check
 	r.Get("/sync/reconciliation", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(c.getReconciliation, models.RoleAdmin)))
-	// POST /admin/sync/trigger — manual trigger (body: {job_type, year, month})
+
+	// Trigger + queue management
 	r.Post("/sync/trigger", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(c.triggerSync, models.RoleAdmin)))
+	r.Get("/sync/queue", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(c.getQueue, models.RoleAdmin)))
+	r.Post("/sync/queue/cancel/:id", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(c.cancelQueueItem, models.RoleAdmin)))
+	r.Post("/sync/queue/promote/:id", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(c.promoteQueueItem, models.RoleAdmin)))
 }
 
 func (c *SyncAdminController) getStatus(ctx *fiber.Ctx, user *models.UserInfo) error {
@@ -99,105 +96,224 @@ func (c *SyncAdminController) getReconciliation(ctx *fiber.Ctx, user *models.Use
 }
 
 type triggerRequest struct {
-	JobType string `json:"job_type"` // ACTUAL_FACT | DW_SYNC
-	Year    string `json:"year"`     // required for ACTUAL_FACT
-	Months  []string `json:"months"` // optional; empty = full year
+	JobType string   `json:"job_type"`
+	Year    string   `json:"year"`
+	Months  []string `json:"months"`
 }
 
+// triggerSync enqueues a sync job. Returns 202 + job id, or 409 if duplicate.
 func (c *SyncAdminController) triggerSync(ctx *fiber.Ctx, user *models.UserInfo) error {
 	var req triggerRequest
 	if err := ctx.BodyParser(&req); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid body"})
 	}
 
-	triggeredBy := "ADMIN:" + user.ID
+	job := buildJobFromRequest(&req, "ADMIN:"+user.ID)
+	if job == nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "unsupported job_type or missing required fields"})
+	}
 
-	// Try to acquire sync mutex — refuse if another sync is already running
-	// (prevents concurrent syncs that cause duplicate transaction inserts)
-	if c.syncMutex != nil && !c.syncMutex.TryLock() {
+	enqueued, err := c.queue.Enqueue(ctx.UserContext(), job)
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	if !enqueued {
 		return ctx.Status(fiber.StatusConflict).JSON(fiber.Map{
-			"error": "another sync is already running — please wait until it finishes",
+			"error": "an identical job is already queued or running",
 		})
 	}
 
-	// Run in background so the HTTP request doesn't time out for large syncs
-	go func() {
-		if c.syncMutex != nil {
-			defer c.syncMutex.Unlock()
-		}
-		bgCtx := context.Background()
-
-		run := &models.SyncRunEntity{
-			JobType:     req.JobType,
-			Year:        req.Year,
-			TriggeredBy: triggeredBy,
-		}
-		if len(req.Months) == 1 {
-			run.Month = req.Months[0]
-		}
-		var runID = run.ID
-		if c.trackingRepo != nil {
-			if err := c.trackingRepo.CreateRun(bgCtx, run); err == nil {
-				runID = run.ID
-			}
-		}
-
-		var err error
-		switch req.JobType {
-		case models.SyncJobManual, models.SyncJobActualFact, "":
-			if req.Year == "" {
-				err = fmt.Errorf("year is required")
-			} else {
-				err = c.actualSrv.SyncActuals(bgCtx, req.Year, req.Months)
-			}
-		case models.SyncJobTier1Fast:
-			year := req.Year
-			months := req.Months
-			if year == "" {
-				year = fmt.Sprintf("%d", time.Now().Year())
-			}
-			if len(months) == 0 {
-				monthMap := []string{"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"}
-				months = []string{monthMap[time.Now().Month()-1]}
-			}
-			err = c.actualSrv.SyncActuals(bgCtx, year, months)
-		case models.SyncJobTier2Full:
-			year := req.Year
-			if year == "" {
-				year = fmt.Sprintf("%d", time.Now().Year())
-			}
-			err = c.actualSrv.SyncActuals(bgCtx, year, []string{})
-		case models.SyncJobDW:
-			if c.extSyncSrv == nil {
-				err = fmt.Errorf("external sync service not configured")
-			} else {
-				err = c.extSyncSrv.SyncFromDW(bgCtx)
-			}
-		default:
-			err = fmt.Errorf("unsupported job_type: %s", req.JobType)
-		}
-
-		if c.trackingRepo != nil {
-			status := models.SyncStatusSuccess
-			errMsg := ""
-			if err != nil {
-				status = models.SyncStatusFailed
-				errMsg = err.Error()
-			}
-			_ = c.trackingRepo.CompleteRun(bgCtx, runID, status, 0, 0, 0, errMsg)
-		}
-		if err != nil {
-			logs.Errorf("Manual sync trigger by %s failed: %v", triggeredBy, err)
-		} else {
-			logs.Infof("Manual sync trigger by %s completed: %s", triggeredBy, req.JobType)
-		}
-	}()
+	logs.Infof("Sync trigger by %s queued: %s year=%s months=%v id=%s",
+		job.TriggeredBy, job.JobType, job.Year, job.Months, job.ID)
 
 	return ctx.Status(fiber.StatusAccepted).JSON(fiber.Map{
 		"accepted":     true,
-		"job_type":     req.JobType,
-		"year":         req.Year,
-		"months":       req.Months,
-		"triggered_by": triggeredBy,
+		"job_id":       job.ID,
+		"job_type":     job.JobType,
+		"year":         job.Year,
+		"months":       job.Months,
+		"triggered_by": job.TriggeredBy,
 	})
+}
+
+// buildJobFromRequest expands defaults per job_type and returns nil for invalid input.
+func buildJobFromRequest(req *triggerRequest, triggeredBy string) *syncQueue.Job {
+	jt := req.JobType
+	if jt == "" {
+		jt = models.SyncJobActualFact
+	}
+
+	year := req.Year
+	months := req.Months
+
+	switch jt {
+	case models.SyncJobTier1Fast:
+		if year == "" {
+			year = fmt.Sprintf("%d", time.Now().Year())
+		}
+		if len(months) == 0 {
+			abbr := []string{"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"}
+			months = []string{abbr[time.Now().Month()-1]}
+		}
+	case models.SyncJobTier2Full:
+		if year == "" {
+			year = fmt.Sprintf("%d", time.Now().Year())
+		}
+		months = []string{} // always full year
+	case models.SyncJobActualFact, models.SyncJobManual:
+		if year == "" {
+			return nil
+		}
+	case models.SyncJobDW:
+		// year/months ignored by service, but still record what user passed
+	default:
+		return nil
+	}
+
+	return &syncQueue.Job{
+		JobType:     jt,
+		Year:        year,
+		Months:      months,
+		TriggeredBy: triggeredBy,
+	}
+}
+
+// getQueue returns current running job + pending list + per-type ETAs.
+// ETA for each job uses the avg duration of that job_type's last 7 SUCCESS runs.
+func (c *SyncAdminController) getQueue(ctx *fiber.Ctx, user *models.UserInfo) error {
+	current, err := c.queue.GetCurrent(ctx.UserContext())
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	pending, err := c.queue.GetPending(ctx.UserContext())
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	// Build avg cache once (keyed by job_type) so we don't re-query per loop iteration.
+	avgCache := map[string]int64{}
+	collectType := func(jt string) {
+		if jt == "" {
+			return
+		}
+		if _, ok := avgCache[jt]; ok {
+			return
+		}
+		avgCache[jt] = c.avgDurationMs(ctx.UserContext(), jt)
+	}
+	if current != nil {
+		collectType(current.JobType)
+	}
+	for _, p := range pending {
+		collectType(p.JobType)
+	}
+
+	var currentInfo fiber.Map
+	if current != nil {
+		avgMs := avgCache[current.JobType]
+		var elapsedMs, remainingMs int64
+		if current.StartedAt != nil {
+			elapsedMs = time.Since(*current.StartedAt).Milliseconds()
+			if avgMs > 0 {
+				remainingMs = avgMs - elapsedMs
+				if remainingMs < 0 {
+					remainingMs = 0
+				}
+			}
+		}
+		currentInfo = fiber.Map{
+			"id":           current.ID,
+			"job_type":     current.JobType,
+			"year":         current.Year,
+			"months":       current.Months,
+			"triggered_by": current.TriggeredBy,
+			"enqueued_at":  current.EnqueuedAt,
+			"started_at":   current.StartedAt,
+			"elapsed_ms":   elapsedMs,
+			"avg_total_ms": avgMs,
+			"remaining_ms": remainingMs,
+		}
+	}
+
+	pendingList := make([]fiber.Map, 0, len(pending))
+	// running tally of "time until this pending job starts"
+	cumulativeMs := int64(0)
+	if currentInfo != nil {
+		if r, ok := currentInfo["remaining_ms"].(int64); ok {
+			cumulativeMs = r
+		}
+	}
+	for i, p := range pending {
+		myAvg := avgCache[p.JobType]
+		pendingList = append(pendingList, fiber.Map{
+			"id":           p.ID,
+			"job_type":     p.JobType,
+			"year":         p.Year,
+			"months":       p.Months,
+			"triggered_by": p.TriggeredBy,
+			"enqueued_at":  p.EnqueuedAt,
+			"position":     i + 1,
+			"priority":     syncQueue.PriorityFor(p.JobType),
+			"avg_total_ms": myAvg,         // expected duration of this job (from its own type)
+			"eta_start_ms": cumulativeMs,  // when it will start = sum of preceding job durations
+		})
+		cumulativeMs += myAvg // next pending starts after this one finishes
+	}
+
+	return ctx.JSON(fiber.Map{
+		"current": currentInfo,
+		"pending": pendingList,
+		"count":   len(pending),
+	})
+}
+
+// avgDurationMs returns avg duration_ms of last 7 SUCCESS runs of the SAME job_type.
+// Returns 0 if no history for that type. Per-type isolation guarantees that
+// estimating a Tier 1 job doesn't pull in long ACTUAL_FACT durations.
+func (c *SyncAdminController) avgDurationMs(ctx context.Context, jobType string) int64 {
+	if c.trackingRepo == nil || jobType == "" {
+		return 0
+	}
+	runs, err := c.trackingRepo.GetRunsByJobAndStatus(ctx, jobType, models.SyncStatusSuccess, 7)
+	if err != nil || len(runs) == 0 {
+		return 0
+	}
+	var sum int64
+	var n int64
+	for _, r := range runs {
+		if r.DurationMs > 0 {
+			sum += r.DurationMs
+			n++
+		}
+	}
+	if n == 0 {
+		return 0
+	}
+	return sum / n
+}
+
+func (c *SyncAdminController) cancelQueueItem(ctx *fiber.Ctx, user *models.UserInfo) error {
+	idStr := ctx.Params("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
+	}
+	if err := c.queue.Cancel(ctx.UserContext(), id); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+	logs.Infof("Sync queue: %s cancelled job %s", "ADMIN:"+user.ID, idStr)
+	return ctx.JSON(fiber.Map{"cancelled": true, "id": idStr})
+}
+
+func (c *SyncAdminController) promoteQueueItem(ctx *fiber.Ctx, user *models.UserInfo) error {
+	idStr := ctx.Params("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
+	}
+	if err := c.queue.Promote(ctx.UserContext(), id); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+	logs.Infof("Sync queue: %s promoted job %s", "ADMIN:"+user.ID, idStr)
+	return ctx.JSON(fiber.Map{"promoted": true, "id": idStr})
 }

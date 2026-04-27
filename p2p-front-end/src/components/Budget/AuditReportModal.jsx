@@ -80,11 +80,15 @@ const AuditReportModal = ({ open, onClose, filters, onSubmit, loading: submittin
     }, [searchQuery, filters]); 
 
     const handleAddItem = (item) => {
-        setAddedItems(prev => [...prev, item]);
+        setAddedItems(prev => [...prev, { ...item, note: "" }]);
     };
 
     const handleRemoveItem = (id) => {
         setAddedItems(prev => prev.filter(item => item.id !== id));
+    };
+
+    const handleNoteChange = (id, note) => {
+        setAddedItems(prev => prev.map(item => item.id === id ? { ...item, note } : item));
     };
 
     const handleSubmit = () => {
@@ -226,6 +230,7 @@ const AuditReportModal = ({ open, onClose, filters, onSubmit, loading: submittin
                                         <TableCell sx={{ bgcolor: '#f5f5f5', fontWeight: 'bold' }}>GL Account</TableCell>
                                         <TableCell align="right" sx={{ bgcolor: '#f5f5f5', fontWeight: 'bold' }}>Amount</TableCell>
                                         <TableCell sx={{ bgcolor: '#f5f5f5', fontWeight: 'bold' }}>Description</TableCell>
+                                        <TableCell sx={{ bgcolor: '#f5f5f5', fontWeight: 'bold', minWidth: 220 }}>เหตุผลที่ปฏิเสธ (Note)</TableCell>
                                         <TableCell align="center" sx={{ bgcolor: '#f5f5f5', fontWeight: 'bold' }}>Action</TableCell>
                                     </TableRow>
                                 </TableHead>
@@ -238,6 +243,17 @@ const AuditReportModal = ({ open, onClose, filters, onSubmit, loading: submittin
                                                 {parseFloat(item.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                                             </TableCell>
                                             <TableCell sx={{ fontSize: '0.75rem' }}>{item.description}</TableCell>
+                                            <TableCell>
+                                                <TextField
+                                                    value={item.note || ''}
+                                                    onChange={(e) => handleNoteChange(item.id, e.target.value)}
+                                                    placeholder="ระบุเหตุผล (ไม่บังคับ)"
+                                                    size="small"
+                                                    fullWidth
+                                                    multiline
+                                                    maxRows={3}
+                                                />
+                                            </TableCell>
                                             <TableCell align="center">
                                                 <IconButton size="small" color="error" onClick={() => handleRemoveItem(item.id)}>
                                                     <DeleteIcon fontSize="small" />

@@ -82,10 +82,15 @@ func (r *actualRepository) DeleteActualFactsByMonth(ctx context.Context, year st
 		return fmt.Errorf("actualRepo.DeleteActualFactsByMonth.Amounts: %w", err)
 	}
 
+	// Recompute year_total — keep this portable (no table alias) so it runs on
+	// both Postgres in production and SQLite in tests.
 	if err := r.db.WithContext(ctx).Exec(`
-		UPDATE actual_fact_entities f
-		SET year_total = COALESCE((SELECT SUM(amount) FROM actual_amount_entities a WHERE a.actual_fact_id = f.id), 0)
-		WHERE f.year = ?
+		UPDATE actual_fact_entities
+		SET year_total = COALESCE(
+			(SELECT SUM(amount) FROM actual_amount_entities
+			 WHERE actual_amount_entities.actual_fact_id = actual_fact_entities.id),
+			0)
+		WHERE year = ?
 	`, year).Error; err != nil {
 		return fmt.Errorf("actualRepo.DeleteActualFactsByMonth.UpdateTotal: %w", err)
 	}

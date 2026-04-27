@@ -90,6 +90,7 @@ func (s *auditService) Approve(ctx context.Context, user *models.UserInfo, paylo
 
 		// 🌟 จัดการรายการที่ถูก Reject
 		var rejectedTxByDept map[string][]models.ActualTransactionEntity
+		notesByTx := map[uuid.UUID]string{}
 		if len(rejectedTxIDs) > 0 {
 			rejectedTxs, err := trxRepo.GetTransactionsByIDs(ctx, rejectedTxIDs)
 			if err != nil {
@@ -98,6 +99,11 @@ func (s *auditService) Approve(ctx context.Context, user *models.UserInfo, paylo
 			rejectedTxByDept = make(map[string][]models.ActualTransactionEntity, len(rejectedTxs))
 			for _, tx := range rejectedTxs {
 				rejectedTxByDept[tx.Department] = append(rejectedTxByDept[tx.Department], tx)
+			}
+
+			notesByTx, err = trxRepo.GetBasketNotes(ctx, user.ID)
+			if err != nil {
+				return fmt.Errorf("failed to fetch basket notes: %w", err)
 			}
 
 			if err := trxRepo.UpdateTransactionsStatus(ctx, rejectedTxIDs, models.TxStatusReported); err != nil {
@@ -149,6 +155,7 @@ func (s *auditService) Approve(ctx context.Context, user *models.UserInfo, paylo
 						DocNo:         tx.DocNo,
 						Description:   tx.Description,
 						PostingDate:   tx.PostingDate,
+						Note:          notesByTx[tx.ID],
 					})
 				}
 				if err := trxRepo.SaveRejectedItems(ctx, items); err != nil {
@@ -413,10 +420,10 @@ func (s *auditService) checkOwnerPermission(ctx context.Context, userID, departm
 	return fmt.Errorf("permission Denied: You are not the owner of department %s", department)
 }
 
-func (s *auditService) AddToBasket(ctx context.Context, user *models.UserInfo, transactionIDs []string) error {
+func (s *auditService) AddToBasket(ctx context.Context, user *models.UserInfo, items []models.BasketAddItem) error {
 
-	if user == nil || len(transactionIDs) == 0 {
-		return errors.New("invalid input: user ID and transaction IDs cannot be empty")
+	if user == nil || len(items) == 0 {
+		return errors.New("invalid input: user ID and items cannot be empty")
 	}
 
 	uid, err := uuid.Parse(user.ID)
@@ -424,11 +431,15 @@ func (s *auditService) AddToBasket(ctx context.Context, user *models.UserInfo, t
 		return fmt.Errorf("invalid user ID format: %w", err)
 	}
 
+	noteByTx := make(map[uuid.UUID]string, len(items))
 	var parsedIDs []uuid.UUID
-	for _, txIDStr := range transactionIDs {
-		if txID, err := uuid.Parse(txIDStr); err == nil {
-			parsedIDs = append(parsedIDs, txID)
+	for _, it := range items {
+		txID, err := uuid.Parse(it.TransactionID)
+		if err != nil {
+			continue
 		}
+		parsedIDs = append(parsedIDs, txID)
+		noteByTx[txID] = it.Note
 	}
 
 	if len(parsedIDs) == 0 {
@@ -457,6 +468,7 @@ func (s *auditService) AddToBasket(ctx context.Context, user *models.UserInfo, t
 			basketItems = append(basketItems, models.AuditRejectBasket{
 				TransactionID: txID,
 				UserID:        uid,
+				Note:          noteByTx[txID],
 			})
 		} else {
 			alreadyAudited++
@@ -479,12 +491,22 @@ func (s *auditService) AddToBasket(ctx context.Context, user *models.UserInfo, t
 	return nil
 }
 
-func (s *auditService) GetBasketItems(ctx context.Context, userID string) ([]models.ActualTransactionEntity, error) {
+func (s *auditService) GetBasketItems(ctx context.Context, userID string) ([]models.BasketItemView, error) {
     if userID == "" {
         return nil, errors.New("user ID is required")
     }
-    
+
     return s.auditRepo.GetBasketItems(ctx, userID)
+}
+
+func (s *auditService) UpdateBasketNote(ctx context.Context, userID, transactionID, note string) error {
+    if userID == "" {
+        return errors.New("user ID is required")
+    }
+    if transactionID == "" {
+        return errors.New("transaction ID is required")
+    }
+    return s.auditRepo.UpdateBasketNote(ctx, userID, transactionID, note)
 }
 
 

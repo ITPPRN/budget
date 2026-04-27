@@ -12,6 +12,8 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
 import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty';
 import WarningIcon from '@mui/icons-material/Warning';
+import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
+import CloseIcon from '@mui/icons-material/Close';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api/axiosInstance';
 import { toast } from 'react-toastify';
@@ -163,19 +165,61 @@ const SyncMonitor = () => {
     }
   };
 
+  // ──────────────────── Queue ────────────────────
+  const [queue, setQueue] = useState({ current: null, pending: [] });
+  const [queueLoading, setQueueLoading] = useState(false);
+
+  const fetchQueue = useCallback(async () => {
+    setQueueLoading(true);
+    try {
+      const res = await api.get('/admin/sync/queue');
+      setQueue({
+        current: res.data?.current || null,
+        pending: res.data?.pending || [],
+      });
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setQueueLoading(false);
+    }
+  }, []);
+
+  const handleCancel = async (id) => {
+    if (!window.confirm('ยกเลิก job นี้ในคิว?')) return;
+    try {
+      await api.post(`/admin/sync/queue/cancel/${id}`);
+      toast.success('ยกเลิกสำเร็จ');
+      fetchQueue();
+    } catch (err) {
+      toast.error('ยกเลิกไม่สำเร็จ: ' + (err.response?.data?.error || err.message));
+    }
+  };
+
+  const handlePromote = async (id) => {
+    try {
+      await api.post(`/admin/sync/queue/promote/${id}`);
+      toast.success('ย้ายขึ้นหัวคิวสำเร็จ');
+      fetchQueue();
+    } catch (err) {
+      toast.error('Promote ไม่สำเร็จ: ' + (err.response?.data?.error || err.message));
+    }
+  };
+
   // ──────────────────── Initial load ────────────────────
   useEffect(() => {
     if (!isAuthorized) return;
     fetchStatus();
     fetchHistory();
-  }, [isAuthorized, fetchStatus, fetchHistory]);
+    fetchQueue();
+  }, [isAuthorized, fetchStatus, fetchHistory, fetchQueue]);
 
-  // Auto-refresh status every 30s
+  // Auto-refresh status every 30s, queue every 5s
   useEffect(() => {
     if (!isAuthorized) return;
-    const interval = setInterval(fetchStatus, 30000);
-    return () => clearInterval(interval);
-  }, [isAuthorized, fetchStatus]);
+    const statusI = setInterval(fetchStatus, 30000);
+    const queueI = setInterval(fetchQueue, 5000);
+    return () => { clearInterval(statusI); clearInterval(queueI); };
+  }, [isAuthorized, fetchStatus, fetchQueue]);
 
   if (!isAuthorized) {
     return (
@@ -321,6 +365,127 @@ const SyncMonitor = () => {
         <Typography variant="caption" color="textSecondary" sx={{ mt: 1, display: 'block' }}>
           ⓘ Sync จะรัน background — ดูผลที่ Status (ด้านบน) หรือ History (ด้านล่าง). ถ้า months ว่าง = ทั้งปี
         </Typography>
+      </Paper>
+
+      {/* ──────── Queue ──────── */}
+      <Paper elevation={2} sx={{ p: 3, mb: 3, borderRadius: 2 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+          <Typography variant="h6" sx={{ fontWeight: 'bold', flexGrow: 1 }}>
+            คิวงาน (Queue) — รีเฟรชอัตโนมัติทุก 5 วิ
+          </Typography>
+          {queueLoading && <CircularProgress size={20} />}
+          <Tooltip title="Refresh">
+            <IconButton size="small" onClick={fetchQueue}><RefreshIcon /></IconButton>
+          </Tooltip>
+        </Box>
+
+        {/* Currently running */}
+        {queue.current ? (
+          <Paper variant="outlined" sx={{ p: 2, mb: 2, borderColor: 'primary.main', borderWidth: 2 }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'primary.main', mb: 1 }}>
+              ▶ กำลังทำงาน
+            </Typography>
+            <Grid container spacing={2}>
+              <Grid item xs={12} md={6}>
+                <Typography variant="body2"><strong>Job:</strong> {queue.current.job_type}</Typography>
+                <Typography variant="body2">
+                  <strong>Year/Months:</strong> {queue.current.year || '-'}
+                  {queue.current.months?.length > 0 ? ` / ${queue.current.months.join(', ')}` : ' / (ทั้งปี)'}
+                </Typography>
+                <Typography variant="body2"><strong>By:</strong> {queue.current.triggered_by}</Typography>
+                <Typography variant="body2"><strong>เริ่ม:</strong> {fmtDateTime(queue.current.started_at)}</Typography>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <Typography variant="body2">
+                  <strong>ทำงานมาแล้ว:</strong> {fmtDuration(queue.current.elapsed_ms)}
+                </Typography>
+                {queue.current.avg_total_ms > 0 ? (
+                  <>
+                    <Typography variant="body2">
+                      <strong>เฉลี่ย:</strong> {fmtDuration(queue.current.avg_total_ms)} (จาก 7 runs ล่าสุด)
+                    </Typography>
+                    <Typography variant="body2" sx={{ color: 'success.main', fontWeight: 600 }}>
+                      <strong>คาดว่าจะเสร็จในอีก:</strong> {fmtDuration(queue.current.remaining_ms)}
+                    </Typography>
+                  </>
+                ) : (
+                  <Typography variant="caption" color="textSecondary">
+                    (ยังไม่มีประวัติเฉลี่ย — ETA ไม่สามารถคำนวณ)
+                  </Typography>
+                )}
+              </Grid>
+            </Grid>
+          </Paper>
+        ) : (
+          <Alert severity="info" sx={{ mb: 2 }}>ไม่มี job ที่กำลังทำงาน</Alert>
+        )}
+
+        {/* Pending */}
+        <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
+          รออยู่ในคิว ({queue.pending.length})
+        </Typography>
+        {queue.pending.length === 0 ? (
+          <Typography variant="caption" color="textSecondary">— ไม่มี job รออยู่ —</Typography>
+        ) : (
+          <TableContainer>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell sx={{ fontWeight: 'bold', width: 60 }}>ลำดับ</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold', width: 80 }}>Priority</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold' }}>Job Type</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold' }}>Year/Months</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold' }}>By</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold' }}>เข้าคิว</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold' }}>เริ่มในอีก ~</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold' }}>คาดใช้เวลา</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold', width: 130 }} align="center">การจัดการ</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {queue.pending.map((p) => {
+                  const prioColor = p.priority === 1 ? 'error'
+                    : p.priority === 2 ? 'warning'
+                    : p.priority === 3 ? 'info'
+                    : 'default';
+                  return (
+                  <TableRow key={p.id} hover>
+                    <TableCell>{p.position}</TableCell>
+                    <TableCell>
+                      <Chip label={`P${p.priority}`} size="small" color={prioColor} />
+                    </TableCell>
+                    <TableCell><code>{p.job_type}</code></TableCell>
+                    <TableCell>
+                      {p.year || '-'}
+                      {p.months?.length > 0 ? ` / ${p.months.join(', ')}` : ' / (ทั้งปี)'}
+                    </TableCell>
+                    <TableCell sx={{ fontSize: '0.7rem' }}>{p.triggered_by}</TableCell>
+                    <TableCell>{fmtDateTime(p.enqueued_at)}</TableCell>
+                    <TableCell>{fmtDuration(p.eta_start_ms)}</TableCell>
+                    <TableCell>
+                      {p.avg_total_ms > 0 ? fmtDuration(p.avg_total_ms) : '-'}
+                    </TableCell>
+                    <TableCell align="center">
+                      <Tooltip title="ย้ายขึ้นหัวคิว">
+                        <IconButton size="small" color="primary"
+                          onClick={() => handlePromote(p.id)}
+                          disabled={p.position === 1}>
+                          <ArrowUpwardIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="ยกเลิก">
+                        <IconButton size="small" color="error" onClick={() => handleCancel(p.id)}>
+                          <CloseIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </TableCell>
+                  </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        )}
       </Paper>
 
       {/* ──────── Section 3: Reconciliation ──────── */}

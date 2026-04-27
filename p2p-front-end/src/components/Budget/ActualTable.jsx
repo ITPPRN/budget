@@ -651,7 +651,10 @@ const ActualTable = React.memo(
     const handleReportSubmit = async (selectedItems) => {
       setAuditLoading(true);
       try {
-        const payload = selectedItems.map((item) => item.id);
+        const payload = selectedItems.map((item) => ({
+          transaction_id: item.id,
+          note: item.note || "",
+        }));
         await api.post("/budgets/audit/basket/add", payload); // ยิงหลังบ้านเซฟลง DB
 
         // 🌟 หัวใจความเรียลไทม์: เซฟเสร็จ สั่งดึงข้อมูลใหม่ทันที
@@ -681,6 +684,22 @@ const ActualTable = React.memo(
         toast.error(
           "ลบข้อมูลไม่สำเร็จ: " + (err.response?.data?.error || err.message)
         );
+      }
+    };
+
+    // 🌟 5. แก้ note ของรายการในตะกร้า — optimistic update + sync DB
+    const handleUpdateBasketNote = async (id, note) => {
+      setRejectedBasket((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, note } : item))
+      );
+      try {
+        await api.patch(`/budgets/audit/basket/${id}`, { note });
+      } catch (err) {
+        toast.error(
+          "บันทึก Note ไม่สำเร็จ: " + (err.response?.data?.error || err.message)
+        );
+        // โหลดใหม่เพื่อย้อน state กลับหากบันทึกพลาด
+        fetchBasket();
       }
     };
 
@@ -1291,6 +1310,7 @@ const ActualTable = React.memo(
           basketItems={rejectedBasket}
           onRemove={handleRemoveFromBasket}
           onApprove={handleOpenApproveDialog}
+          onUpdateNote={handleUpdateBasketNote}
           loading={auditLoading}
         />
         <ApproveConfirmModal

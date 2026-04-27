@@ -327,9 +327,11 @@ type AuditRepository interface {
 	UpdateTransactionsStatus(ctx context.Context, ids []uuid.UUID, status string) error
 	// MarkRestAsComplete(ctx context.Context, department, year, month string, excludedIDs []uuid.UUID) error
 	AddToBasket(ctx context.Context, items []AuditRejectBasket) error
-	GetBasketItems(ctx context.Context, userID string) ([]ActualTransactionEntity, error)
+	GetBasketItems(ctx context.Context, userID string) ([]BasketItemView, error)
 	RemoveFromBasket(ctx context.Context, userID string, transactionID string) error
+	UpdateBasketNote(ctx context.Context, userID, transactionID, note string) error
 	GetBasketTransactionIDs(ctx context.Context, userID string) ([]uuid.UUID, error)
+	GetBasketNotes(ctx context.Context, userID string) (map[uuid.UUID]string, error)
 	ClearBasket(ctx context.Context, userID string) error
 	MarkRestAsComplete(ctx context.Context, department, year, month string, excludedIDs []uuid.UUID, targetStatus string) error
 	ValidateBasketScope(ctx context.Context, ids []uuid.UUID, year string, month string) (bool, error)
@@ -339,14 +341,15 @@ type AuditRepository interface {
 }
 
 type AuditService interface {
-	AddToBasket(context.Context, *UserInfo, []string) error
+	AddToBasket(context.Context, *UserInfo, []BasketAddItem) error
 	Approve(ctx context.Context, user *UserInfo, payload map[string]interface{}) error
 	Report(ctx context.Context, user *UserInfo, payload map[string]interface{}) error
 	ListLogs(ctx context.Context, filter map[string]interface{}) ([]AuditLogEntity, error)
 	GetRejectedItemDetails(ctx context.Context, logID string) ([]AuditLogRejectedItemEntity, error)
 	GetReportableTransactions(ctx context.Context, user *UserInfo, payload map[string]interface{}) ([]ActualTransactionEntity, error)
-	GetBasketItems(ctx context.Context, userID string) ([]ActualTransactionEntity, error)
+	GetBasketItems(ctx context.Context, userID string) ([]BasketItemView, error)
 	RemoveFromBasket(ctx context.Context, userID string, transactionID string) error
+	UpdateBasketNote(ctx context.Context, userID, transactionID, note string) error
 	CheckAuditComplete(ctx context.Context, user *UserInfo, year, month string) (map[string]interface{}, error)
 }
 
