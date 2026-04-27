@@ -81,6 +81,7 @@ type Queue interface {
 	GetPending(ctx context.Context) ([]*Job, error)
 	GetCurrent(ctx context.Context) (*Job, error)
 	Cancel(ctx context.Context, id uuid.UUID) error
+	CancelAll(ctx context.Context) (int, error)
 	Promote(ctx context.Context, id uuid.UUID) error
 	// IsBusy reports whether the queue has any pending or running job.
 	// Used by Tier 1 to skip its slot if the system is occupied.
@@ -204,6 +205,32 @@ func (q *RedisQueue) Cancel(ctx context.Context, id uuid.UUID) error {
 	pipe.Del(ctx, keyJob+id.String())
 	_, err = pipe.Exec(ctx)
 	return err
+}
+
+// CancelAll removes every pending job from the queue. The currently running
+// job is NOT touched (worker is mid-execution). Returns count of removed jobs.
+// Used by the "Cancel All" admin button.
+func (q *RedisQueue) CancelAll(ctx context.Context) (int, error) {
+	ids, err := q.rdb.ZRange(ctx, keyPending, 0, -1).Result()
+	if err != nil {
+		return 0, fmt.Errorf("queue.CancelAll.zrange: %w", err)
+	}
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	pipe := q.rdb.Pipeline()
+	for _, idStr := range ids {
+		job, _ := q.fetchJob(ctx, idStr)
+		pipe.ZRem(ctx, keyPending, idStr)
+		if job != nil {
+			pipe.SRem(ctx, keyDedup, job.DedupKey())
+		}
+		pipe.Del(ctx, keyJob+idStr)
+	}
+	if _, err := pipe.Exec(ctx); err != nil {
+		return 0, fmt.Errorf("queue.CancelAll.pipe: %w", err)
+	}
+	return len(ids), nil
 }
 
 // Promote sets the job's score to (current min score - 1) so it runs next,

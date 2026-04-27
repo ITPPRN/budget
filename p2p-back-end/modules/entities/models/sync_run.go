@@ -41,8 +41,9 @@ const (
 
 // Sync status constants
 const (
-	SyncStatusRunning = "RUNNING"
-	SyncStatusSuccess = "SUCCESS"
-	SyncStatusFailed  = "FAILED"
-	SyncStatusPartial = "PARTIAL"
+	SyncStatusRunning  = "RUNNING"
+	SyncStatusSuccess  = "SUCCESS"
+	SyncStatusFailed   = "FAILED"
+	SyncStatusPartial  = "PARTIAL"
+	SyncStatusCanceled = "CANCELED" // ผู้ดูแลกด "ยกเลิกคิวทั้งหมด" — retry job จะข้าม
 )

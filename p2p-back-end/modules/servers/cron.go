@@ -11,25 +11,32 @@ import (
 	syncQueue "p2p-back-end/modules/external_sync/queue"
 )
 
-// enqueueDWPerMonth fans out a DW sync request across the rolling window of
-// past 17 months (current year-1 through current month) — one queue entry per
-// month. Worker still drains them serially, but failures are isolated per
-// month and the retry job can re-enqueue only what failed.
-func (s *server) enqueueDWPerMonth(triggeredBy string) {
-	monthCodes := []string{"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"}
+var dwMonthCodes = []string{"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"}
+
+// enqueueDWRolling3Months fans out DW sync for the rolling 3-month window of
+// the current year — current month + 2 months back. Clamped to January so
+// early-year (JAN/FEB) only enqueue what exists. Used by daily cron + STARTUP
+// so steady-state we keep the most relevant data fresh without piling on full
+// history every run.
+func (s *server) enqueueDWRolling3Months(triggeredBy string) {
 	now := time.Now()
-	currentYear := now.Year()
-	startYear := currentYear - 1
+	yearStr := fmt.Sprintf("%d", now.Year())
 	currentMonth := int(now.Month())
-	for year := startYear; year <= currentYear; year++ {
-		endMonth := 12
-		if year == currentYear {
-			endMonth = currentMonth
-		}
-		yearStr := fmt.Sprintf("%d", year)
-		for m := 1; m <= endMonth; m++ {
-			s.enqueueOrLog(models.SyncJobDW, yearStr, []string{monthCodes[m-1]}, triggeredBy)
-		}
+	startMonth := max(currentMonth-2, 1)
+	for m := startMonth; m <= currentMonth; m++ {
+		s.enqueueOrLog(models.SyncJobDW, yearStr, []string{dwMonthCodes[m-1]}, triggeredBy)
+	}
+}
+
+// enqueueDWCurrentYearAll fans out DW sync for every month of the current year
+// up to the current month. Run once per month to backfill any drift the rolling
+// 3-month window misses (e.g., late-arriving DW corrections to older months).
+func (s *server) enqueueDWCurrentYearAll(triggeredBy string) {
+	now := time.Now()
+	yearStr := fmt.Sprintf("%d", now.Year())
+	currentMonth := int(now.Month())
+	for m := 1; m <= currentMonth; m++ {
+		s.enqueueOrLog(models.SyncJobDW, yearStr, []string{dwMonthCodes[m-1]}, triggeredBy)
 	}
 }
 
@@ -149,6 +156,19 @@ func (s *server) StartCronJob() {
 		}); err != nil {
 			logs.Fatal(fmt.Sprintf("Failed to register Cleanup Cron Job: %v", err))
 		}
+
+		// 5. Quarterly Purge — ล้าง sync_runs ทั้งตาราง (ยกเว้น RUNNING) ทุก 3 เดือน
+		// (1st ของ Jan/Apr/Jul/Oct @ 03:30) เพื่อกัน DB บวมในระยะยาว
+		if _, err := s.Cron.AddFunc("30 3 1 1,4,7,10 *", func() {
+			deleted, err := s.Shd.SyncTrackingRepo.PurgeAllRuns(context.Background())
+			if err != nil {
+				logs.Errorf("🧹 Quarterly Purge: Failed: %v", err)
+				return
+			}
+			logs.Infof("🧹 Quarterly Purge: Deleted %d sync_runs (kept RUNNING only)", deleted)
+		}); err != nil {
+			logs.Fatal(fmt.Sprintf("Failed to register Quarterly Purge Cron Job: %v", err))
+		}
 	}
 
 	// 2. Job: Department Seeding (Run once at startup, or could be a job)
@@ -183,23 +203,33 @@ func (s *server) StartCronJob() {
 		}()
 	}
 
-	// 4. Job: DW Auto-Sync (Daily @ Midnight) — fan out into per-month jobs.
+	// 4. Job: DW Auto-Sync.
+	// - Daily @ midnight: rolling 3-month window of current year (current,-1,-2)
+	//   keeps recent data fresh without re-pulling history.
+	// - Monthly @ 1st 04:00: full current year, catches any late DW corrections
+	//   to months earlier than the rolling window.
 	// Each month is its own queue entry so a TCP reset on one month does not
-	// cascade; the retry job will re-enqueue only the failed (year, month).
+	// cascade; the retry job re-enqueues only failed (year, month) pairs.
 	if s.Shd.ExternalSyncService != nil {
 		if _, err := s.Cron.AddFunc("0 0 * * *", func() {
-			s.enqueueDWPerMonth("CRON")
+			s.enqueueDWRolling3Months("CRON")
 		}); err != nil {
 			logs.Fatal(fmt.Sprintf("Failed to register DW Sync Cron Job: %v", err))
 		}
 
-		// 🚀 IMMEDIATE STARTUP SYNC — fan out the same per-month DW jobs as the
-		// midnight cron. Each per-month job re-projects ActualFact for that month
-		// inside SyncFromDW, so a trailing full-year ACTUAL_FACT job would be
-		// redundant; we skip it. DedupKey on the queue prevents collisions if
-		// midnight CRON has already enqueued the same months.
+		if _, err := s.Cron.AddFunc("0 4 1 * *", func() {
+			s.enqueueDWCurrentYearAll("CRON-MONTHLY")
+		}); err != nil {
+			logs.Fatal(fmt.Sprintf("Failed to register DW Monthly Full-Year Cron Job: %v", err))
+		}
+
+		// 🚀 IMMEDIATE STARTUP SYNC — same rolling 3-month window as the daily
+		// cron. Each per-month job re-projects ActualFact for that month inside
+		// SyncFromDW, so no separate ACTUAL_FACT trail is needed. DedupKey on
+		// the queue prevents collisions if the midnight cron already enqueued
+		// the same months.
 		go func() {
-			s.enqueueDWPerMonth("STARTUP")
+			s.enqueueDWRolling3Months("STARTUP")
 		}()
 	}
 

@@ -90,6 +90,18 @@ func (m *mockTrackingRepo) GetFailedRunsForRetry(
 	return r, args.Error(1)
 }
 
+func (m *mockTrackingRepo) MarkRetryableFailedAsCanceled(
+	ctx context.Context, within time.Duration, maxRetries int,
+) (int64, error) {
+	args := m.Called(ctx, within, maxRetries)
+	return args.Get(0).(int64), args.Error(1)
+}
+
+func (m *mockTrackingRepo) PurgeAllRuns(ctx context.Context) (int64, error) {
+	args := m.Called(ctx)
+	return args.Get(0).(int64), args.Error(1)
+}
+
 func (m *mockTrackingRepo) ClearStaleRunningRuns(ctx context.Context, olderThan time.Duration) (int64, error) {
 	args := m.Called(ctx, olderThan)
 	return args.Get(0).(int64), args.Error(1)

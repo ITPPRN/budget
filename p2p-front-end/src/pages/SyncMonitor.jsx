@@ -174,6 +174,8 @@ const SyncMonitor = () => {
   const [queueLoading, setQueueLoading] = useState(false);
   const [cancelTarget, setCancelTarget] = useState(null); // job ที่กำลังจะยกเลิก
   const [cancelling, setCancelling] = useState(false);
+  const [cancelAllOpen, setCancelAllOpen] = useState(false);
+  const [cancellingAll, setCancellingAll] = useState(false);
 
   const fetchQueue = useCallback(async () => {
     setQueueLoading(true);
@@ -202,6 +204,24 @@ const SyncMonitor = () => {
       toast.error('ยกเลิกไม่สำเร็จ: ' + (err.response?.data?.error || err.message));
     } finally {
       setCancelling(false);
+    }
+  };
+
+  const confirmCancelAll = async () => {
+    setCancellingAll(true);
+    try {
+      const res = await api.post('/admin/sync/queue/cancel-all');
+      const { cancelled_queue = 0, disabled_retries = 0 } = res.data || {};
+      toast.success(
+        `ยกเลิกแล้ว — ในคิว ${cancelled_queue} งาน, หยุด retry อัตโนมัติ ${disabled_retries} งาน`
+      );
+      setCancelAllOpen(false);
+      fetchQueue();
+      fetchHistory();
+    } catch (err) {
+      toast.error('ยกเลิกทั้งหมดไม่สำเร็จ: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setCancellingAll(false);
     }
   };
 
@@ -434,11 +454,22 @@ const SyncMonitor = () => {
 
       {/* ──────── Queue ──────── */}
       <Paper elevation={2} sx={{ p: 3, mb: 3, borderRadius: 2 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, gap: 1 }}>
           <Typography variant="h6" sx={{ fontWeight: 'bold', flexGrow: 1 }}>
             คิวงาน (Queue) — รีเฟรชอัตโนมัติทุก 5 วิ
           </Typography>
           {queueLoading && <CircularProgress size={20} />}
+          <Button
+            size="small"
+            color="error"
+            variant="outlined"
+            startIcon={<CancelIcon />}
+            onClick={() => setCancelAllOpen(true)}
+            disabled={(queue.pending || []).length === 0}
+            sx={{ textTransform: 'none', borderRadius: 2 }}
+          >
+            ยกเลิกคิวทั้งหมด
+          </Button>
           <Tooltip title="Refresh">
             <IconButton size="small" onClick={fetchQueue}><RefreshIcon /></IconButton>
           </Tooltip>
@@ -798,6 +829,50 @@ const SyncMonitor = () => {
             startIcon={cancelling ? <CircularProgress size={16} color="inherit" /> : <CancelIcon />}
             sx={{ textTransform: 'none', borderRadius: 2, px: 3 }}>
             {cancelling ? 'กำลังยกเลิก...' : 'ยืนยันยกเลิก'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ──────── Cancel-All Queue Confirmation ──────── */}
+      <Dialog
+        open={cancelAllOpen}
+        onClose={() => !cancellingAll && setCancelAllOpen(false)}
+        maxWidth="xs"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden' } }}
+      >
+        <DialogTitle sx={{ bgcolor: '#fff5f5', color: '#b91c1c', display: 'flex', alignItems: 'center', gap: 1, py: 2 }}>
+          <CancelIcon />
+          <Typography variant="h6" sx={{ fontWeight: 700 }}>ยกเลิกคิวทั้งหมด</Typography>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            ยืนยันการยกเลิก <b>{(queue.pending || []).length}</b> งานในคิว และ
+            หยุดไม่ให้ retry อัตโนมัติดึงงานเหล่านี้กลับมาทำใหม่
+          </Typography>
+          <Box sx={{ p: 2, borderRadius: 2, bgcolor: '#fff5f5', border: '1px solid #fecaca' }}>
+            <Stack spacing={0.75}>
+              <Typography variant="caption" color="text.secondary">
+                • งานที่ <b>กำลังทำงาน</b> จะรันต่อจนเสร็จ (ไม่ถูก interrupt)
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                • งานที่เคย <b>FAILED</b> ในคิว retry จะถูก mark เป็น <b>CANCELED</b>
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                • ถ้าต้องการกลับมา sync ใหม่ ต้องกด Trigger / Retry ด้วยตัวเอง
+              </Typography>
+            </Stack>
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2, bgcolor: '#fafafa', borderTop: '1px solid #eee' }}>
+          <Button onClick={() => setCancelAllOpen(false)} disabled={cancellingAll}
+            sx={{ textTransform: 'none', borderRadius: 2 }}>
+            ปิด
+          </Button>
+          <Button onClick={confirmCancelAll} variant="contained" color="error" disabled={cancellingAll}
+            startIcon={cancellingAll ? <CircularProgress size={16} color="inherit" /> : <CancelIcon />}
+            sx={{ textTransform: 'none', borderRadius: 2, px: 3 }}>
+            {cancellingAll ? 'กำลังยกเลิก...' : 'ยืนยันยกเลิกทั้งหมด'}
           </Button>
         </DialogActions>
       </Dialog>
