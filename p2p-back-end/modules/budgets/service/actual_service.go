@@ -42,6 +42,7 @@ func (s *actualService) SyncActuals(ctx context.Context, year string, months []s
 
 	mappingMap := make(map[string]models.GlGroupingEntity)
 	glProfileMap := make(map[string]string) // ConsoGL -> Group1 (Profile)
+	allowedGLSet := make(map[string]struct{})
 
 	for _, g := range groupings {
 		if g.IsActive {
@@ -54,7 +55,25 @@ func (s *actualService) SyncActuals(ctx context.Context, year string, months []s
 			if g.ConsoGL != "" && g.Group1 != "" {
 				glProfileMap[g.ConsoGL] = g.Group1
 			}
+
+			// Snapshot of GL codes that *might* match. Pushed to SQL as a
+			// pre-filter so we don't ship 99%+ of raw rows over the wire only
+			// to drop them in Go. Final correctness is still enforced by the
+			// in-memory mappingMap check below — this is purely an optimization
+			// and any row passing the SQL filter is re-validated in Go.
+			allowedGLSet[g.EntityGL] = struct{}{}
 		}
+	}
+
+	allowedGLs := make([]string, 0, len(allowedGLSet))
+	for gl := range allowedGLSet {
+		allowedGLs = append(allowedGLs, gl)
+	}
+	// Empty mapping → no rows can match → skip streaming entirely.
+	// nil signals "no filter" to the repo; an empty non-nil slice signals
+	// "filter active but allow nothing" which short-circuits the stream.
+	if len(allowedGLs) == 0 {
+		allowedGLs = []string{}
 	}
 
 	// 2. Define Mapping Configs (Consolidated in common_service)
@@ -252,10 +271,10 @@ func (s *actualService) SyncActuals(ctx context.Context, year string, months []s
 			}
 
 			// Stream raw rows แบบ batch — ไม่โหลดทั้งเดือนเข้า memory
-			if err := trxRepo.StreamRawTransactionsHMW(ctx, year, []string{mName}, streamBatchSize, processBatch); err != nil {
+			if err := trxRepo.StreamRawTransactionsHMW(ctx, year, []string{mName}, allowedGLs, streamBatchSize, processBatch); err != nil {
 				return fmt.Errorf("transaction.StreamHMW(%s): %w", mName, err)
 			}
-			if err := trxRepo.StreamRawTransactionsCLIK(ctx, year, []string{mName}, streamBatchSize, processBatch); err != nil {
+			if err := trxRepo.StreamRawTransactionsCLIK(ctx, year, []string{mName}, allowedGLs, streamBatchSize, processBatch); err != nil {
 				return fmt.Errorf("transaction.StreamCLIK(%s): %w", mName, err)
 			}
 

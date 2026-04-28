@@ -199,8 +199,8 @@ type ActualRepository interface {
 	GetAllAchHmwGle(ctx context.Context) ([]AchHmwGleEntity, error)
 	GetAggregatedHMW(ctx context.Context, year string, months []string) ([]ActualAggregatedDTO, error)
 	GetRawTransactionsHMW(ctx context.Context, year string, months []string) ([]ActualTransactionDTO, error)
-	StreamRawTransactionsHMW(ctx context.Context, year string, months []string, batchSize int, handler func([]ActualTransactionDTO) error) error
-	StreamRawTransactionsCLIK(ctx context.Context, year string, months []string, batchSize int, handler func([]ActualTransactionDTO) error) error
+	StreamRawTransactionsHMW(ctx context.Context, year string, months []string, allowedGLs []string, batchSize int, handler func([]ActualTransactionDTO) error) error
+	StreamRawTransactionsCLIK(ctx context.Context, year string, months []string, allowedGLs []string, batchSize int, handler func([]ActualTransactionDTO) error) error
 	GetAllClikGle(ctx context.Context) ([]ClikGleEntity, error)
 	GetAggregatedCLIK(ctx context.Context, year string, months []string) ([]ActualAggregatedDTO, error)
 	GetRawTransactionsCLIK(ctx context.Context, year string, months []string) ([]ActualTransactionDTO, error)

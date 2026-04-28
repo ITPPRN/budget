@@ -228,9 +228,9 @@ func (s *server) StartCronJob() {
 		// SyncFromDW, so no separate ACTUAL_FACT trail is needed. DedupKey on
 		// the queue prevents collisions if the midnight cron already enqueued
 		// the same months.
-		go func() {
-			s.enqueueDWRolling3Months("STARTUP")
-		}()
+		// go func() {
+		// 	s.enqueueDWRolling3Months("STARTUP")
+		// }()
 	}
 
 	// Start the Cron scheduler

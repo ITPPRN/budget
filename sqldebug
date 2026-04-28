@@ -89,3 +89,13 @@ CGO_ENABLED=0 go test -v -count=1 ./...
 
 หาอัน fail
 CGO_ENABLED=0 go test -count=1 ./...
+
+
+
+
+docker exec -it <redis_container> redis-cli
+> DEL sync:queue:current
+> DEL sync:queue:pending
+> KEYS sync:queue:job:*
+> DEL sync:queue:job:<id-each>
+> DEL sync:queue:dedup
