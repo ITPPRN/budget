@@ -221,6 +221,7 @@ type ActualService interface {
 
 // 6. External Sync Domain (NAV/DW)
 type ExternalSyncRepository interface {
+	PingDW(ctx context.Context) error
 	FetchHMWInBatches(ctx context.Context, year int, month int, batchSize int, handle func([]AchHmwGleEntity) error) error
 	FetchCLIKInBatches(ctx context.Context, year int, month int, batchSize int, handle func([]ClikGleEntity) error) error
 	DeleteHMWByYearMonth(ctx context.Context, year int, month int) error

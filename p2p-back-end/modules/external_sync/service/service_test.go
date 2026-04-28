@@ -25,6 +25,11 @@ type MockExternalSyncRepository struct {
 	mock.Mock
 }
 
+func (m *MockExternalSyncRepository) PingDW(ctx context.Context) error {
+	args := m.Called(ctx)
+	return args.Error(0)
+}
+
 func (m *MockExternalSyncRepository) FetchHMWInBatches(ctx context.Context, year int, month int, batchSize int, handle func([]models.AchHmwGleEntity) error) error {
 	args := m.Called(ctx, year, month, batchSize, handle)
 	return args.Error(0)
@@ -106,6 +111,13 @@ func TestSyncFromDW_InvalidMonthCode(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid month code")
 }
 
+// expectPingOK wires up the pre-flight PingDW so SyncFromDW proceeds past the
+// new health check. Call once per test that exercises a real SyncFromDW path
+// (i.e., not the early-return validation tests).
+func expectPingOK(repo *MockExternalSyncRepository) {
+	repo.On("PingDW", mock.Anything).Return(nil)
+}
+
 // expectMonthSuccess wires up mocks so HMW + CLIK delete/fetch all succeed for (year, month).
 func expectMonthSuccess(repo *MockExternalSyncRepository, year, month int) {
 	repo.On("DeleteHMWByYearMonth", mock.Anything, year, month).Return(nil)
@@ -121,6 +133,7 @@ func TestSyncFromDW_SuccessSingleMonth(t *testing.T) {
 	actualSrv := new(MockActualService)
 	svc := NewExternalSyncService(repo, actualSrv, nil, 0)
 
+	expectPingOK(repo)
 	expectMonthSuccess(repo, 2026, 4)
 	actualSrv.On("SyncActuals", mock.Anything, "2026", []string{"APR"}).Return(nil)
 	actualSrv.On("RefreshDataInventory", mock.Anything).Return(nil)
@@ -137,6 +150,7 @@ func TestSyncFromDW_MultipleMonths(t *testing.T) {
 	actualSrv := new(MockActualService)
 	svc := NewExternalSyncService(repo, actualSrv, nil, 0)
 
+	expectPingOK(repo)
 	expectMonthSuccess(repo, 2026, 1)
 	expectMonthSuccess(repo, 2026, 2)
 	expectMonthSuccess(repo, 2026, 3)
@@ -155,6 +169,7 @@ func TestSyncFromDW_HMWFetchError_FailFast(t *testing.T) {
 	actualSrv := new(MockActualService)
 	svc := NewExternalSyncService(repo, actualSrv, nil, 0)
 
+	expectPingOK(repo)
 	repo.On("DeleteHMWByYearMonth", mock.Anything, 2026, 4).Return(nil)
 	repo.On("FetchHMWInBatches", mock.Anything, 2026, 4, 5000,
 		mock.AnythingOfType("func([]models.AchHmwGleEntity) error")).
@@ -178,6 +193,7 @@ func TestSyncFromDW_BothHMWAndCLIKFail(t *testing.T) {
 	actualSrv := new(MockActualService)
 	svc := NewExternalSyncService(repo, actualSrv, nil, 0)
 
+	expectPingOK(repo)
 	repo.On("DeleteHMWByYearMonth", mock.Anything, 2026, 4).Return(nil)
 	repo.On("FetchHMWInBatches", mock.Anything, 2026, 4, 5000,
 		mock.AnythingOfType("func([]models.AchHmwGleEntity) error")).
@@ -203,6 +219,7 @@ func TestSyncFromDW_DefaultsToCurrentMonthWhenEmpty(t *testing.T) {
 	actualSrv := new(MockActualService)
 	svc := NewExternalSyncService(repo, actualSrv, nil, 0)
 
+	expectPingOK(repo)
 	repo.On("DeleteHMWByYearMonth", mock.Anything, 2026, mock.AnythingOfType("int")).Return(nil)
 	repo.On("FetchHMWInBatches", mock.Anything, 2026, mock.AnythingOfType("int"), 5000,
 		mock.AnythingOfType("func([]models.AchHmwGleEntity) error")).Return(nil)
@@ -223,6 +240,7 @@ func TestSyncFromDW_RefreshInventoryNonFatal(t *testing.T) {
 	actualSrv := new(MockActualService)
 	svc := NewExternalSyncService(repo, actualSrv, nil, 0)
 
+	expectPingOK(repo)
 	expectMonthSuccess(repo, 2026, 4)
 	actualSrv.On("SyncActuals", mock.Anything, "2026", []string{"APR"}).Return(nil)
 	actualSrv.On("RefreshDataInventory", mock.Anything).Return(errors.New("inventory blew up"))

@@ -130,6 +130,17 @@ func (s *externalSyncService) SyncFromDW(ctx context.Context, year string, month
 		return nil
 	}
 
+	// Pre-flight: confirm DW is reachable before we DELETE local data and start
+	// the long pull. Without this, a dead DW means we wipe each target month and
+	// then sit on a hanging FetchHMW until the per-month timeout fires (up to
+	// hours of unavailable data for the dashboard).
+	pingCtx, pingCancel := context.WithTimeout(ctx, 10*time.Second)
+	if err := s.repo.PingDW(pingCtx); err != nil {
+		pingCancel()
+		return fmt.Errorf("SyncFromDW: DW unreachable, aborting: %w", err)
+	}
+	pingCancel()
+
 	logs.Infof("🔄 DW Sync: year=%s months=%v starting", year, months)
 	batchSize := 5000
 

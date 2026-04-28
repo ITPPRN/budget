@@ -3,12 +3,26 @@ package repository
 import (
 	"context"
 	"fmt"
+	"p2p-back-end/logs"
 	"p2p-back-end/modules/entities/models"
 	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
+
+// batchFetchTimeout caps a single LIMIT-bounded SELECT against the DW so a
+// half-open TCP connection cannot hang the worker forever (the per-month and
+// per-statement timeouts are higher-level safety nets — this is the tightest
+// one, since each batch fetches at most batchSize rows and should finish in
+// seconds under healthy network/DB conditions).
+const batchFetchTimeout = 90 * time.Second
+
+// batchHeartbeatEvery emits progress logs from inside the streaming loop so the
+// operator can distinguish "running slowly" from "hung" without inspecting DB
+// state. Tuned to be frequent enough for monitoring but rare enough not to
+// spam the log file.
+const batchHeartbeatEvery = 30 * time.Second
 
 // monthRange returns [start, end) covering the given (year, month) — used to
 // avoid EXTRACT(YEAR/MONTH FROM CAST(...)) which prevents index usage on
@@ -36,6 +50,21 @@ func NewExternalSyncRepository(localDb *gorm.DB, dwDb *gorm.DB) models.ExternalS
 	}
 }
 
+// PingDW does a low-level liveness check on the DW connection. Used by
+// SyncFromDW as a fail-fast gate so we don't enqueue 17 monthly jobs that all
+// hang on a half-open TCP connection — if the DW is unreachable, abort the
+// whole sync up-front and let the retry job pick it up later.
+func (r *externalSyncRepository) PingDW(ctx context.Context) error {
+	sqlDB, err := r.dwDb.DB()
+	if err != nil {
+		return fmt.Errorf("extSyncRepo.PingDW: get sql.DB: %w", err)
+	}
+	if err := sqlDB.PingContext(ctx); err != nil {
+		return fmt.Errorf("extSyncRepo.PingDW: %w", err)
+	}
+	return nil
+}
+
 // FetchHMWInBatches streams DW raw rows for one month using cursor pagination on `id`.
 // We avoid FindInBatches because, when used with `.Table(...)` + a custom SELECT alias,
 // GORM cannot reliably detect the destination's primary key and errors with
@@ -47,12 +76,19 @@ func (r *externalSyncRepository) FetchHMWInBatches(ctx context.Context, year int
 	start, end := monthRange(year, month)
 
 	lastID := 0
+	totalFetched := 0
+	lastHeartbeat := time.Now()
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		var batch []models.AchHmwGleEntity
-		err := r.dwDb.WithContext(ctx).
+
+		// Per-batch timeout. Each LIMIT-bounded query should finish in seconds; if it
+		// blocks past batchFetchTimeout the connection is half-open or the DW is sick,
+		// so we fail fast rather than letting the worker hang for the per-month cap.
+		batchCtx, cancel := context.WithTimeout(ctx, batchFetchTimeout)
+		err := r.dwDb.WithContext(batchCtx).
 			Table("achhmw_gle_api").
 			Select(`
 				id, "Entry_No", "System_Created_Entry", CAST("Posting_Date" AS DATE) AS "Posting_Date",
@@ -71,6 +107,7 @@ func (r *externalSyncRepository) FetchHMWInBatches(ctx context.Context, year int
 			Order("id ASC").
 			Limit(batchSize).
 			Scan(&batch).Error
+		cancel()
 		if err != nil {
 			return fmt.Errorf("extSyncRepo.FetchHMWInBatches: %w", err)
 		}
@@ -79,6 +116,12 @@ func (r *externalSyncRepository) FetchHMWInBatches(ctx context.Context, year int
 		}
 		if err := handle(batch); err != nil {
 			return err
+		}
+		totalFetched += len(batch)
+		if time.Since(lastHeartbeat) >= batchHeartbeatEvery {
+			logs.Infof("[DW Sync][Heartbeat] HMW %d-%02d: %d rows fetched (cursor=%d)",
+				year, month, totalFetched, batch[len(batch)-1].ID)
+			lastHeartbeat = time.Now()
 		}
 		lastID = batch[len(batch)-1].ID
 		if len(batch) < batchSize {
@@ -95,12 +138,16 @@ func (r *externalSyncRepository) FetchCLIKInBatches(ctx context.Context, year in
 	start, end := monthRange(year, month)
 
 	lastID := 0
+	totalFetched := 0
+	lastHeartbeat := time.Now()
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		var batch []models.ClikGleEntity
-		err := r.dwDb.WithContext(ctx).
+
+		batchCtx, cancel := context.WithTimeout(ctx, batchFetchTimeout)
+		err := r.dwDb.WithContext(batchCtx).
 			Table("general_ledger_entries_clik").
 			Select(`
 				id, "Entry_No", "System_Created_Entry", CAST("Posting_Date" AS DATE) AS "Posting_Date",
@@ -119,6 +166,7 @@ func (r *externalSyncRepository) FetchCLIKInBatches(ctx context.Context, year in
 			Order("id ASC").
 			Limit(batchSize).
 			Scan(&batch).Error
+		cancel()
 		if err != nil {
 			return fmt.Errorf("extSyncRepo.FetchCLIKInBatches: %w", err)
 		}
@@ -127,6 +175,12 @@ func (r *externalSyncRepository) FetchCLIKInBatches(ctx context.Context, year in
 		}
 		if err := handle(batch); err != nil {
 			return err
+		}
+		totalFetched += len(batch)
+		if time.Since(lastHeartbeat) >= batchHeartbeatEvery {
+			logs.Infof("[DW Sync][Heartbeat] CLIK %d-%02d: %d rows fetched (cursor=%d)",
+				year, month, totalFetched, batch[len(batch)-1].ID)
+			lastHeartbeat = time.Now()
 		}
 		lastID = batch[len(batch)-1].ID
 		if len(batch) < batchSize {

@@ -44,10 +44,23 @@ func NewPostgresConnection(cfg *configs.Config, connType string) (*gorm.DB, erro
 		logs.Error("Failed to get underlying sql.DB: ", zap.Error(err))
 		return nil, err
 	}
-	sqlDB.SetMaxIdleConns(10)
-	sqlDB.SetMaxOpenConns(50)
-	sqlDB.SetConnMaxLifetime(30 * time.Minute)
-	sqlDB.SetConnMaxIdleTime(5 * time.Minute)
+	if connType == "central_postgres" {
+		// DW connection: aggressive recycling. Used rarely (sync jobs only) and the
+		// external DW server is more likely to drop idle connections silently than
+		// our own DB, so we keep idle pool small and recycle frequently to avoid
+		// reusing a stale connection that hangs on read.
+		sqlDB.SetMaxIdleConns(2)
+		sqlDB.SetMaxOpenConns(10)
+		sqlDB.SetConnMaxLifetime(10 * time.Minute)
+		sqlDB.SetConnMaxIdleTime(2 * time.Minute)
+	} else {
+		// Local DB: serves the API + many concurrent dashboard/export queries,
+		// so we keep a larger pool with longer lifetime for amortized connect cost.
+		sqlDB.SetMaxIdleConns(10)
+		sqlDB.SetMaxOpenConns(50)
+		sqlDB.SetConnMaxLifetime(30 * time.Minute)
+		sqlDB.SetConnMaxIdleTime(5 * time.Minute)
+	}
 
 	// 1. สร้าง Extension
 	db.Exec("CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\";")
