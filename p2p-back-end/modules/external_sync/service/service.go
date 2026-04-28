@@ -2,12 +2,15 @@ package service
 
 import (
 	"context"
+	"database/sql/driver"
 	"errors"
 	"fmt"
+	"os"
 	"p2p-back-end/logs"
 	"p2p-back-end/modules/entities/models"
 	_extSyncRepo "p2p-back-end/modules/external_sync/repository"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -36,7 +39,76 @@ var monthCodeToInt = map[string]int{
 	"JUL": 7, "AUG": 8, "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12,
 }
 
-const dwPerMonthTimeout = 30 * time.Minute
+// dwPerMonthTimeout: how long any single (year, month) DW pull may run before
+// being cancelled. Heavy months (~14M rows × 5000-row batches) can exceed 30 min;
+// 90 min is a safer default and tunable via DW_PER_MONTH_TIMEOUT_MINUTES.
+var dwPerMonthTimeout = func() time.Duration {
+	if v := os.Getenv("DW_PER_MONTH_TIMEOUT_MINUTES"); v != "" {
+		if mins, err := strconv.Atoi(v); err == nil && mins > 0 {
+			return time.Duration(mins) * time.Minute
+		}
+	}
+	return 90 * time.Minute
+}()
+
+// transientDBError reports whether err is the kind of DB-side blip that's
+// recoverable by retrying the same statement on a fresh connection: TCP resets,
+// dead pooled connections, idle disconnects from the DW server, etc. We do NOT
+// treat the per-month context-deadline as transient — that's a hard timeout.
+func transientDBError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, driver.ErrBadConn) {
+		return true
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return false
+	}
+	msg := err.Error()
+	for _, marker := range []string{
+		"bad connection",
+		"connection reset",
+		"connection refused",
+		"broken pipe",
+		"unexpected EOF",
+		"i/o timeout",
+		"server closed the connection",
+	} {
+		if strings.Contains(msg, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// retryTransient runs fn up to maxAttempts times with exponential backoff,
+// retrying only on transient DB errors. Total worst-case backoff for 4 attempts
+// is 1+2+4 = 7s.
+func retryTransient(ctx context.Context, label string, maxAttempts int, fn func() error) error {
+	var err error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		err = fn()
+		if err == nil {
+			if attempt > 1 {
+				logs.Infof("DW Sync: %s recovered on attempt %d", label, attempt)
+			}
+			return nil
+		}
+		if !transientDBError(err) || attempt == maxAttempts {
+			return err
+		}
+		backoff := time.Duration(1<<(attempt-1)) * time.Second
+		logs.Warnf("DW Sync: %s transient error (attempt %d/%d) — retrying in %v: %v",
+			label, attempt, maxAttempts, backoff, err)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+		}
+	}
+	return err
+}
 
 // SyncFromDW pulls raw HMW + CLIK for one or more months of the given year and
 // then re-projects ActualFact for those months. Designed to be invoked once per
@@ -130,26 +202,34 @@ func (s *externalSyncService) syncOneMonth(ctx context.Context, year, month, bat
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		if err := s.repo.DeleteHMWByYearMonth(ctx, year, month); err != nil {
+		if err := retryTransient(ctx, fmt.Sprintf("HMW delete %d-%02d", year, month), 3, func() error {
+			return s.repo.DeleteHMWByYearMonth(ctx, year, month)
+		}); err != nil {
 			hmwErr = fmt.Errorf("HMW delete: %w", err)
 			return
 		}
 		if err := s.repo.FetchHMWInBatches(ctx, year, month, batchSize, func(data []models.AchHmwGleEntity) error {
 			hmwRows += int64(len(data))
-			return s.repo.UpsertHMWLocal(ctx, data)
+			return retryTransient(ctx, fmt.Sprintf("HMW upsert %d-%02d batch=%d", year, month, len(data)), 4, func() error {
+				return s.repo.UpsertHMWLocal(ctx, data)
+			})
 		}); err != nil {
 			hmwErr = fmt.Errorf("HMW fetch: %w", err)
 		}
 	}()
 	go func() {
 		defer wg.Done()
-		if err := s.repo.DeleteCLIKByYearMonth(ctx, year, month); err != nil {
+		if err := retryTransient(ctx, fmt.Sprintf("CLIK delete %d-%02d", year, month), 3, func() error {
+			return s.repo.DeleteCLIKByYearMonth(ctx, year, month)
+		}); err != nil {
 			clikErr = fmt.Errorf("CLIK delete: %w", err)
 			return
 		}
 		if err := s.repo.FetchCLIKInBatches(ctx, year, month, batchSize, func(data []models.ClikGleEntity) error {
 			clikRows += int64(len(data))
-			return s.repo.UpsertCLIKLocal(ctx, data)
+			return retryTransient(ctx, fmt.Sprintf("CLIK upsert %d-%02d batch=%d", year, month, len(data)), 4, func() error {
+				return s.repo.UpsertCLIKLocal(ctx, data)
+			})
 		}); err != nil {
 			clikErr = fmt.Errorf("CLIK fetch: %w", err)
 		}
