@@ -88,19 +88,19 @@ func (m *MockActualService) RefreshDataInventory(ctx context.Context) error {
 func TestNewExternalSyncService(t *testing.T) {
 	repo := new(MockExternalSyncRepository)
 	actualSrv := new(MockActualService)
-	svc := NewExternalSyncService(repo, actualSrv, nil)
+	svc := NewExternalSyncService(repo, actualSrv, nil, 0)
 	assert.NotNil(t, svc)
 }
 
 func TestSyncFromDW_InvalidYear(t *testing.T) {
-	svc := NewExternalSyncService(new(MockExternalSyncRepository), new(MockActualService), nil)
+	svc := NewExternalSyncService(new(MockExternalSyncRepository), new(MockActualService), nil, 0)
 	err := svc.SyncFromDW(context.Background(), "abc", []string{"JAN"})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid year")
 }
 
 func TestSyncFromDW_InvalidMonthCode(t *testing.T) {
-	svc := NewExternalSyncService(new(MockExternalSyncRepository), new(MockActualService), nil)
+	svc := NewExternalSyncService(new(MockExternalSyncRepository), new(MockActualService), nil, 0)
 	err := svc.SyncFromDW(context.Background(), "2026", []string{"NOPE"})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid month code")
@@ -119,7 +119,7 @@ func expectMonthSuccess(repo *MockExternalSyncRepository, year, month int) {
 func TestSyncFromDW_SuccessSingleMonth(t *testing.T) {
 	repo := new(MockExternalSyncRepository)
 	actualSrv := new(MockActualService)
-	svc := NewExternalSyncService(repo, actualSrv, nil)
+	svc := NewExternalSyncService(repo, actualSrv, nil, 0)
 
 	expectMonthSuccess(repo, 2026, 4)
 	actualSrv.On("SyncActuals", mock.Anything, "2026", []string{"APR"}).Return(nil)
@@ -135,7 +135,7 @@ func TestSyncFromDW_SuccessSingleMonth(t *testing.T) {
 func TestSyncFromDW_MultipleMonths(t *testing.T) {
 	repo := new(MockExternalSyncRepository)
 	actualSrv := new(MockActualService)
-	svc := NewExternalSyncService(repo, actualSrv, nil)
+	svc := NewExternalSyncService(repo, actualSrv, nil, 0)
 
 	expectMonthSuccess(repo, 2026, 1)
 	expectMonthSuccess(repo, 2026, 2)
@@ -153,7 +153,7 @@ func TestSyncFromDW_MultipleMonths(t *testing.T) {
 func TestSyncFromDW_HMWFetchError_FailFast(t *testing.T) {
 	repo := new(MockExternalSyncRepository)
 	actualSrv := new(MockActualService)
-	svc := NewExternalSyncService(repo, actualSrv, nil)
+	svc := NewExternalSyncService(repo, actualSrv, nil, 0)
 
 	repo.On("DeleteHMWByYearMonth", mock.Anything, 2026, 4).Return(nil)
 	repo.On("FetchHMWInBatches", mock.Anything, 2026, 4, 5000,
@@ -176,7 +176,7 @@ func TestSyncFromDW_HMWFetchError_FailFast(t *testing.T) {
 func TestSyncFromDW_BothHMWAndCLIKFail(t *testing.T) {
 	repo := new(MockExternalSyncRepository)
 	actualSrv := new(MockActualService)
-	svc := NewExternalSyncService(repo, actualSrv, nil)
+	svc := NewExternalSyncService(repo, actualSrv, nil, 0)
 
 	repo.On("DeleteHMWByYearMonth", mock.Anything, 2026, 4).Return(nil)
 	repo.On("FetchHMWInBatches", mock.Anything, 2026, 4, 5000,
@@ -201,7 +201,7 @@ func TestSyncFromDW_DefaultsToCurrentMonthWhenEmpty(t *testing.T) {
 	// an explicit month.
 	repo := new(MockExternalSyncRepository)
 	actualSrv := new(MockActualService)
-	svc := NewExternalSyncService(repo, actualSrv, nil)
+	svc := NewExternalSyncService(repo, actualSrv, nil, 0)
 
 	repo.On("DeleteHMWByYearMonth", mock.Anything, 2026, mock.AnythingOfType("int")).Return(nil)
 	repo.On("FetchHMWInBatches", mock.Anything, 2026, mock.AnythingOfType("int"), 5000,
@@ -221,7 +221,7 @@ func TestSyncFromDW_DefaultsToCurrentMonthWhenEmpty(t *testing.T) {
 func TestSyncFromDW_RefreshInventoryNonFatal(t *testing.T) {
 	repo := new(MockExternalSyncRepository)
 	actualSrv := new(MockActualService)
-	svc := NewExternalSyncService(repo, actualSrv, nil)
+	svc := NewExternalSyncService(repo, actualSrv, nil, 0)
 
 	expectMonthSuccess(repo, 2026, 4)
 	actualSrv.On("SyncActuals", mock.Anything, "2026", []string{"APR"}).Return(nil)

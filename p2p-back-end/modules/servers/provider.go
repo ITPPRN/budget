@@ -105,7 +105,7 @@ func initSharedDeps(s *server) *SharedDeps {
 	var externalSyncService models.ExternalSyncService
 	if s.Db2 != nil {
 		extSyncRepo := _extSyncRe.NewExternalSyncRepository(s.Db, s.Db2)
-		externalSyncService = _extSyncSer.NewExternalSyncService(extSyncRepo, actualService, syncTrackingRepo)
+		externalSyncService = _extSyncSer.NewExternalSyncService(extSyncRepo, actualService, syncTrackingRepo, s.Cfg.Sync.DWPerMonthTimeoutMinutes)
 	}
 
 	// --- Consumer Module ---

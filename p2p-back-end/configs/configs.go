@@ -38,6 +38,9 @@ const (
 	Postgres2Database CfgKey = "DB2_NAME"
 	Postgres2Schema   CfgKey = "DB2_SCHEMA"
 	Postgres2SslMode  CfgKey = "DB2_SSLMODE"
+
+	// Sync tunables (DW pull)
+	DwPerMonthTimeoutMinutes CfgKey = "DW_PER_MONTH_TIMEOUT_MINUTES"
 )
 
 type Config struct {
@@ -47,6 +50,15 @@ type Config struct {
 	Redis     Redis
 	KeyCloak  KeyCloak
 	RabbitMQ  RabbitMQ
+	Sync      Sync
+}
+
+// Sync holds runtime tunables for the DW + actual-fact sync pipeline.
+type Sync struct {
+	// DWPerMonthTimeoutMinutes — hard wall-clock cap for one (year, month) DW pull.
+	// Heavy months (~14M rows) sometimes overrun the previous 30-min default.
+	// Defaults to 90 if unset/invalid.
+	DWPerMonthTimeoutMinutes int
 }
 
 type Fiber struct {

@@ -5,7 +5,6 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
-	"os"
 	"p2p-back-end/logs"
 	"p2p-back-end/modules/entities/models"
 	_extSyncRepo "p2p-back-end/modules/external_sync/repository"
@@ -16,20 +15,31 @@ import (
 )
 
 type externalSyncService struct {
-	repo         models.ExternalSyncRepository
-	actualSrv    models.ActualService
-	trackingRepo _extSyncRepo.SyncTrackingRepository
+	repo              models.ExternalSyncRepository
+	actualSrv         models.ActualService
+	trackingRepo      _extSyncRepo.SyncTrackingRepository
+	perMonthTimeout   time.Duration
 }
 
+const defaultDWPerMonthTimeout = 90 * time.Minute
+
+// NewExternalSyncService — perMonthTimeoutMinutes < 1 falls back to the
+// 90-minute default; pass cfg.Sync.DWPerMonthTimeoutMinutes from configs.
 func NewExternalSyncService(
 	repo models.ExternalSyncRepository,
 	actualSrv models.ActualService,
 	trackingRepo _extSyncRepo.SyncTrackingRepository,
+	perMonthTimeoutMinutes int,
 ) models.ExternalSyncService {
+	timeout := defaultDWPerMonthTimeout
+	if perMonthTimeoutMinutes > 0 {
+		timeout = time.Duration(perMonthTimeoutMinutes) * time.Minute
+	}
 	return &externalSyncService{
-		repo:         repo,
-		actualSrv:    actualSrv,
-		trackingRepo: trackingRepo,
+		repo:            repo,
+		actualSrv:       actualSrv,
+		trackingRepo:    trackingRepo,
+		perMonthTimeout: timeout,
 	}
 }
 
@@ -38,18 +48,6 @@ var monthCodeToInt = map[string]int{
 	"JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
 	"JUL": 7, "AUG": 8, "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12,
 }
-
-// dwPerMonthTimeout: how long any single (year, month) DW pull may run before
-// being cancelled. Heavy months (~14M rows × 5000-row batches) can exceed 30 min;
-// 90 min is a safer default and tunable via DW_PER_MONTH_TIMEOUT_MINUTES.
-var dwPerMonthTimeout = func() time.Duration {
-	if v := os.Getenv("DW_PER_MONTH_TIMEOUT_MINUTES"); v != "" {
-		if mins, err := strconv.Atoi(v); err == nil && mins > 0 {
-			return time.Duration(mins) * time.Minute
-		}
-	}
-	return 90 * time.Minute
-}()
 
 // transientDBError reports whether err is the kind of DB-side blip that's
 // recoverable by retrying the same statement on a fresh connection: TCP resets,
@@ -138,7 +136,7 @@ func (s *externalSyncService) SyncFromDW(ctx context.Context, year string, month
 	for _, month := range monthInts {
 		// Per-month deadline: prevents a hung DW connection from blocking forever.
 		// 30 min is generous for ~14M rows in a single month at our batch sizes.
-		monthCtx, cancel := context.WithTimeout(ctx, dwPerMonthTimeout)
+		monthCtx, cancel := context.WithTimeout(ctx, s.perMonthTimeout)
 		if err := s.syncOneMonth(monthCtx, yearInt, month, batchSize); err != nil {
 			cancel()
 			logs.Errorf("DW Sync %d-%02d: %v", yearInt, month, err)
