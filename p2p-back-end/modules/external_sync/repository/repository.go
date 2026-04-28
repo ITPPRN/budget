@@ -114,16 +114,27 @@ func (r *externalSyncRepository) FetchHMWInBatches(ctx context.Context, year int
 		if len(batch) == 0 {
 			return nil
 		}
+
+		// CRITICAL: capture the DW source id BEFORE handing the batch to the
+		// handler. UpsertHMWLocal resets each row's ID to 0 (so the local DB can
+		// assign its own autoIncrement) and GORM writes those new local IDs back
+		// into the slice. If we read batch[last].ID *after* handle(), we'd get
+		// the local id (small, sequential) instead of the DW source id, and the
+		// next "WHERE id > lastID" query against DW would loop on the same rows
+		// for thousands of iterations before the local id ever catches up to the
+		// DW id space — fetching the same rows tens of millions of times.
+		nextCursor := batch[len(batch)-1].ID
+
 		if err := handle(batch); err != nil {
 			return err
 		}
 		totalFetched += len(batch)
 		if time.Since(lastHeartbeat) >= batchHeartbeatEvery {
 			logs.Infof("[DW Sync][Heartbeat] HMW %d-%02d: %d rows fetched (cursor=%d)",
-				year, month, totalFetched, batch[len(batch)-1].ID)
+				year, month, totalFetched, nextCursor)
 			lastHeartbeat = time.Now()
 		}
-		lastID = batch[len(batch)-1].ID
+		lastID = nextCursor
 		if len(batch) < batchSize {
 			return nil
 		}
@@ -173,16 +184,20 @@ func (r *externalSyncRepository) FetchCLIKInBatches(ctx context.Context, year in
 		if len(batch) == 0 {
 			return nil
 		}
+
+		// See FetchHMWInBatches for why we capture the cursor BEFORE handle().
+		nextCursor := batch[len(batch)-1].ID
+
 		if err := handle(batch); err != nil {
 			return err
 		}
 		totalFetched += len(batch)
 		if time.Since(lastHeartbeat) >= batchHeartbeatEvery {
 			logs.Infof("[DW Sync][Heartbeat] CLIK %d-%02d: %d rows fetched (cursor=%d)",
-				year, month, totalFetched, batch[len(batch)-1].ID)
+				year, month, totalFetched, nextCursor)
 			lastHeartbeat = time.Now()
 		}
-		lastID = batch[len(batch)-1].ID
+		lastID = nextCursor
 		if len(batch) < batchSize {
 			return nil
 		}
