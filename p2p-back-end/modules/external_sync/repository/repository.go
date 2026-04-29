@@ -24,11 +24,29 @@ const batchFetchTimeout = 90 * time.Second
 // spam the log file.
 const batchHeartbeatEvery = 30 * time.Second
 
+// bkkLocation is the business timezone the DW server uses (matches the
+// TimeZone=Asia/Bangkok we set in the DSN). monthRange must build its bounds
+// in this zone, NOT UTC, otherwise the WHERE filter is shifted by 7 hours and
+// the sync silently drops the first 7 hours of every month while picking up
+// the first 7 hours of the next month — observable as a ~1-4% row-count diff
+// vs. a manual count run in a Bangkok psql session.
+var bkkLocation = func() *time.Location {
+	loc, err := time.LoadLocation("Asia/Bangkok")
+	if err != nil {
+		// Fallback: fixed +07:00 offset. Bangkok has no DST so this is correct
+		// year-round even without the tzdata files in the container.
+		return time.FixedZone("Asia/Bangkok", 7*60*60)
+	}
+	return loc
+}()
+
 // monthRange returns [start, end) covering the given (year, month) — used to
 // avoid EXTRACT(YEAR/MONTH FROM CAST(...)) which prevents index usage on
 // Posting_Date. Date-range comparison is sargable and uses the index.
+// Bounds are anchored in Asia/Bangkok so they match the semantics of a
+// "month" as seen by users running ad-hoc psql counts.
 func monthRange(year, month int) (time.Time, time.Time) {
-	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
+	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, bkkLocation)
 	return start, start.AddDate(0, 1, 0)
 }
 
