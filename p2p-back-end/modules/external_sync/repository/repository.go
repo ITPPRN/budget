@@ -257,12 +257,19 @@ func (r *externalSyncRepository) UpsertHMWLocal(ctx context.Context, data []mode
 	for i := range data {
 		data[i].ID = 0
 	}
-	err := r.localDb.WithContext(ctx).
+	tx := r.localDb.WithContext(ctx).
 		Table("achhmw_gle_api").
 		Clauses(clause.OnConflict{DoNothing: true}).
-		CreateInBatches(data, 2000).Error
-	if err != nil {
-		return fmt.Errorf("extSyncRepo.UpsertHMWLocal: %w", err)
+		CreateInBatches(data, 2000)
+	if tx.Error != nil {
+		return fmt.Errorf("extSyncRepo.UpsertHMWLocal: %w", tx.Error)
+	}
+	if tx.RowsAffected != int64(len(data)) {
+		// PG's ON CONFLICT DO NOTHING silently skipped some rows. With only PK
+		// on id (auto-generated), this should be impossible — log so we can see
+		// which batch + how many rows the DB rejected.
+		logs.Warnf("[DW Sync] UpsertHMWLocal: sent=%d affected=%d (dropped=%d)",
+			len(data), tx.RowsAffected, int64(len(data))-tx.RowsAffected)
 	}
 	return nil
 }
@@ -276,12 +283,16 @@ func (r *externalSyncRepository) UpsertCLIKLocal(ctx context.Context, data []mod
 		data[i].ID = 0
 		data[i].Company = "CLIK"
 	}
-	err := r.localDb.WithContext(ctx).
+	tx := r.localDb.WithContext(ctx).
 		Table("general_ledger_entries_clik").
 		Clauses(clause.OnConflict{DoNothing: true}).
-		CreateInBatches(data, 2000).Error
-	if err != nil {
-		return fmt.Errorf("extSyncRepo.UpsertCLIKLocal: %w", err)
+		CreateInBatches(data, 2000)
+	if tx.Error != nil {
+		return fmt.Errorf("extSyncRepo.UpsertCLIKLocal: %w", tx.Error)
+	}
+	if tx.RowsAffected != int64(len(data)) {
+		logs.Warnf("[DW Sync] UpsertCLIKLocal: sent=%d affected=%d (dropped=%d)",
+			len(data), tx.RowsAffected, int64(len(data))-tx.RowsAffected)
 	}
 	return nil
 }
