@@ -262,9 +262,10 @@ func (r *externalSyncRepository) UpsertHMWLocal(ctx context.Context, data []mode
 		Clauses(clause.OnConflict{DoNothing: true}).
 		CreateInBatches(data, 2000)
 	// Always log every Upsert so we can verify (a) the code is actually deployed
-	// and (b) whether GORM's RowsAffected matches the input — both are needed to
-	// localize where the 7-8% row-count diff is coming from.
-	logs.Infof("[DW Sync][Upsert HMW] sent=%d affected=%d err=%v",
+	// and (b) whether GORM's RowsAffected matches the input. fmt.Printf is used
+	// here instead of logs.Infof so unit tests that don't initialize the global
+	// zap logger (e.g., repository_test.go) don't NPE.
+	fmt.Printf("[DW Sync][Upsert HMW] sent=%d affected=%d err=%v\n",
 		len(data), tx.RowsAffected, tx.Error)
 	if tx.Error != nil {
 		return fmt.Errorf("extSyncRepo.UpsertHMWLocal: %w", tx.Error)
@@ -285,7 +286,7 @@ func (r *externalSyncRepository) UpsertCLIKLocal(ctx context.Context, data []mod
 		Table("general_ledger_entries_clik").
 		Clauses(clause.OnConflict{DoNothing: true}).
 		CreateInBatches(data, 2000)
-	logs.Infof("[DW Sync][Upsert CLIK] sent=%d affected=%d err=%v",
+	fmt.Printf("[DW Sync][Upsert CLIK] sent=%d affected=%d err=%v\n",
 		len(data), tx.RowsAffected, tx.Error)
 	if tx.Error != nil {
 		return fmt.Errorf("extSyncRepo.UpsertCLIKLocal: %w", tx.Error)
