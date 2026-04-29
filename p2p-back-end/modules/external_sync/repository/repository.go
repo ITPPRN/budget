@@ -24,30 +24,31 @@ const batchFetchTimeout = 90 * time.Second
 // spam the log file.
 const batchHeartbeatEvery = 30 * time.Second
 
-// bkkLocation is the business timezone the DW server uses (matches the
-// TimeZone=Asia/Bangkok we set in the DSN). monthRange must build its bounds
-// in this zone, NOT UTC, otherwise the WHERE filter is shifted by 7 hours and
-// the sync silently drops the first 7 hours of every month while picking up
-// the first 7 hours of the next month — observable as a ~1-4% row-count diff
-// vs. a manual count run in a Bangkok psql session.
-var bkkLocation = func() *time.Location {
-	loc, err := time.LoadLocation("Asia/Bangkok")
-	if err != nil {
-		// Fallback: fixed +07:00 offset. Bangkok has no DST so this is correct
-		// year-round even without the tzdata files in the container.
-		return time.FixedZone("Asia/Bangkok", 7*60*60)
+// monthRange returns [start, end) string bounds covering the given (year,
+// month) in 'YYYY-MM-DD' form — NOT time.Time.
+//
+// Why string: DW's Posting_Date column is varchar storing dates as
+// 'YYYY-MM-DD' (10 chars). Passing a Go time.Time gets serialized by pgx as
+// 'YYYY-MM-DD HH:MM:SS.UUUUUU+TZ' (~25 chars). Postgres then compares the
+// two as text lexicographically. With shared 'YYYY-MM-DD' prefix and the
+// stored value being shorter, '2026-01-01' < '2026-01-01 00:00:00+07' →
+// first-of-month rows get silently excluded by `Posting_Date >= bound`,
+// while '2026-02-01' < '2026-02-01 00:00:00+07' means first-of-NEXT-month
+// rows leak in via `Posting_Date < bound`. Net effect was a ~7% row-count
+// diff vs. a manual psql count, plus row leakage across month boundaries
+// because DELETE used the same shifted bounds.
+//
+// String bounds are date-only (10 chars) so the lexicographic comparison
+// matches the format DW actually stores, eliminating both issues.
+func monthRange(year, month int) (string, string) {
+	startStr := fmt.Sprintf("%04d-%02d-01", year, month)
+	nextYear, nextMonth := year, month+1
+	if nextMonth > 12 {
+		nextMonth = 1
+		nextYear++
 	}
-	return loc
-}()
-
-// monthRange returns [start, end) covering the given (year, month) — used to
-// avoid EXTRACT(YEAR/MONTH FROM CAST(...)) which prevents index usage on
-// Posting_Date. Date-range comparison is sargable and uses the index.
-// Bounds are anchored in Asia/Bangkok so they match the semantics of a
-// "month" as seen by users running ad-hoc psql counts.
-func monthRange(year, month int) (time.Time, time.Time) {
-	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, bkkLocation)
-	return start, start.AddDate(0, 1, 0)
+	endStr := fmt.Sprintf("%04d-%02d-01", nextYear, nextMonth)
+	return startStr, endStr
 }
 
 type externalSyncRepository struct {

@@ -9,7 +9,7 @@ function getCookie(name) {
 }
 
 const api = axios.create({
-  baseURL: '/budget-dash/v1', // ⚠️ เช็ค baseURL ให้ตรงกับที่ใช้ 
+  baseURL: '/budget-dash/v1', // ⚠️ เช็ค baseURL ให้ตรงกับที่ใช้     
   withCredentials: true, // สำคัญมาก! เพื่อส่ง Cookie (Auth & CSRF)
   xsrfCookieName: 'apisix-csrf-token', // 🚨 ให้ Axios รู้จักชื่อ Cookie
   xsrfHeaderName: 'apisix-csrf-token', // 🚨 ให้ Axios แนบไปใน Header
