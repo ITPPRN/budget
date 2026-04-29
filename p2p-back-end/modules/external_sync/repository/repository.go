@@ -261,15 +261,13 @@ func (r *externalSyncRepository) UpsertHMWLocal(ctx context.Context, data []mode
 		Table("achhmw_gle_api").
 		Clauses(clause.OnConflict{DoNothing: true}).
 		CreateInBatches(data, 2000)
+	// Always log every Upsert so we can verify (a) the code is actually deployed
+	// and (b) whether GORM's RowsAffected matches the input — both are needed to
+	// localize where the 7-8% row-count diff is coming from.
+	logs.Infof("[DW Sync][Upsert HMW] sent=%d affected=%d err=%v",
+		len(data), tx.RowsAffected, tx.Error)
 	if tx.Error != nil {
 		return fmt.Errorf("extSyncRepo.UpsertHMWLocal: %w", tx.Error)
-	}
-	if tx.RowsAffected != int64(len(data)) {
-		// PG's ON CONFLICT DO NOTHING silently skipped some rows. With only PK
-		// on id (auto-generated), this should be impossible — log so we can see
-		// which batch + how many rows the DB rejected.
-		logs.Warnf("[DW Sync] UpsertHMWLocal: sent=%d affected=%d (dropped=%d)",
-			len(data), tx.RowsAffected, int64(len(data))-tx.RowsAffected)
 	}
 	return nil
 }
@@ -287,12 +285,10 @@ func (r *externalSyncRepository) UpsertCLIKLocal(ctx context.Context, data []mod
 		Table("general_ledger_entries_clik").
 		Clauses(clause.OnConflict{DoNothing: true}).
 		CreateInBatches(data, 2000)
+	logs.Infof("[DW Sync][Upsert CLIK] sent=%d affected=%d err=%v",
+		len(data), tx.RowsAffected, tx.Error)
 	if tx.Error != nil {
 		return fmt.Errorf("extSyncRepo.UpsertCLIKLocal: %w", tx.Error)
-	}
-	if tx.RowsAffected != int64(len(data)) {
-		logs.Warnf("[DW Sync] UpsertCLIKLocal: sent=%d affected=%d (dropped=%d)",
-			len(data), tx.RowsAffected, int64(len(data))-tx.RowsAffected)
 	}
 	return nil
 }
