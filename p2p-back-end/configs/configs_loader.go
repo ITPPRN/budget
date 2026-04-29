@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 
 	infisical "github.com/infisical/go-sdk"
 
@@ -109,6 +110,16 @@ func LoadConfigs(cfg *Config) {
 	cfg.Postgres2.DatabaseName = setData(Postgres2Database)
 	cfg.Postgres2.Schema = setData(Postgres2Schema)
 	cfg.Postgres2.SslMode = setData(Postgres2SslMode)
+
+	// Sync tunables — fall back to a sensible default when key is absent or unparseable.
+	cfg.Sync.DWPerMonthTimeoutMinutes = 120
+	if raw := setData(DwPerMonthTimeoutMinutes); raw != "" {
+		if mins, err := strconv.Atoi(raw); err == nil && mins > 0 {
+			cfg.Sync.DWPerMonthTimeoutMinutes = mins
+		} else {
+			logs.Warn(fmt.Sprintf("DW_PER_MONTH_TIMEOUT_MINUTES=%q is invalid, using default %d", raw, cfg.Sync.DWPerMonthTimeoutMinutes))
+		}
+	}
 
 	printLog(cfg)
 }

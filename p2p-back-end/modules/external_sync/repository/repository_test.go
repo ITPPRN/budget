@@ -233,3 +233,84 @@ func TestFetchCLIKInBatches_DBError_ReturnsWrappedError(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "extSyncRepo.FetchCLIKInBatches")
 }
+
+// TestFetchHMWInBatches_CursorPaginationIteratesAllPages confirms the manual cursor
+// pagination introduced after FindInBatches errored out with "primary key required".
+// Each page must use `id > <last>` as the resume cursor; iteration must stop on a
+// short page (rows < batchSize).
+func TestFetchHMWInBatches_CursorPaginationIteratesAllPages(t *testing.T) {
+	localDb, _ := setupMockDB(t)
+	dwDb, mockSql := setupMockDB(t)
+	repo := &externalSyncRepository{localDb: localDb, dwDb: dwDb}
+
+	// Page 1: 2 rows (id=1, id=2). batchSize=2, so iteration continues.
+	mockSql.ExpectQuery(`SELECT .+ FROM "achhmw_gle_api"`).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), 0, 2).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "Amount"}).
+			AddRow(1, decimal.NewFromInt(100)).
+			AddRow(2, decimal.NewFromInt(200)))
+
+	// Page 2: 1 row (id=3). Short page → loop exits.
+	mockSql.ExpectQuery(`SELECT .+ FROM "achhmw_gle_api"`).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), 2, 2).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "Amount"}).
+			AddRow(3, decimal.NewFromInt(300)))
+
+	var collected []int
+	err := repo.FetchHMWInBatches(context.Background(), 2026, 1, 2, func(batch []models.AchHmwGleEntity) error {
+		for _, row := range batch {
+			collected = append(collected, row.ID)
+		}
+		return nil
+	})
+
+	assert.NoError(t, err)
+	assert.Equal(t, []int{1, 2, 3}, collected, "cursor must iterate all rows in id order")
+	assert.NoError(t, mockSql.ExpectationsWereMet(), "second page must use id>2 as cursor")
+}
+
+// TestFetchHMWInBatches_EmptyResultStopsImmediately ensures we don't loop forever
+// when the queried month has no rows (start of empty range).
+func TestFetchHMWInBatches_EmptyResultStopsImmediately(t *testing.T) {
+	localDb, _ := setupMockDB(t)
+	dwDb, mockSql := setupMockDB(t)
+	repo := &externalSyncRepository{localDb: localDb, dwDb: dwDb}
+
+	mockSql.ExpectQuery(`SELECT .+ FROM "achhmw_gle_api"`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "Amount"}))
+
+	called := 0
+	err := repo.FetchHMWInBatches(context.Background(), 2026, 1, 100, func(batch []models.AchHmwGleEntity) error {
+		called++
+		return nil
+	})
+
+	assert.NoError(t, err)
+	assert.Equal(t, 0, called, "handler must not be called for empty page")
+	assert.NoError(t, mockSql.ExpectationsWereMet())
+}
+
+// TestFetchHMWInBatches_HandlerErrorAborts confirms a returning handler error
+// terminates iteration immediately (no further DB queries).
+func TestFetchHMWInBatches_HandlerErrorAborts(t *testing.T) {
+	localDb, _ := setupMockDB(t)
+	dwDb, mockSql := setupMockDB(t)
+	repo := &externalSyncRepository{localDb: localDb, dwDb: dwDb}
+
+	mockSql.ExpectQuery(`SELECT .+ FROM "achhmw_gle_api"`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "Amount"}).
+			AddRow(1, decimal.NewFromInt(100)).
+			AddRow(2, decimal.NewFromInt(200)))
+
+	handlerErr := assert.AnError
+	err := repo.FetchHMWInBatches(context.Background(), 2026, 1, 2, func(batch []models.AchHmwGleEntity) error {
+		return handlerErr
+	})
+
+	assert.ErrorIs(t, err, handlerErr)
+	// Only 1 query must have been made — the second batch must NOT be fetched.
+	assert.NoError(t, mockSql.ExpectationsWereMet())
+}
+
+// silence unused import on driver — kept for future tests that expect typed args.
+var _ = driver.Value(nil)

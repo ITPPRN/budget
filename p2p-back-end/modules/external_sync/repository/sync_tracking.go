@@ -21,8 +21,10 @@ type SyncTrackingRepository interface {
 	GetRunsByJobAndStatus(ctx context.Context, jobType, status string, limit int) ([]models.SyncRunEntity, error)
 	GetReconciliation(ctx context.Context, year string) (*ReconciliationResult, error)
 	GetFailedRunsForRetry(ctx context.Context, within time.Duration, maxRetries int) ([]models.SyncRunEntity, error)
+	MarkRetryableFailedAsCanceled(ctx context.Context, within time.Duration, maxRetries int) (int64, error)
 	ClearStaleRunningRuns(ctx context.Context, olderThan time.Duration) (int64, error)
 	DeleteOldRunsByJobType(ctx context.Context, jobType string, olderThan time.Duration) (int64, error)
+	PurgeAllRuns(ctx context.Context) (int64, error)
 }
 
 type syncTrackingRepository struct {
@@ -255,6 +257,35 @@ func (r *syncTrackingRepository) GetFailedRunsForRetry(ctx context.Context, with
 		return nil, fmt.Errorf("syncTrackingRepo.GetFailedRunsForRetry: %w", err)
 	}
 	return runs, nil
+}
+
+// MarkRetryableFailedAsCanceled flips every FAILED run that the retry cron
+// would otherwise pick up (within the same time + retry-count window) to
+// CANCELED. Called by "Cancel All Queue" so retries do not silently re-create
+// what the admin just cleared. Returns rows affected.
+func (r *syncTrackingRepository) MarkRetryableFailedAsCanceled(ctx context.Context, within time.Duration, maxRetries int) (int64, error) {
+	cutoff := time.Now().Add(-within)
+	res := r.db.WithContext(ctx).
+		Model(&models.SyncRunEntity{}).
+		Where("status = ? AND started_at >= ? AND retry_count < ?",
+			models.SyncStatusFailed, cutoff, maxRetries).
+		Update("status", models.SyncStatusCanceled)
+	if res.Error != nil {
+		return 0, fmt.Errorf("syncTrackingRepo.MarkRetryableFailedAsCanceled: %w", res.Error)
+	}
+	return res.RowsAffected, nil
+}
+
+// PurgeAllRuns ล้าง sync_runs ทั้งตาราง ยกเว้นรายการที่กำลัง RUNNING (กัน in-flight job
+// หาย จาก audit trail) — เรียกโดย quarterly cleanup cron กัน table บวมในระยะยาว
+func (r *syncTrackingRepository) PurgeAllRuns(ctx context.Context) (int64, error) {
+	res := r.db.WithContext(ctx).
+		Where("status <> ?", models.SyncStatusRunning).
+		Delete(&models.SyncRunEntity{})
+	if res.Error != nil {
+		return 0, fmt.Errorf("syncTrackingRepo.PurgeAllRuns: %w", res.Error)
+	}
+	return res.RowsAffected, nil
 }
 
 // DeleteOldRunsByJobType — ลบ sync_runs ของ jobType ที่เก่ากว่า olderThan

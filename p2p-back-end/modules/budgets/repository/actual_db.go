@@ -573,11 +573,20 @@ func (r *actualRepository) GetRawTransactionsCLIK(ctx context.Context, year stri
 //		}
 //	}
 func (r *actualRepository) StreamRawTransactionsHMW(
-	ctx context.Context, year string, months []string,
+	ctx context.Context, year string, months []string, allowedGLs []string,
 	batchSize int, handler func([]models.ActualTransactionDTO) error,
 ) error {
 	if batchSize <= 0 {
 		batchSize = 2000
+	}
+
+	// Pre-filter at SQL level: skip rows whose G_L_Account_No is not in any active
+	// GL Grouping mapping. This is a SUPERSET of the in-memory filter applied by
+	// SyncActuals (it ignores entity match), so the final result is identical —
+	// SyncActuals still drops any row that doesn't match (entity, entity_gl).
+	// Returning early when the snapshot is empty avoids "IN ()" syntax error.
+	if allowedGLs != nil && len(allowedGLs) == 0 {
+		return nil
 	}
 
 	lastID := int64(0)
@@ -608,6 +617,9 @@ func (r *actualRepository) StreamRawTransactionsHMW(
 
 		if len(months) > 0 {
 			query = query.Where("UPPER(TO_CHAR(\"Posting_Date\"::DATE, 'MON')) IN ?", months)
+		}
+		if len(allowedGLs) > 0 {
+			query = query.Where(`"G_L_Account_No" IN ?`, allowedGLs)
 		}
 
 		if err := query.Scan(&batch).Error; err != nil {
@@ -718,11 +730,16 @@ func (r *actualRepository) StreamRawTransactionsHMW(
 //		}
 //	}
 func (r *actualRepository) StreamRawTransactionsCLIK(
-	ctx context.Context, year string, months []string,
+	ctx context.Context, year string, months []string, allowedGLs []string,
 	batchSize int, handler func([]models.ActualTransactionDTO) error,
 ) error {
 	if batchSize <= 0 {
 		batchSize = 2000
+	}
+
+	// See StreamRawTransactionsHMW for filter semantics.
+	if allowedGLs != nil && len(allowedGLs) == 0 {
+		return nil
 	}
 
 	lastID := int64(0)
@@ -753,6 +770,9 @@ func (r *actualRepository) StreamRawTransactionsCLIK(
 
 		if len(months) > 0 {
 			query = query.Where("UPPER(TO_CHAR(\"Posting_Date\"::DATE, 'MON')) IN ?", months)
+		}
+		if len(allowedGLs) > 0 {
+			query = query.Where(`"G_L_Account_No" IN ?`, allowedGLs)
 		}
 
 		if err := query.Scan(&batch).Error; err != nil {

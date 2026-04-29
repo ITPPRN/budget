@@ -43,6 +43,7 @@ func NewSyncAdminController(
 	r.Post("/sync/trigger", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(c.triggerSync, models.RoleAdmin)))
 	r.Get("/sync/queue", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(c.getQueue, models.RoleAdmin)))
 	r.Post("/sync/queue/cancel/:id", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(c.cancelQueueItem, models.RoleAdmin)))
+	r.Post("/sync/queue/cancel-all", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(c.cancelAllQueue, models.RoleAdmin)))
 	r.Post("/sync/queue/promote/:id", middlewares.JwtAuthentication(authSrv, middlewares.RolesGuard(c.promoteQueueItem, models.RoleAdmin)))
 }
 
@@ -303,6 +304,34 @@ func (c *SyncAdminController) cancelQueueItem(ctx *fiber.Ctx, user *models.UserI
 	}
 	logs.Infof("Sync queue: %s cancelled job %s", "ADMIN:"+user.ID, idStr)
 	return ctx.JSON(fiber.Map{"cancelled": true, "id": idStr})
+}
+
+// cancelAllQueue clears every pending job in the queue AND marks any FAILED
+// runs that the retry cron would otherwise pick up as CANCELED. Together this
+// guarantees nothing the admin just cleared comes back automatically. The
+// currently RUNNING job is not interrupted (worker is mid-execution).
+func (c *SyncAdminController) cancelAllQueue(ctx *fiber.Ctx, user *models.UserInfo) error {
+	cancelled, err := c.queue.CancelAll(ctx.UserContext())
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	var disabledRetries int64
+	if c.trackingRepo != nil {
+		// Match retry cron's window/limits so we exactly cover what it would re-pick.
+		disabledRetries, err = c.trackingRepo.MarkRetryableFailedAsCanceled(ctx.UserContext(), 24*time.Hour, 3)
+		if err != nil {
+			// Log but continue — queue is cleared which is the primary intent.
+			logs.Errorf("cancel-all: failed to mark retryable runs as CANCELED: %v", err)
+		}
+	}
+
+	logs.Infof("Sync queue: %s cancelled all (queue=%d, disabled_retries=%d)",
+		"ADMIN:"+user.ID, cancelled, disabledRetries)
+	return ctx.JSON(fiber.Map{
+		"cancelled_queue":  cancelled,
+		"disabled_retries": disabledRetries,
+	})
 }
 
 func (c *SyncAdminController) promoteQueueItem(ctx *fiber.Ctx, user *models.UserInfo) error {

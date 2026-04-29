@@ -199,8 +199,8 @@ type ActualRepository interface {
 	GetAllAchHmwGle(ctx context.Context) ([]AchHmwGleEntity, error)
 	GetAggregatedHMW(ctx context.Context, year string, months []string) ([]ActualAggregatedDTO, error)
 	GetRawTransactionsHMW(ctx context.Context, year string, months []string) ([]ActualTransactionDTO, error)
-	StreamRawTransactionsHMW(ctx context.Context, year string, months []string, batchSize int, handler func([]ActualTransactionDTO) error) error
-	StreamRawTransactionsCLIK(ctx context.Context, year string, months []string, batchSize int, handler func([]ActualTransactionDTO) error) error
+	StreamRawTransactionsHMW(ctx context.Context, year string, months []string, allowedGLs []string, batchSize int, handler func([]ActualTransactionDTO) error) error
+	StreamRawTransactionsCLIK(ctx context.Context, year string, months []string, allowedGLs []string, batchSize int, handler func([]ActualTransactionDTO) error) error
 	GetAllClikGle(ctx context.Context) ([]ClikGleEntity, error)
 	GetAggregatedCLIK(ctx context.Context, year string, months []string) ([]ActualAggregatedDTO, error)
 	GetRawTransactionsCLIK(ctx context.Context, year string, months []string) ([]ActualTransactionDTO, error)
@@ -221,6 +221,7 @@ type ActualService interface {
 
 // 6. External Sync Domain (NAV/DW)
 type ExternalSyncRepository interface {
+	PingDW(ctx context.Context) error
 	FetchHMWInBatches(ctx context.Context, year int, month int, batchSize int, handle func([]AchHmwGleEntity) error) error
 	FetchCLIKInBatches(ctx context.Context, year int, month int, batchSize int, handle func([]ClikGleEntity) error) error
 	DeleteHMWByYearMonth(ctx context.Context, year int, month int) error
@@ -230,7 +231,10 @@ type ExternalSyncRepository interface {
 }
 
 type ExternalSyncService interface {
-	SyncFromDW(ctx context.Context) error
+	// SyncFromDW pulls raw HMW + CLIK data for the given (year, months) — months
+	// are 3-letter codes (JAN..DEC). If months is empty/nil, it syncs the current month
+	// only as a safe default. Each call is a single DW pull job.
+	SyncFromDW(ctx context.Context, year string, months []string) error
 }
 
 // 4. Master Data Domain
